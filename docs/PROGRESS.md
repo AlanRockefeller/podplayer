@@ -54,6 +54,9 @@ a reviewer reads it to see what was really done.
   - `:core:model`: InvariantsTest (4).
   - Also checked by hand: a `WebView` import added to `:app` fails `./gradlew check`, and a corrupted checksum in
     the verification metadata fails the build. Both were reverted.
+  - The first CI run failed: verification metadata generated with a warm local cache missed two POMs/BOMs on the
+    `build-logic` plugin classpath. I regenerated it from an empty `GRADLE_USER_HOME` and confirmed with a second
+    clean-cache build. The README now says to always regenerate that way.
 - Deviations from the spec, and why:
   - Light `textQuiet` is #5C6E80, not #617385. The spec value is 4.26:1 on surfaceElevated, below WCAG AA; the spec
     allows adjusting. All other tokens are as specified.

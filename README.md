@@ -60,8 +60,12 @@ Gradle checks the SHA-256 of every dependency and plugin against `gradle/verific
 After adding or bumping a dependency (only from the allowlist in `docs/SPEC.md` §2), regenerate it:
 
 ```sh
-./gradlew --write-verification-metadata sha256 check assembleDebug assembleRelease
+GRADLE_USER_HOME="$(mktemp -d)" ./gradlew --no-configuration-cache \
+    --write-verification-metadata sha256 check assembleDebug assembleRelease
 ```
+
+Use an empty `GRADLE_USER_HOME` as shown. With a warm local cache, Gradle skips some plugin and
+BOM resolutions and leaves them out of the file, and CI, which starts with no cache, then fails.
 
 Then review the diff before committing. New entries should only be the libraries you meant to add
 and their transitive dependencies. If an existing checksum changes for the same version, stop:

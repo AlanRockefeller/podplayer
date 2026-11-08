@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+-->
+<resources>
+    <!--
+      The system starting window is drawn from these before any Kotlin runs.
+      They must equal the background tokens in ui/theme/Tokens.kt (ColorTokensTest checks).
+    -->
+    <color name="window_background_dark">#0D1117</color>
+    <color name="window_background_light">#F7F9FC</color>
+
+    <color name="ic_launcher_background">#0D1117</color>
+    <color name="ic_launcher_foreground">#73B8FF</color>
+</resources>

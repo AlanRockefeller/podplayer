@@ -4,3 +4,13 @@
 !.claude/
 # Personal Claude Code overrides stay local.
 .claude/settings.local.json
+
+# Gradle and Android build output
+build/
+.gradle/
+.kotlin/
+local.properties
+
+# IDE
+.idea/
+*.iml

@@ -34,6 +34,13 @@ class RedirectChain(val start: HttpUrl, val hops: List<RedirectHop>) {
     val permanentUrl: HttpUrl?
         get() = hops.takeWhile { it.permanent }.lastOrNull()?.to
 
+    /**
+     * True when a hop left https for http. The gate allows it (SPEC §3 allows cleartext), but a feed that
+     * does this is no more secure than a plain http one, and the UI marks it so.
+     */
+    val downgraded: Boolean
+        get() = hops.any { it.from.isHttps && !it.to.isHttps }
+
     override fun toString() = "RedirectChain(${redact(start)}, $hops)"
 }
 

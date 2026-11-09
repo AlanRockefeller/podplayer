@@ -282,18 +282,35 @@ object ShowNotes {
 
             fun Char.isHtmlSpace() = this == ' ' || this == '\t' || this == '\n' || this == '\r' || this == '\u000C'
 
-            /** Drops trailing punctuation that ends a sentence, and a closing bracket the URL didn't open. */
+            /**
+             * Drops trailing punctuation that ends a sentence, and a closing bracket the URL didn't open.
+             * Bracket counts are kept as running totals: a URL followed by a long run of brackets (hostile
+             * notes can't be more than the input limit, but that is a million characters) trims in linear time.
+             */
             fun trimUrl(url: String): String {
+                var roundOpen = 0
+                var roundClose = 0
+                var squareOpen = 0
+                var squareClose = 0
+                for (c in url) {
+                    when (c) {
+                        '(' -> roundOpen++
+                        ')' -> roundClose++
+                        '[' -> squareOpen++
+                        ']' -> squareClose++
+                    }
+                }
                 var end = url.length
                 while (end > 0) {
                     val c = url[end - 1]
                     val trim = when (c) {
                         '.', ',', ';', ':', '!', '?', '’', '”' -> true
-                        ')' -> url.substring(0, end).count { it == '(' } < url.substring(0, end).count { it == ')' }
-                        ']' -> url.substring(0, end).count { it == '[' } < url.substring(0, end).count { it == ']' }
+                        ')' -> roundOpen < roundClose
+                        ']' -> squareOpen < squareClose
                         else -> false
                     }
                     if (!trim) break
+                    if (c == ')') roundClose-- else if (c == ']') squareClose--
                     end--
                 }
                 return url.substring(0, end)

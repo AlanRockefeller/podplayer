@@ -11,9 +11,13 @@ import java.net.Proxy
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.NonCancellable
-import kotlinx.coroutines.withContext
+import kotlin.coroutines.resumeWithException
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.suspendCancellableCoroutine
 import okhttp3.Call
 import okhttp3.Callback
 import okhttp3.ConnectionPool
@@ -58,8 +62,18 @@ sealed interface FetchResult {
  *
  * Clients for different policies share one connection pool and dispatcher; pooled connections are only
  * shared between equal policies because OkHttp compares the Dns.
+ *
+ * OkHttp's dispatcher runs at most five calls per host and 64 in all. A call counts as running until its
+ * callback returns, so [fetch] and the download engine take only the response headers from the callback and
+ * read the body on [transferDispatcher]: an hours-long download holds no dispatcher slot, and never queues a
+ * feed or artwork fetch to the same (tracker) host behind it.
  */
-class NetGate(private val config: NetConfig, private val resolver: Dns = Dns.SYSTEM) {
+class NetGate(
+    private val config: NetConfig,
+    private val resolver: Dns = Dns.SYSTEM,
+    /** Where response bodies are read; blocking I/O, one thread per body in flight. */
+    internal val transferDispatcher: CoroutineDispatcher = Dispatchers.IO,
+) {
     private val base: OkHttpClient = OkHttpClient.Builder()
         .connectTimeout(config.connectTimeout.inWholeMilliseconds, TimeUnit.MILLISECONDS)
         .readTimeout(config.readTimeout.inWholeMilliseconds, TimeUnit.MILLISECONDS)
@@ -112,7 +126,7 @@ class NetGate(private val config: NetConfig, private val resolver: Dns = Dns.SYS
         val call = client(policy).newCall(request)
         call.timeout().timeout(limit.maxDuration.inWholeMilliseconds, TimeUnit.MILLISECONDS)
         return try {
-            call.awaitResponse { response -> readFetchResult(response, limit) }
+            call.awaitResponse(transferDispatcher) { response -> readFetchResult(response, limit) }
         } catch (e: IOException) {
             FetchResult.Failure(NetError.from(e))
         }
@@ -154,32 +168,47 @@ internal fun ResponseBody.readLimited(maxBytes: Long): ByteArray {
 private const val READ_CHUNK = 8L * 1024
 
 /**
- * Runs the call on OkHttp's dispatcher and hands the open response to [block] there; the response is
- * closed afterwards. On coroutine cancellation the call is cancelled, and this waits until [block] has
- * returned, so nothing touches the caller's files or buffers after the caller has moved on.
+ * Runs the call on OkHttp's dispatcher until the response headers are in, then hands the open response to
+ * [block] on [dispatcher] (blocking reads) and closes it afterwards. The dispatcher slot is given back as
+ * soon as the headers arrive, so a long body never queues other calls to its host (see [NetGate]).
+ *
+ * On coroutine cancellation the call is cancelled, which ends any read in progress, and this returns only
+ * after [block] has, so nothing touches the caller's files or buffers after the caller has moved on.
  */
-internal suspend fun <T> Call.awaitResponse(block: (Response) -> T): T {
-    val done = CompletableDeferred<T>()
+internal suspend fun <T> Call.awaitResponse(dispatcher: CoroutineDispatcher, block: (Response) -> T): T {
+    val response = awaitHeaders()
+    return coroutineScope {
+        val reading = async(dispatcher) {
+            try {
+                response.use(block)
+            } catch (e: IOException) {
+                // A read that failed because this coroutine was cancelled is a cancellation, not a network error.
+                ensureActive()
+                throw e
+            }
+        }
+        try {
+            reading.await()
+        } catch (cancelled: CancellationException) {
+            cancel()
+            throw cancelled
+        }
+    }
+}
+
+/** Enqueues the call and suspends until its headers arrive. Cancelling the coroutine cancels the call. */
+private suspend fun Call.awaitHeaders(): Response = suspendCancellableCoroutine { continuation ->
     enqueue(
         object : Callback {
             override fun onFailure(call: Call, e: IOException) {
-                done.completeExceptionally(e)
+                continuation.resumeWithException(e)
             }
 
             override fun onResponse(call: Call, response: Response) {
-                try {
-                    done.complete(response.use(block))
-                } catch (t: Throwable) {
-                    done.completeExceptionally(t)
-                }
+                // If the coroutine was cancelled meanwhile, nobody will read this body: close it.
+                continuation.resume(response) { _, _, _ -> response.close() }
             }
         },
     )
-    try {
-        return done.await()
-    } catch (cancelled: CancellationException) {
-        cancel()
-        withContext(NonCancellable) { runCatching { done.await() } }
-        throw cancelled
-    }
+    continuation.invokeOnCancellation { cancel() }
 }

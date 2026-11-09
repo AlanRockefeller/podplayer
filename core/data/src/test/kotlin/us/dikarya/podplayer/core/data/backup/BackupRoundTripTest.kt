@@ -106,13 +106,18 @@ class BackupRoundTripTest {
         val first = layers.open()
         val repos = first.awaitRepositories()!!
         val feedId = (repos.feeds.subscribe(FEED_URL, false) as SubscribeResult.Subscribed).feedId
-        repos.feeds.applyRefresh(feedId, parsedFeed((1..3).map { episode(it) }))
+        repos.feeds.applyRefresh(feedId, parsedFeed((1..4).map { episode(it) }))
         val ids = repos.episodes.forFeed(feedId).first().map { it.id }
         val db = (first.state.value as DataState.Ready).database
-        // One real download, one whose file is missing, one whose stored path escapes the media folder.
+        // One real download; one whose file is missing; one whose stored path escapes the media folder; one whose
+        // finished file isn't the size the record says (another phone's download under the same id); and a file
+        // that no record owns at all.
         val kept = layers.files.mediaDir.resolve("$feedId/${ids[0]}.mp3").apply { parentFile!!.mkdirs(); writeText("audio") }
+        val wrongSize = layers.files.mediaDir.resolve("$feedId/${ids[3]}.mp3").apply { writeText("a different download") }
+        val orphan = layers.files.mediaDir.resolve("$feedId/999.mp3").apply { writeText("nobody's") }
         db.mediaFiles().upsert(MediaFileEntity(ids[0], "media/$feedId/${ids[0]}.mp3", DownloadState.Complete, 5, 5, updatedAt = 1))
         db.mediaFiles().upsert(MediaFileEntity(ids[1], "media/$feedId/${ids[1]}.mp3", DownloadState.Complete, 5, 5, updatedAt = 1))
+        db.mediaFiles().upsert(MediaFileEntity(ids[3], "media/$feedId/${ids[3]}.mp3", DownloadState.Complete, 5, 5, updatedAt = 1))
         db.openHelper.writableDatabase.execSQL(
             "INSERT INTO media_files (episodeId, relativePath, state, bytesDownloaded, updatedAt) VALUES (?, ?, 'Complete', 1, 1)",
             arrayOf<Any>(ids[2], "media/../databases/podplayer.db"),
@@ -127,6 +132,8 @@ class BackupRoundTripTest {
         val rows = (second.state.value as DataState.Ready).database.mediaFiles().all()
         assertEquals(listOf(ids[0]), rows.map { it.episodeId })
         assertTrue(kept.exists())
+        assertFalse("a finished download of the wrong size is not this record's file", wrongSize.exists())
+        assertFalse("a file no record owns would take space outside the storage cap", orphan.exists())
         second.close()
     }
 

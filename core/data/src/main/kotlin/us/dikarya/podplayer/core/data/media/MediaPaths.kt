@@ -8,6 +8,9 @@ package us.dikarya.podplayer.core.data.media
 
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.util.stream.Collectors
 
 /**
  * Relative media paths (SPEC §7, LESSONS "Storage").
@@ -41,6 +44,26 @@ class MediaPaths(private val filesDir: () -> File) {
             null
         } catch (_: SecurityException) {
             null
+        }
+    }
+
+    /**
+     * Every regular file under the media folder (symbolic links are not followed), for reconciling the download
+     * records with the disk after a restore. Touches the disk.
+     */
+    fun mediaFiles(): List<File> {
+        val root = File(filesDir(), MEDIA_DIR)
+        if (!root.isDirectory) return emptyList()
+        return try {
+            Files.walk(root.toPath()).use { stream ->
+                stream.filter { Files.isRegularFile(it, LinkOption.NOFOLLOW_LINKS) }
+                    .map { it.toFile() }
+                    .collect(Collectors.toList())
+            }
+        } catch (_: IOException) {
+            emptyList()
+        } catch (_: SecurityException) {
+            emptyList()
         }
     }
 

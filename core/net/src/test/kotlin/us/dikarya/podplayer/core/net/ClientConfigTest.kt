@@ -7,8 +7,17 @@
 package us.dikarya.podplayer.core.net
 
 import java.net.Proxy
+import java.util.concurrent.TimeUnit
+import kotlin.time.Duration.Companion.seconds
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import mockwebserver3.Dispatcher
+import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.RecordedRequest
 import okhttp3.CookieJar
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -18,6 +27,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
 
@@ -97,5 +107,34 @@ class ClientConfigTest {
         assertEquals(15_000, config.connectTimeout.inWholeMilliseconds)
         assertEquals(30_000, config.readTimeout.inWholeMilliseconds)
         assertEquals(5, config.maxRedirects)
+    }
+
+    @Test
+    fun slowBodiesDoNotHoldUpOtherRequestsToTheSameHost() = runBlocking {
+        // OkHttp runs at most five calls per host at once and counts a call as running until its callback
+        // returns. Bodies are read outside the callback, so six slow downloads from one tracker host can't
+        // queue a feed or artwork fetch to that host behind them.
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse =
+                if (request.url.encodedPath == "/slow") {
+                    okBytes(testBytes(20 * 1024)) { throttleBody(1024, 500, TimeUnit.MILLISECONDS) }
+                } else {
+                    ok("quick")
+                }
+        }
+        val slow = List(6) {
+            async(Dispatchers.Default) { gate.fetch(server.urlOn(FEED_HOST, "/slow"), BodyLimit.FEED, approvedFeedHost) }
+        }
+        try {
+            val deadline = System.nanoTime() + 5_000_000_000L
+            while (server.requestCount < 6) {
+                if (System.nanoTime() > deadline) fail("only ${server.requestCount} of 6 slow requests reached the server")
+                delay(10)
+            }
+            val quick = withTimeout(3.seconds) { gate.fetch(server.urlOn(FEED_HOST, "/quick"), BodyLimit.FEED, approvedFeedHost) }
+            assertTrue("$quick", quick is FetchResult.Success)
+        } finally {
+            slow.forEach { it.cancel() }
+        }
     }
 }

@@ -5,7 +5,9 @@
 name: CI
 
 on:
+  # A pull request branch is checked by the pull_request run alone; pushes only run for main.
   push:
+    branches: [main]
   pull_request:
 
 permissions:

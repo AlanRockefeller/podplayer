@@ -377,4 +377,63 @@ class RangeDownloaderTest {
             assertNull(bad, ContentRange.parse(bad))
         }
     }
+
+    /** A 206 covering [from, until) of [bytes], as a server that caps range sizes sends them. */
+    private fun piece(from: Int, until: Int, bytes: ByteArray) =
+        MockResponse.Builder().code(206)
+            .addHeader("Content-Range", "bytes $from-${until - 1}/${bytes.size}")
+            .addHeader("ETag", etag)
+            .body(Buffer().write(bytes, from, until - from))
+            .build()
+
+    @Test
+    fun cappedRangeResponsesAreContinuedUntilTheFileIsComplete() {
+        // A server may answer `Range: bytes=20000-` with a smaller piece than asked for and say so in
+        // Content-Range (RFC 9110 §15.3.7). The engine asks for the rest within the same download.
+        val big = testBytes(256 * 1024)
+        file.writeBytes(big.copyOf(20_000))
+        server.enqueue(piece(20_000, 120_000, big))
+        server.enqueue(piece(120_000, 220_000, big))
+        server.enqueue(piece(220_000, big.size, big))
+        val result = download(request(Validators.of(etag, null))) as DownloadResult.Complete
+        assertEquals(big.size.toLong(), result.bytes)
+        assertEquals(20_000, result.resumedFrom)
+        assertNull(result.restart)
+        assertArrayEquals(big, file.readBytes())
+        assertEquals(3, server.requestCount)
+        assertEquals("bytes=20000-", server.takeRequest().headers["Range"])
+        val second = server.takeRequest()
+        assertEquals("bytes=120000-", second.headers["Range"])
+        assertEquals("the validator the server accepted is reused", etag, second.headers["If-Range"])
+        assertEquals("bytes=220000-", server.takeRequest().headers["Range"])
+    }
+
+    @Test
+    fun tinyPiecesAreNotFollowed() {
+        // Pieces far below any sensible range cap would mean thousands of requests: stop, keep the bytes.
+        writePartial(20_000)
+        server.enqueue(piece(20_000, 20_100, content))
+        val failed = download(request(Validators.of(etag, null))) as DownloadResult.Failed
+        assertTrue("${failed.error}", failed.error is NetError.Network)
+        assertEquals(20_100, failed.bytesOnDisk)
+        assertEquals(etag, failed.validators.etag)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun bodyShorterThanItsContentRangeIsAResumableFailure() {
+        // The server announced bytes 20000-65535 but sent 10,000 and ended the body: a short transfer, not a cap.
+        writePartial(20_000)
+        server.enqueue(
+            MockResponse.Builder().code(206)
+                .addHeader("Content-Range", "bytes 20000-${content.size - 1}/${content.size}")
+                .addHeader("ETag", etag)
+                .body(Buffer().write(content, 20_000, 10_000))
+                .build(),
+        )
+        val failed = download(request(Validators.of(etag, null))) as DownloadResult.Failed
+        assertEquals(NetError.Network("the transfer ended after 30000 of ${content.size} bytes"), failed.error)
+        assertEquals(30_000, failed.bytesOnDisk)
+        assertEquals("the part is kept for a resume", etag, failed.validators.etag)
+    }
 }

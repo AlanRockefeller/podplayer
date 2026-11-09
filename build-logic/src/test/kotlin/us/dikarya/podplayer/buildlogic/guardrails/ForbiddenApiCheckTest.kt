@@ -162,6 +162,40 @@ class ForbiddenApiCheckTest {
     }
 
     @Test
+    fun fullyQualifiedAndroidAndAndroidxUseIsRefusedInPlainKotlinModules() {
+        for (sample in listOf("AndroidFullyQualifiedInPlainModule.kt", "AndroidxImportInPlainModule.kt")) {
+            assertTrue(sample, "android-in-plain-module" in rules(feed, sample))
+            assertEquals(sample, emptySet<String>(), rules(playback, sample))
+        }
+    }
+
+    @Test
+    fun otherNetworkApisAreRefusedEverywhere() {
+        val net = ModuleContext(projectPath = ":core:net", plainKotlin = true)
+        for (context in listOf(app, playback, feed, net)) {
+            for (sample in listOf("DownloadManagerUse.kt", "MediaPlayerUse.kt", "RawSocketUse.kt", "HttpUrlConnectionUse.kt")) {
+                assertTrue("${context.projectPath} $sample", "other-network-apis" in rules(context, sample))
+            }
+        }
+    }
+
+    @Test
+    fun otherImageDecodersAreRefusedOutsideTheSandboxPackage() {
+        for (sample in listOf("BitmapDrawableFromStream.kt", "IconFromData.kt", "OtherImageDecoders.kt")) {
+            assertTrue(sample, "image-decoding" in rules(app, sample))
+            assertTrue(sample, "image-decoding" in rules(sandbox, sample))
+            assertEquals(sample, emptySet<String>(), rules(sandbox, sample, sandboxPackage))
+        }
+    }
+
+    @Test
+    fun coilDecodersAreRefusedEverywhere() {
+        for (context in listOf(app, playback, sandbox)) {
+            assertTrue(context.projectPath, "coil-decoders" in rules(context, "CoilGifDecoder.kt"))
+        }
+    }
+
+    @Test
     fun hardCodedColorsAreRefusedInAppScreens() {
         val screen = "src/main/kotlin/us/dikarya/podplayer/ui/home/HomeScreen.kt"
         assertTrue("hard-coded-color" in rules(app, "HardCodedColor.kt", screen))

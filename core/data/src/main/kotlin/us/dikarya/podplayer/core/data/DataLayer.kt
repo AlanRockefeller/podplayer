@@ -193,9 +193,13 @@ class DataLayer(
         val repositories = Repositories(db, clock) { device.deviceId() }
         if (applied != null) {
             applied.settingsJson?.let { if (!settings.restore(it)) log.w(TAG, "The restored settings couldn't be read") }
-            val dropped = repositories.media.reconcileWithDisk(paths)
+            val reconciled = repositories.media.reconcileWithDisk(paths)
             PendingRestore.finish(files)
-            log.i(TAG, "Restore finished; $dropped download records without files were dropped")
+            log.i(
+                TAG,
+                "Restore finished; ${reconciled.droppedRecords} download records without their files were dropped " +
+                    "and ${reconciled.deletedFiles} media files no record owned were deleted",
+            )
         }
         _state.value = DataState.Ready(repositories, db)
     }

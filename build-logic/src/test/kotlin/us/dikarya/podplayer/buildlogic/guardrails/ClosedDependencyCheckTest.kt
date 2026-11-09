@@ -53,6 +53,14 @@ class ClosedDependencyCheckTest {
     }
 
     @Test
+    fun coilDecoderArtifactsAreBanned() {
+        // They decode GIF, SVG and video bytes in the app process; only the sandbox decodes untrusted images.
+        assertNotNull(banned("io.coil-kt.coil3", "coil-gif"))
+        assertNotNull(banned("io.coil-kt.coil3", "coil-svg"))
+        assertNotNull(banned("io.coil-kt.coil3", "coil-video"))
+    }
+
+    @Test
     fun allowedLibrariesAndLookAlikesPass() {
         assertNull(banned("com.google.android.material", "material"))
         assertNull(banned("com.google.guava", "guava"))

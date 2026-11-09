@@ -10,10 +10,8 @@ import android.content.Context
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.ListenableWorker
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
-import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CancellationException
@@ -69,16 +67,4 @@ class BackupWorker(context: Context, params: WorkerParameters, private val backu
             workManager.enqueueUniquePeriodicWork(UNIQUE_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
         }
     }
-}
-
-/**
- * Builds this app's workers with their dependencies (manual DI, no framework). Returns null for anything else,
- * which lets WorkManager fall back to its default.
- */
-class PodplayerWorkerFactory(private val backups: () -> DailyBackup) : WorkerFactory() {
-    override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker? =
-        when (workerClassName) {
-            BackupWorker::class.java.name -> BackupWorker(appContext, workerParameters, backups())
-            else -> null
-        }
 }

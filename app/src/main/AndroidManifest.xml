@@ -7,8 +7,15 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Feeds and episodes (M1-S5). Every request goes through the gated client in :core:net. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <!--
-      No permissions yet. INTERNET arrives with the first network feature (M1-S5).
+      The download progress notification. Downloads run without it too (as a dataSync foreground
+      service, declared in :core:jobs); Android just doesn't show the notification in the shade.
+    -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
       allowBackup is off: Android's cloud backup would send feed URLs (which can carry
       private tokens) to Google. Our own backups go to a folder the owner picks (M1-S4),
       through the Storage Access Framework, which needs no permission.
@@ -46,5 +53,6 @@
                 android:value="androidx.startup"
                 tools:node="remove" />
         </provider>
+
     </application>
 </manifest>

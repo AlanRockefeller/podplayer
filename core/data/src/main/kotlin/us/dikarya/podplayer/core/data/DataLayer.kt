@@ -9,6 +9,7 @@ package us.dikarya.podplayer.core.data
 import android.content.Context
 import androidx.core.net.toUri
 import java.io.InputStream
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -107,7 +108,19 @@ class DataLayer(
         io = io,
     )
 
-    fun start(): Job = scope.launch { openLock.withLock { open() } }
+    fun start(): Job = scope.launch {
+        openLock.withLock {
+            try {
+                open()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Never leave the state at Opening: everything waiting for the database would wait forever.
+                log.e(TAG, "Opening the library failed unexpectedly", e)
+                _state.value = DataState.Failed(OpenProblem.CouldNotOpen)
+            }
+        }
+    }
 
     /** The repositories once the database is open, or null if it couldn't be opened. */
     suspend fun awaitRepositories(): Repositories? = (state.first { it !is DataState.Opening } as? DataState.Ready)?.repositories

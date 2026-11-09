@@ -5,9 +5,9 @@ a reviewer reads it to see what was really done.
 
 ## Current state
 - Milestone: M1
-- Next session: M1-S5
-- Build status: `./gradlew check` and `assembleRelease` green locally after M1-S4 (2026-11-08), including a run
-  from an empty Gradle home. The CI result is on the M1-S4 PR.
+- Next session: M1-S6
+- Build status: `./gradlew check` and `assembleRelease` green locally after M1-S5 (2026-11-09), including a run
+  from an empty Gradle home. The CI result is on the M1-S5 PR.
 
 ## Session log
 <!-- Newest first. Copy this block for each session. -->
@@ -19,6 +19,205 @@ a reviewer reads it to see what was really done.
 - Manual checks for the owner:
 - PR:
 -->
+
+### M1-S5 Refresh and downloads (2026-11-08)
+Plan (written before any code; tests first for every rule):
+- Scope: `:core:jobs` (refresh, downloads, probe, workers), the data-layer queries they need, a small `:core:net`
+  addition, wiring and the debug-only Developer screen in `:app`, one forbidden-API rule. SPEC §8, §9, §12
+  (Developer screen), §3 (301/308 moves the feed); LESSONS rows "Downloads" and "Refresh"; PROGRESS "Later" items
+  for S5.
+- Dependencies: `media3-exoplayer` (allowlisted; current stable 1.11.1, already pinned, re-checked today) for
+  `:core:jobs`, used only for its extractors (`media3-extractor`, which it exposes as API). Media3 1.11 moved
+  `MetadataRetriever` into `media3-inspector`, which is not on the allowlist, so the probe drives the extractors
+  itself. `androidx.core` for notifications, `mockwebserver3`, Turbine and coroutines-test for tests. All
+  allowlisted. Verification metadata regenerated from an empty Gradle home.
+- `:core:net`: a feed URL with `user:pass@` becomes an `Authorization: Basic` header inside the gate (the redirect
+  interceptor already drops it across hosts), so refresh, downloads and later ExoPlayer all get it.
+- `:core:data` (no schema change; the columns exist since S4): feed queries for refresh (target with validators
+  and owner-approved host, due feeds, record success / not modified / failure with backoff time, move the URL
+  after a 301/308 unless another subscription has it); media-file queries (If-Range validators, mark complete
+  with probed duration and type, bytes used by downloads, observe all, rows of a feed); `Feed.nextRefreshAt`;
+  `AppSettings` gains Wi-Fi-only downloads (default on) and the storage cap (default 10 GiB).
+- `:core:jobs`, files in `core/jobs/src/main/kotlin/us/dikarya/podplayer/core/jobs/`:
+  - `refresh/FeedRefresher.kt`: refresh one feed, all, or the due ones. Single flight: equal requests made while
+    one runs join it, and only one refresh touches the network at a time; at most 4 feeds in parallel inside it.
+    Cancelable (cancelled when every waiter is gone). Conditional GET from stored validators; the owner-approved
+    host as the address policy; parse with Android's `XmlPullParser`; apply in one transaction; 301/308 moves
+    the stored URL (keeping credentials on the same host); every failure keeps the last good data.
+  - `refresh/RefreshBackoff.kt`: per-feed exponential backoff (30 min doubling, 24 h cap); success resets it.
+  - `refresh/RefreshMessages.kt`: plain-language, redacted reasons for the refresh and download logs.
+  - `refresh/RefreshWorker.kt`: periodic unique work (4 h, network required, KEEP) refreshing due feeds, plus
+    one-time unique work for "refresh all" and "refresh this feed" (KEEP, so repeated taps collapse).
+  - `download/AudioProbe.kt`: Media3 extractors over the finished file (sniff, then read until formats and
+    duration are known, following seeks), with a time limit; result Audio(duration, type) or a refusal (not
+    recognised, video, not audio, no duration, too slow). Chapter-art JPEG tracks in enhanced podcasts are not
+    video.
+  - `download/DownloadRunner.kt`: one download: generated path, address policy, storage cap as the engine's
+    byte limit, resume with stored validators, probe, state and download log, episode action "Downloaded".
+    Disk full deletes the partial file and marks Failed; nothing is Complete until the probe passes.
+    Cancellation saves Paused with the bytes kept.
+  - `download/DownloadWorker.kt`: unique work per episode (KEEP), Wi-Fi-only as an unmetered-network constraint,
+    foreground `dataSync` with a progress notification for owner-started downloads (falling back to background
+    work if Android refuses), Android 15+ foreground timeout (`STOP_REASON_FOREGROUND_SERVICE_TIMEOUT`): save
+    and let WorkManager reschedule, logged as such; transient errors retry with backoff, at most 5 attempts.
+  - `download/Downloads.kt`: enqueue, cancel, delete (waits for a running worker to finish its cleanup), and
+    remove a feed (cancel its downloads, delete its media folder, unsubscribe: the S5 "Later" item).
+  - `Jobs.kt`: builds the above for `AppGraph`; `PodplayerWorkerFactory` builds all three workers.
+- `:app`: INTERNET, FOREGROUND_SERVICE_DATA_SYNC and POST_NOTIFICATIONS permissions; WorkManager's foreground
+  service declared with type `dataSync`; `AppGraph` builds the jobs and schedules the periodic refresh.
+  Developer screen in `app/src/debug/` (package `dev`, strings in the debug `res`): add a feed by URL (owner
+  typed), refresh one or all, unsubscribe, list episodes with download state and progress, download, cancel,
+  delete, Wi-Fi-only switch, and the refresh and download logs. Main code only sees an optional
+  `BuildTypeSetup.debugScreen` (null in release) that the top bar offers.
+- Proof that release builds can't reach it: release unit tests are switched on for `:app` and a `testRelease`
+  test checks the screen's classes and strings are absent and the hook is null (a `testDebug` twin checks they
+  exist, so the class names can't drift); a forbidden-API rule refuses any mention of the `dev` package in
+  `app/src/main`; CI's `assembleRelease` would also fail to compile such a reference.
+- Tests first:
+  - Refresh (Robolectric, MockWebServer): ten concurrent refresh requests make one request per feed; a failing
+    feed backs off (growing, capped) while the others update, is skipped by the periodic refresh until due, and
+    resets on success; conditional GET sends the stored validators and 304 changes nothing; 301/308 moves the
+    URL and 302 doesn't; a 301 onto an existing subscription is refused; a web page or broken feed keeps the
+    last good episodes and logs why; no token in any log; cancellation stops a slow refresh; a feed nobody typed
+    on a private address is refused; the hostile feed corpus parses the same with Android's parser as with kxml2
+    (S4/S5 "Later" item).
+  - Downloads: end-to-end (subscribe to a local test feed, refresh, download an episode: Complete, generated path,
+    probed duration, log); resume after a dropped connection with Range + If-Range, byte-exact; server ignoring
+    Range restarts and logs it; a declared length that is wrong is accepted when the probe succeeds; an
+    unreadable file, an image and an empty file are rejected and deleted; disk full leaves nothing Complete;
+    storage cap; an enclosure on a private host refused; cancellation keeps the partial file as Paused; the
+    foreground-timeout stop is logged and retried; delete; remove feed deletes its files.
+  - Probe: MP3 and WAV durations, random bytes, empty, PNG, truncated, video classification, time limit.
+  - Workers (work-testing): unique names and KEEP, constraints (network, Wi-Fi only), retry and failure mapping,
+    factory builds each worker.
+  - `:core:net`: Basic auth from userinfo, kept on the same host, dropped across hosts, never in the URL.
+  - `:core:data`: the new queries; settings defaults, persistence and backup round trip.
+  - `:app`: the release/debug twin tests; `build-logic`: the new rule with a sample.
+
+Result:
+- Done (layout as planned, except: backoff and the request types share `refresh/Refresher.kt`; the log messages
+  are `Messages.kt` in the package root, shared by refresh and downloads; `DownloadNotifications.kt` and
+  `Workers.kt` (the factory, moved out of `BackupWorker.kt`) are in the package root too):
+  - `:core:net`: `user:pass@` in a URL becomes `Authorization: Basic` inside the redirect interceptor, the userinfo
+    leaves the URL, so the header is dropped with the other credentials when a redirect changes host. An explicit
+    `Authorization` header wins. Covers fetches, downloads and (S7) ExoPlayer.
+  - `:core:data` (no schema change): `RefreshTarget`, `dueFeedIds`, `recordRefreshSuccess` (a 304 keeps the
+    validators, a 200 replaces them), `recordRefreshFailure` (counts, redacts, schedules the retry), `moveUrl`
+    (`Moved`, `Unchanged`, `AlreadySubscribed`, `Refused`, `FeedGone`); media `validators`/`saveValidators`,
+    `markComplete` (probed duration and type), `usedBytes`, `observeAll`, `forFeed`; `Feed.nextRefreshAt`;
+    `AppSettings.downloadsWifiOnly` (default on) and `storageCapBytes` (default 10 GiB, clamped to 256 MiB–1 TiB
+    on write and read).
+  - `:core:jobs`:
+    - `FeedRefresher`: single flight per request (joiners share one result; the run is cancelled when its last
+      waiter goes), one run at a time, 4 feeds in parallel, conditional GET, owner-approved host as the address
+      policy, Android's `XmlPullParser`, one-transaction apply, 301/308 moves the URL (credentials kept on the same
+      host), failures keep the stored episodes and back off 30 min doubling to 24 h. Refresh log rows say what
+      changed (new, updated, no longer in feed, back, skipped, parser warnings with validator links, moves).
+    - `RefreshWorker`: periodic unique work every 4 h with a network (`Due`), one-time unique work for all
+      (`feed-refresh-all`) or one feed (`feed-refresh-<id>`), all KEEP. Scheduled at every start with the backup.
+    - `AudioProbe`: `DefaultExtractorsFactory` with constant-bitrate seeking, sniff with a fresh input per
+      extractor, read until formats and a header duration are known (following seeks), else read on and use the
+      last sample time; 20 s limit; 64 tracks at most; every extractor exception is a refusal. Video refused
+      unless its samples are JPEG (enhanced-podcast chapter art).
+    - `DownloadRunner`: `queue` (records the generated path; leaves a queued or running download alone) and `run`
+      (needs a queued record, so a worker that starts after a delete does nothing), storage cap as the engine's
+      byte limit, Range + If-Range resume from stored validators, progress saved every 2 s, probe, Complete only
+      after the probe, action "Downloaded", plain-language download log. Permanent failures (refused address,
+      4xx, not audio, storage limit, disk full) delete the partial file; transient ones keep it as Paused.
+      Cancellation saves Paused and logs why (owner, Android 15+ foreground limit, or the system). `delete` waits
+      for a running download of the same episode (per-episode lock).
+    - `DownloadWorker`: foreground `dataSync` with a progress notification and Cancel action, falling back to
+      background work when Android refuses; stop reason read on Android 12+ (`STOP_REASON_FOREGROUND_SERVICE_TIMEOUT`,
+      `STOP_REASON_CANCELLED_BY_APP`); retries with exponential backoff (1 min), gives up after 5 attempts and
+      marks the download Failed with the partial file kept.
+    - `Downloads`: enqueue (unique `download-<id>`, KEEP, unmetered network when Wi-Fi only), cancel, delete,
+      `removeFeed` (cancels by feed tag, deletes files and `media/<feedId>`, unsubscribes).
+    - `Jobs`: builds all of it lazily for `AppGraph`.
+  - `:core:feed` fix found by the S5 tests: a document that ends before its root element closes is now
+    `Malformed`. Both pull parsers report a cut-off body as a plain end of document, so a feed truncated by a
+    server closing the connection early parsed as a success and would have marked every missing episode "no
+    longer in feed".
+  - `:core:data` fix found by the S5 tests: an exception while opening the library now ends in
+    `Failed(CouldNotOpen)` instead of leaving the state at `Opening`, where every caller waited forever.
+  - `AppSettings` reads are type-checked: a restored hand-made backup with the wrong type under a known key
+    (for example `theme_mode` as a number) used to throw on read; it now reads as the default.
+  - `:app`: INTERNET, FOREGROUND_SERVICE, FOREGROUND_SERVICE_DATA_SYNC, POST_NOTIFICATIONS; WorkManager's
+    `SystemForegroundService` merged with `foregroundServiceType="dataSync"`; `AppGraph.jobs`; the top bar shows a
+    "Developer" button when `BuildTypeSetup.debugScreen` is non-null (debug only). Developer screen
+    (`app/src/debug/kotlin/us/dikarya/podplayer/dev/DeveloperScreen.kt`, strings in `app/src/debug/res`): add a
+    feed by URL (owner typed, refreshed at once), refresh one or all, unsubscribe (deletes downloads), episodes
+    with state, size, probed length and progress, Download (asks for the notification permission on Android 13+),
+    Cancel, Delete, the Wi-Fi-only switch, storage used against the cap, the refresh and download logs. All
+    WorkManager calls run off the main thread.
+  - Release can't reach the screen: `:app` now runs unit tests for the release variant (AGP 9 only creates
+    debug ones by default); `DeveloperScreenAbsentTest` (testRelease) checks `debugScreen` is null and that
+    `dev.DeveloperScreenKt` and every `dev_` string are absent; `DeveloperScreenPresentTest` (testDebug) checks
+    the same names exist in debug. Forbidden-API rule `developer-screen-outside-debug` refuses the `dev` package,
+    `DeveloperScreen`, `R.string.dev_…` and `@string/dev_…` in `app/src/main` and `app/src/release`.
+  - LESSONS rows as tests: "Downloads": no Range support (restart, logged), wrong declared length accepted after
+    the probe, slow server (throttled download completes or is stopped cleanly), dropped connection then resume;
+    "Refresh": concurrent requests collapse, failing feed backs off without blocking others, network constraint,
+    last success / last error / next attempt stored and shown on the Developer screen.
+- Tests added (87; 538 in all, every one passing; `:app` also runs its 8 shared unit tests for release):
+  - `:core:jobs`: FeedRefresherTest (15), DownloadRunnerTest (18), AudioProbeTest (14), WorkersTest (11),
+    AndroidParserCorpusTest (3: Android's repackaged kxml and kxml2 agree on every corpus and sample fixture and
+    on whether every 13th-byte prefix parses; kxml2 is loaded child-first because Robolectric can't instrument its
+    old class files). BackupWorkerTest updated for the new factory.
+  - `:core:data`: RefreshBookkeepingTest (6), AppSettingsTest (+4), DatabaseOpenerTest (+1).
+  - `:core:feed`: HostileFeedCorpusTest (+1: cut-off documents are malformed).
+  - `:core:net`: UserinfoAuthTest (6).
+  - `:app`: DeveloperScreenAbsentTest (3, release), DeveloperScreenPresentTest (3, debug).
+  - `build-logic`: ForbiddenApiCheckTest (+2).
+  - Written before the code; Kotlin needs the API to compile them, so their first run was against finished
+    code. On that run: the truncated-feed bug above (a real bug), one test mistake (a single whole MP3 frame is
+    valid 26 ms audio, not a refusal) and one helper named `run` clashing with Kotlin's. The opener test failed
+    (timed out) before its fix. Mutation check: with joining a running refresh disabled, only
+    `concurrentRefreshRequestsCollapseIntoOne` failed (10 requests per feed); reverted.
+- Deviations from the spec, and why:
+  - The probe drives Media3's extractors (`media3-extractor`, part of `media3-exoplayer`'s API) itself:
+    Media3 1.11 moved `MetadataRetriever` to `media3-inspector`, which isn't on the allowlist. This is what
+    CLAUDE.md asks for ("Media3's JVM extractors"); if you'd rather add `media3-inspector` to the allowlist, the
+    probe could use it instead (see Later).
+  - Refresh and download log messages are English text stored with the log rows (like the app log), not
+    `strings.xml` resources, because they are stored. S8/S9 can store a reason code and map it (Later).
+  - Backoff is 30 min doubling to 24 h (SPEC §8 gives no numbers). A healthy feed has no next time of its own: it
+    is refreshed with the next periodic run.
+  - Manual refreshes ("refresh all", one feed) ignore backoff, since the owner asked; the periodic one honours it.
+  - A permanent download failure deletes the partial file (a full disk most of all needs the space back); a
+    transient one keeps it for resuming.
+  - Downloads are not expedited work: WorkManager's expedited jobs are for short tasks. Owner-started downloads
+    start foreground from the app, which Android allows while the app is visible.
+  - Wi-Fi-only is read when a download is queued; changing it doesn't change downloads already waiting.
+  - On Android 10 and 11 the log can't tell "you cancelled" from "Android stopped it" (no stop reason before 12).
+  - The S5 "Later" item for `user:pass@` URLs is done in the gate, not the refresh worker, so downloads and
+    ExoPlayer get it too.
+  - Fixed two small bugs outside S5's modules that its tests found (cut-off feeds, a hanging data layer) and
+    one found while adding settings (wrong-typed restored settings).
+  - The foreground-service permissions and WorkManager's `dataSync` service declaration live in `:core:jobs`'
+    manifest (lint checks them where `ForegroundInfo` is built); `:app` adds INTERNET and POST_NOTIFICATIONS.
+  - Verification metadata regenerated from an empty Gradle home placed under `~/.cache` (the per-user `/tmp`
+    quota was full) with only the Gradle distribution copied in, as in S4. Only new components were added
+    (Media3 1.11.1 modules, Guava 33.3.1-android, ExifInterface 1.3.6); no existing checksum changed.
+- Not yet run on the phone: it wasn't connected over adb when the session ended, so the build wasn't installed
+  or launched. Install it first: `./gradlew :app:installDebug`.
+- Manual checks for the owner (on the phone; debug build):
+  1. Open the app, tap "Developer" (top right, next to the gear).
+  2. In "Feed address", paste a feed you listen to (a private one with a token is a good test), tap Subscribe.
+     After a few seconds the feed shows its title and "Last refresh", and the Refresh log has a row like
+     "12 new, 0 updated."
+  3. Tap the feed (or "Episodes"), then "Download" on an episode. Allow notifications if asked. On Wi-Fi a
+     "Downloading" notification with progress and Cancel appears; the row shows Downloading, then
+     "Downloaded: <size>, <length>". (Off Wi-Fi it stays Queued until Wi-Fi, unless you switch "Download on
+     Wi-Fi only" off.) The Download log shows Queued, Started, Completed.
+  4. Start a second download and tap Cancel: the row shows Paused with the bytes kept; tap Download again: the
+     log shows Resumed (if the server supports it) and it completes.
+  5. Delete a download: the row goes back to "Not downloaded" and the log shows Deleted.
+  6. Tap "Refresh all": a new row per feed in the Refresh log ("Not changed since the last refresh." for most).
+  7. Optional (acceptance item): a feed you control whose enclosure points at a private address (for example
+     `http://192.168.1.10/a.mp3`) on a public feed host: the download fails with "...is on a private network
+     address...".
+  8. Unsubscribe a feed with a download: it disappears, and its files with it.
+- PR: #6 (`m1-s5-refresh-downloads`).
 
 ### M1-S4 Database, repositories, backups and logs (2026-11-08)
 Plan (written before any code; tests first for every rule):
@@ -201,11 +400,9 @@ Result:
     absent; the manifest comment now says it arrives with the first network feature (S5).
   - Robolectric needs `--add-opens=java.base/jdk.internal.access=ALL-UNNAMED` for the SDK 37 jar on JDK 21
     (test JVM only).
-- Manual checks for the owner (on the phone):
-  - Settings › Backup and restore › Choose backup folder: pick a folder (for example Documents/Podplayer). A
-    `podplayer-backup-….zip` appears there and "Last backup" shows the time.
-  - Back up now, Export a backup file, then Restore from a backup file with that export: the app restarts and
-    the theme you had at export time is back. (There are no subscriptions to see until S5's Developer screen.)
+- Confirmed by the owner on the phone (2026-11-09): choosing a backup folder creates a backup and shows Last
+  backup; back up, export and restore brings back the theme.
+- Manual checks for the owner (still open):
   - Rename or delete the chosen folder, tap Back up now: the "Couldn't write to the backup folder" message shows.
   - A day later, check a second backup appeared without opening Settings (the daily worker).
 - PR: #5 (`m1-s4-database-backups-logs`).
@@ -595,23 +792,30 @@ Result:
   all three). Settings that must not travel with a backup go in `DeviceSettings`; everything in `AppSettings`
   is backed up. Workers are built by `PodplayerWorkerFactory`.
 
+- Jobs (M1-S5): `AppGraph.jobs` (`Jobs`) owns refresh (`refresher`, `refreshNow`) and downloads (`downloads`).
+  Downloads are queued with `Downloads.enqueue`, never by running `DownloadRunner` directly, and a run needs a
+  queued record. Nothing is `Complete` until `AudioProbe` accepts the file. Debug-only screens go through
+  `BuildTypeSetup.debugScreen`; main and release code never name them (forbidden-API rule, release unit tests).
+  Test temp files: Robolectric needs room in `/tmp` (a full per-user quota there makes every Robolectric test
+  fail with "Disk quota exceeded" or "Failed creating temp file").
+
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
 - None open. (Signing key: answered 2026-11-08; see Decisions.)
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
-- S5: the owner-approved host is stored (`Feed.ownerApprovedHost`); pass
-  `AddressPolicy.approvingHosts(host)` for that feed's requests (feed, enclosures, artwork). The columns for
-  `Validators` exist (`feeds.etag/lastModified`, `media_files.etag/lastModified`); S5 reads and writes them.
-- S5: add the INTERNET permission to the manifest with the first network feature.
-- S5: delete a feed's media files on unsubscribe (rows cascade, files stay); `MediaFileRepository.reconcileWithDisk`
-  handles the reverse case.
+- S6: artwork requests use the feed's owner-approved host too (`AddressPolicy.approvingHosts`), as refresh and
+  downloads now do.
+- S8/S9: store a reason code with refresh and download log rows and map it to `strings.xml`; today the rows hold
+  English text.
+- S8/S9: the full Downloads settings (cap, Wi-Fi only); applying a Wi-Fi-only change to downloads already queued.
+- If `media3-inspector` joins the allowlist, `AudioProbe` could use its `MetadataRetriever` instead of driving the
+  extractors itself.
+- An instrumented test of `AudioProbe` on real podcast files (MP3 with ID3 art, M4A/AAC, Opus) on a device.
 - S9: log export (concatenate `AppLog.files()`, crash files, and the DB logs) and the full Backup settings.
-- A test that the release variant of `BuildTypeSetup` logs invariants instead of crashing (only the debug one is
-  exercised by tests today).
-- S5: private feeds with `user:pass@` in the URL. OkHttp doesn't turn URL userinfo into an `Authorization` header,
-  so the refresh worker has to add it. The redirect interceptor already drops it on a cross-host hop.
+- A test that the release variant of `BuildTypeSetup` logs invariants instead of crashing. `:app` runs release
+  unit tests since S5, so it can live in `app/src/testRelease`.
 - S7: ExoPlayer gets `OkHttpDataSource.Factory(netGate.callFactory(policy))`. Map its `IOException`s with
   `NetError.from` for the position/playback log.
 - Redaction: some hosts put the token in the path (`/feed/<token>.xml`). The rule only asks to strip query,
@@ -623,10 +827,8 @@ Result:
 - A Robolectric Compose test for the shell (four tabs, Settings icon, the theme switch recomposing). Robolectric
   is set up now (`podplayer.android.robolectric`); `:app` doesn't apply it yet.
 - Enforce the MPL notice in XML, TOML and YAML files (it's placed there now but not checked).
-- S4/S5: run the feed corpus through Android's own parser too (`Xml.newPullParser()` under Robolectric or an
-  instrumented test). The JVM tests use kxml2 2.2.2; Android's libcore parser differs in places (it reads
-  DOCTYPE internal subsets). The pre-pass removes every DOCTYPE first, so the results should match.
-- S5: write `ParseProblem.logReason` and the feed warnings (repairs, broken feed, refused URLs) to the refresh log.
+- An instrumented run of the feed corpus on a real device's parser (S5 compares Robolectric's copy of Android's
+  parser with kxml2).
 - S8: `RichText` to `AnnotatedString`; tapping a link shows `Link.destination` first; timestamps seek.
 - `itunes:new-feed-url` (a feed that moved without a 301) is not in SPEC §4's field list and isn't parsed yet.
 - RSS 1.0 (RDF) feeds, Atom `xml:base` relative URLs, and `feed://`/`pcast://` URLs in OPML and Discover
@@ -635,4 +837,4 @@ Result:
 
 ## Known issues
 <!-- Bugs found but not yet fixed, with how to reproduce. -->
-- None known. The app hasn't run on a device yet (see the manual checks above).
+- None known.

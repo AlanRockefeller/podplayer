@@ -37,9 +37,16 @@ class BackupWorkerTest {
         }
     }
 
+    private fun factoryFor(backups: DailyBackup) = PodplayerWorkerFactory(
+        backups = { backups },
+        refresher = { error("not used") },
+        downloads = { error("not used") },
+        notifications = { DownloadNotifications(context) },
+    )
+
     private fun run(backups: DailyBackup): ListenableWorker.Result = runBlocking {
         TestListenableWorkerBuilder<BackupWorker>(context)
-            .setWorkerFactory(PodplayerWorkerFactory { backups })
+            .setWorkerFactory(factoryFor(backups))
             .build()
             .doWork()
     }
@@ -70,7 +77,7 @@ class BackupWorkerTest {
     @Test
     fun theFactoryLeavesOtherWorkersToTheDefault() {
         val worker = TestListenableWorkerBuilder<OtherWorker>(context)
-            .setWorkerFactory(PodplayerWorkerFactory { FakeBackups(DailyBackupOutcome.Done) })
+            .setWorkerFactory(factoryFor(FakeBackups(DailyBackupOutcome.Done)))
             .build()
         assertTrue(worker is OtherWorker)
     }

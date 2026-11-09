@@ -23,6 +23,9 @@ import us.dikarya.podplayer.core.model.assertInvariant
 import us.dikarya.podplayer.core.net.UrlCheck
 import us.dikarya.podplayer.core.net.UrlPolicy
 import us.dikarya.podplayer.core.net.UrlProblem
+import us.dikarya.podplayer.core.net.Validators
+import us.dikarya.podplayer.core.net.redact
+import us.dikarya.podplayer.core.net.scrubUrls
 
 sealed interface SubscribeResult {
     data class Subscribed(val feedId: Long) : SubscribeResult
@@ -47,6 +50,34 @@ sealed interface RefreshApplied {
 
     /** The feed was unsubscribed while it was being fetched. */
     data object FeedGone : RefreshApplied
+}
+
+/** What a refresh needs to know about one feed. The URL is a secret: [toString] redacts it. */
+class RefreshTarget(
+    val feedId: Long,
+    val url: String,
+    val ownerApprovedHost: String?,
+    /** From the last good response, for a conditional GET (SPEC §3). */
+    val validators: Validators,
+    val consecutiveFailures: Int,
+    val nextRefreshAt: Long?,
+) {
+    override fun toString() = "RefreshTarget($feedId, ${redact(url)}, failures=$consecutiveFailures)"
+}
+
+/** The outcome of [FeedRepository.moveUrl]. */
+sealed interface MoveResult {
+    data object Moved : MoveResult
+
+    data object Unchanged : MoveResult
+
+    /** Another subscription already has that URL; the feed keeps its old one. */
+    data class AlreadySubscribed(val otherFeedId: Long) : MoveResult
+
+    /** The new URL fails the URL policy. */
+    data object Refused : MoveResult
+
+    data object FeedGone : MoveResult
 }
 
 class FeedRepository internal constructor(private val db: PodDatabase, private val clock: () -> Long) {
@@ -86,9 +117,64 @@ class FeedRepository internal constructor(private val db: PodDatabase, private v
         }
     }
 
-    /** Removes the feed with its episodes, queue entries, positions and settings (foreign keys cascade). */
+    /**
+     * Removes the feed with its episodes, queue entries, positions and settings (foreign keys cascade).
+     * Downloaded files are not touched here; `:core:jobs` removes them first.
+     */
     suspend fun unsubscribe(id: Long) {
         db.feeds().delete(id)
+    }
+
+    suspend fun refreshTarget(id: Long): RefreshTarget? = db.feeds().get(id)?.let {
+        RefreshTarget(it.id, it.url, it.ownerApprovedHost, Validators.of(it.etag, it.lastModified), it.consecutiveFailures, it.nextRefreshAt)
+    }
+
+    suspend fun allFeedIds(): List<Long> = db.feeds().allIds()
+
+    /** Feeds the periodic refresh should fetch at [now]: all but those backing off (SPEC §8). */
+    suspend fun dueFeedIds(now: Long): List<Long> = db.feeds().dueIds(now)
+
+    /**
+     * A good refresh: resets the backoff. [validators] null (a 304) keeps the stored ones; otherwise they
+     * replace them, so a server that stopped sending an ETag isn't asked with a stale one.
+     */
+    suspend fun recordRefreshSuccess(id: Long, validators: Validators?, at: Long) {
+        if (validators == null) {
+            db.feeds().recordNotModified(id, at)
+        } else {
+            db.feeds().recordSuccess(id, validators.etag, validators.lastModified, at)
+        }
+    }
+
+    /**
+     * A failed refresh. [nextAttemptAt] gets the new count of consecutive failures and returns when the feed is
+     * next due. [message] is plain language; it is redacted and capped here. Returns the new count.
+     */
+    suspend fun recordRefreshFailure(id: Long, message: String, at: Long, nextAttemptAt: (failures: Int) -> Long): Int =
+        db.withTransaction {
+            val feed = db.feeds().get(id) ?: return@withTransaction 0
+            val failures = (feed.consecutiveFailures + 1).coerceAtMost(MAX_COUNTED_FAILURES)
+            db.feeds().recordFailure(id, scrubUrls(message).take(MAX_ERROR), at, failures, nextAttemptAt(failures))
+            failures
+        }
+
+    /**
+     * SPEC §3: a 301/308 on a feed URL moves the subscription. The owner-approved host stays as it was: it
+     * only ever approves the host the owner typed.
+     */
+    suspend fun moveUrl(id: Long, newUrl: String): MoveResult {
+        val allowed = when (val check = UrlPolicy.checkFeedUrl(newUrl)) {
+            is UrlCheck.Allowed -> check.url.toString()
+            is UrlCheck.Rejected -> return MoveResult.Refused
+        }
+        return db.withTransaction {
+            val feed = db.feeds().get(id) ?: return@withTransaction MoveResult.FeedGone
+            if (feed.url == allowed) return@withTransaction MoveResult.Unchanged
+            val other = db.feeds().getByUrl(allowed)
+            if (other != null) return@withTransaction MoveResult.AlreadySubscribed(other.id)
+            db.feeds().setUrl(id, allowed)
+            MoveResult.Moved
+        }
     }
 
     /**
@@ -153,6 +239,8 @@ class FeedRepository internal constructor(private val db: PodDatabase, private v
     private companion object {
         /** Keeps every statement under SQLite's 999-variable limit on old Android versions. */
         const val CHUNK = 500
+        const val MAX_ERROR = 2_000
+        const val MAX_COUNTED_FAILURES = 1_000
     }
 }
 

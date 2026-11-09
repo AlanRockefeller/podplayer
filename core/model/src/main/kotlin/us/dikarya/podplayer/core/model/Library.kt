@@ -33,6 +33,8 @@ data class Feed(
     val lastRefreshErrorAt: Long?,
     /** Plain language, already redacted. */
     val lastRefreshError: String?,
+    /** While the feed is backing off after errors: the earliest automatic retry. Null: with the next refresh. */
+    val nextRefreshAt: Long? = null,
 ) {
     /** SPEC §3: cleartext feeds are allowed and the UI marks them "not secure". */
     val isSecure: Boolean get() = url.startsWith("https://", ignoreCase = true)

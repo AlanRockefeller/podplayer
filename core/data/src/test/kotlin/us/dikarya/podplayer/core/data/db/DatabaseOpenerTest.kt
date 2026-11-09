@@ -9,9 +9,14 @@ package us.dikarya.podplayer.core.data.db
 import android.database.sqlite.SQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
+import java.io.IOException
 import java.io.RandomAccessFile
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -20,6 +25,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
+import us.dikarya.podplayer.core.data.DataLayer
 import us.dikarya.podplayer.core.data.DataState
 import us.dikarya.podplayer.core.data.FEED_URL
 import us.dikarya.podplayer.core.data.OpenProblem
@@ -65,6 +71,25 @@ class DatabaseOpenerTest {
         assertTrue(layer.awaitRepositories()!!.feeds.feeds().first().isEmpty())
         assertTrue(dbFile.exists())
         layer.close()
+    }
+
+    @Test
+    fun anUnexpectedErrorWhileOpeningFailsInsteadOfWaitingForever() = runBlocking {
+        // Found in M1-S5: an exception in the opening coroutine left the state at Opening, so every
+        // awaitRepositories() caller (workers, screens) waited forever.
+        val layer = DataLayer(
+            context = appContext(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            appVersion = "test",
+            log = layers.log,
+            clock = clock,
+            filesProvider = { throw IOException("storage unavailable") },
+        )
+        layer.start()
+        withTimeout(5_000) {
+            assertEquals(null, layer.awaitRepositories())
+        }
+        assertEquals(DataState.Failed(OpenProblem.CouldNotOpen), layer.state.value)
     }
 
     @Test

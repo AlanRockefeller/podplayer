@@ -145,6 +145,23 @@ class ForbiddenApiCheckTest {
     }
 
     @Test
+    fun mainAndReleaseCodeMayNotNameTheDeveloperScreen() {
+        assertTrue("developer-screen-outside-debug" in rules(app, "DeveloperScreenInMain.kt"))
+        val release = "src/release/kotlin/us/dikarya/podplayer/BuildTypeSetup.kt"
+        assertTrue("developer-screen-outside-debug" in rules(app, "DeveloperScreenInMain.kt", release))
+        val layout = ForbiddenApis.scan(app, "src/main/res/layout/x.xml", "<TextView android:text=\"@string/dev_title\"/>")
+        assertTrue(layout.any { it.ruleId == "developer-screen-outside-debug" })
+    }
+
+    @Test
+    fun theDeveloperScreenIsFineInTheDebugSourceSetAndElsewhere() {
+        val debug = "src/debug/kotlin/us/dikarya/podplayer/BuildTypeSetup.kt"
+        assertEquals(emptySet<String>(), rules(app, "DeveloperScreenInMain.kt", debug))
+        assertEquals(emptySet<String>(), rules(app, "DeveloperScreenInMain.kt", "src/testDebug/kotlin/us/dikarya/podplayer/T.kt"))
+        assertEquals(emptySet<String>(), rules(playback, "DeveloperScreenInMain.kt"))
+    }
+
+    @Test
     fun onlySourceAndResourceFilesAreScanned() {
         assertEquals(setOf("kt", "java", "xml", "aidl"), ForbiddenApis.EXTENSIONS)
     }

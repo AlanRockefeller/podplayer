@@ -154,13 +154,19 @@ internal class SafeXmlReader(
         return parser.name
     }
 
+    /**
+     * The document ended inside an element. Pull parsers report this as a plain end of document, but it means
+     * the body was cut off (a server closing the connection early): what arrived is not the whole feed.
+     */
+    fun endedEarly(): Nothing = throw XmlLimitException(ParseProblem.Malformed(parser.lineNumber, parser.columnNumber))
+
     /** Calls [onChild] for each child element of the current element; [onChild] must consume it. */
     inline fun forEachChild(onChild: () -> Unit) {
         val depth = parser.depth
         while (true) {
             val event = next()
             if (event == XmlPullParser.END_TAG && parser.depth == depth) return
-            if (event == XmlPullParser.END_DOCUMENT) return
+            if (event == XmlPullParser.END_DOCUMENT) endedEarly()
             if (event == XmlPullParser.START_TAG) onChild()
         }
     }
@@ -171,7 +177,7 @@ internal class SafeXmlReader(
         while (true) {
             val event = next()
             if (event == XmlPullParser.END_TAG && parser.depth == depth) return
-            if (event == XmlPullParser.END_DOCUMENT) return
+            if (event == XmlPullParser.END_DOCUMENT) endedEarly()
         }
     }
 
@@ -183,7 +189,7 @@ internal class SafeXmlReader(
             when (next()) {
                 XmlPullParser.TEXT -> out.append(parser.text)
                 XmlPullParser.END_TAG -> if (parser.depth == depth) break
-                XmlPullParser.END_DOCUMENT -> break
+                XmlPullParser.END_DOCUMENT -> endedEarly()
             }
         }
         if (out.truncated) truncated++
@@ -222,7 +228,7 @@ internal class SafeXmlReader(
                     if (parser.depth == depth) break
                     out.append("</").append(parser.name).append(">")
                 }
-                XmlPullParser.END_DOCUMENT -> break
+                XmlPullParser.END_DOCUMENT -> endedEarly()
             }
         }
         val result = if (hasChildren) out else raw

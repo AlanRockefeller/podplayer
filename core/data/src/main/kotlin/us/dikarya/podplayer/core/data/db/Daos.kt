@@ -85,6 +85,32 @@ interface FeedDao {
     @Query("UPDATE feeds SET ownerApprovedHost = :host WHERE id = :id")
     suspend fun setOwnerApprovedHost(id: Long, host: String?): Int
 
+    @Query("SELECT id FROM feeds ORDER BY id")
+    suspend fun allIds(): List<Long>
+
+    /** Feeds not backing off: never failed, or their retry time has come. */
+    @Query("SELECT id FROM feeds WHERE nextRefreshAt IS NULL OR nextRefreshAt <= :now ORDER BY id")
+    suspend fun dueIds(now: Long): List<Long>
+
+    @Query(
+        """UPDATE feeds SET etag = :etag, lastModified = :lastModified, lastRefreshSuccessAt = :at,
+           consecutiveFailures = 0, nextRefreshAt = NULL WHERE id = :id""",
+    )
+    suspend fun recordSuccess(id: Long, etag: String?, lastModified: String?, at: Long): Int
+
+    /** A 304: the stored validators are still the right ones. */
+    @Query("UPDATE feeds SET lastRefreshSuccessAt = :at, consecutiveFailures = 0, nextRefreshAt = NULL WHERE id = :id")
+    suspend fun recordNotModified(id: Long, at: Long): Int
+
+    @Query(
+        """UPDATE feeds SET lastRefreshErrorAt = :at, lastRefreshError = :message, consecutiveFailures = :failures,
+           nextRefreshAt = :nextAt WHERE id = :id""",
+    )
+    suspend fun recordFailure(id: Long, message: String, at: Long, failures: Int, nextAt: Long): Int
+
+    @Query("UPDATE feeds SET url = :url WHERE id = :id")
+    suspend fun setUrl(id: Long, url: String): Int
+
     @Query("DELETE FROM feeds WHERE id = :id")
     suspend fun delete(id: Long): Int
 }
@@ -138,6 +164,26 @@ interface MediaFileDao {
 
     @Query("SELECT * FROM media_files WHERE state = 'Complete' ORDER BY completedAt DESC")
     fun observeComplete(): Flow<List<MediaFileEntity>>
+
+    @Query("SELECT * FROM media_files ORDER BY episodeId")
+    fun observeAll(): Flow<List<MediaFileEntity>>
+
+    @Query("SELECT m.* FROM media_files m JOIN episodes e ON e.id = m.episodeId WHERE e.feedId = :feedId ORDER BY m.episodeId")
+    suspend fun forFeed(feedId: Long): List<MediaFileEntity>
+
+    /** Bytes on disk for every download but one: what the storage cap leaves for that one. */
+    @Query("SELECT COALESCE(SUM(bytesDownloaded), 0) FROM media_files WHERE episodeId != :exceptEpisodeId")
+    suspend fun usedBytesExcept(exceptEpisodeId: Long): Long
+
+    @Query("UPDATE media_files SET etag = :etag, lastModified = :lastModified WHERE episodeId = :episodeId")
+    suspend fun setValidators(episodeId: Long, etag: String?, lastModified: String?): Int
+
+    @Query(
+        """UPDATE media_files SET state = 'Complete', bytesDownloaded = :bytes, totalBytes = :bytes,
+           probedDurationMs = :durationMs, mimeType = :mimeType, completedAt = :at, updatedAt = :at
+           WHERE episodeId = :episodeId""",
+    )
+    suspend fun markComplete(episodeId: Long, bytes: Long, durationMs: Long, mimeType: String?, at: Long): Int
 
     @Upsert
     suspend fun upsert(file: MediaFileEntity)

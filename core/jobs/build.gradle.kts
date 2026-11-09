@@ -19,7 +19,14 @@ dependencies {
     implementation(project(":core:net"))
     implementation(project(":core:feed"))
     api(libs.androidx.work.runtime)
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.kotlinx.coroutines.android)
+    // Only for its extractors (media3-extractor, part of its API): downloads are probed with them (SPEC §9).
+    implementation(libs.media3.exoplayer)
 
+    testImplementation(project(":core:testing"))
     testImplementation(libs.androidx.work.testing)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.turbine)
 }

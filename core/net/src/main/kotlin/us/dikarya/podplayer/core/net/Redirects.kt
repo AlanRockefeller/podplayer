@@ -6,6 +6,7 @@
 
 package us.dikarya.podplayer.core.net
 
+import okhttp3.Credentials
 import okhttp3.HttpUrl
 import okhttp3.Interceptor
 import okhttp3.Request
@@ -44,11 +45,15 @@ val Response.redirectChain: RedirectChain
  * Follows redirects by hand (the client's own following is off): at most [maxRedirects] hops, each one
  * going back through [UrlGuard], [GatedDns] and [ConnectionGuard]. Only GET and HEAD are followed.
  * Credentials are dropped when the host, port or scheme changes.
+ *
+ * A URL with userinfo (`https://user:pass@host/feed`, as some private feeds are written) is sent as HTTP
+ * Basic auth to that host, since OkHttp never sends userinfo itself, and the userinfo leaves the URL, so it
+ * is dropped with the header when a redirect changes host. An explicit `Authorization` header wins.
  */
 internal class RedirectInterceptor(private val maxRedirects: Int) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
         val start = chain.request().url
-        var request = chain.request()
+        var request = userinfoAsBasicAuth(chain.request())
         val hops = mutableListOf<RedirectHop>()
         while (true) {
             val response = chain.proceed(request)
@@ -66,6 +71,16 @@ internal class RedirectInterceptor(private val maxRedirects: Int) : Interceptor 
             hops += RedirectHop(request.url, target, response.code)
             request = nextRequest(request, target, response.code)
         }
+    }
+
+    private fun userinfoAsBasicAuth(request: Request): Request {
+        val url = request.url
+        if (url.username.isEmpty() && url.password.isEmpty()) return request
+        val builder = request.newBuilder().url(url.newBuilder().username("").password("").build())
+        if (request.header("Authorization") == null) {
+            builder.header("Authorization", Credentials.basic(url.username, url.password, Charsets.UTF_8))
+        }
+        return builder.build()
     }
 
     private fun nextRequest(previous: Request, target: HttpUrl, code: Int): Request {

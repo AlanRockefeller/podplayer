@@ -27,6 +27,7 @@ import us.dikarya.podplayer.core.model.MediaFile
 import us.dikarya.podplayer.core.model.PlaybackRecord
 import us.dikarya.podplayer.core.model.QueueEntry
 import us.dikarya.podplayer.core.model.assertInvariant
+import us.dikarya.podplayer.core.net.Validators
 import us.dikarya.podplayer.core.net.scrubUrls
 
 /** Every repository over one open database. */
@@ -216,6 +217,28 @@ class MediaFileRepository internal constructor(private val db: PodDatabase) {
         db.mediaFiles().delete(episodeId)
     }
 
+    fun observeAll(): Flow<List<MediaFile>> = db.mediaFiles().observeAll().map { rows -> rows.map { it.toModel() } }
+
+    suspend fun forFeed(feedId: Long): List<MediaFile> = db.mediaFiles().forFeed(feedId).map { it.toModel() }
+
+    /** Bytes taken by every download except [exceptEpisodeId], for the storage cap (SPEC §9). */
+    suspend fun usedBytes(exceptEpisodeId: Long): Long = db.mediaFiles().usedBytesExcept(exceptEpisodeId)
+
+    /** The If-Range validators saved with a partial download, or [Validators.None]. */
+    suspend fun validators(episodeId: Long): Validators =
+        db.mediaFiles().get(episodeId)?.let { Validators.of(it.etag, it.lastModified) } ?: Validators.None
+
+    suspend fun saveValidators(episodeId: Long, validators: Validators) {
+        db.mediaFiles().setValidators(episodeId, validators.etag, validators.lastModified)
+    }
+
+    /** The file passed the Media3 probe (SPEC §9). [mimeType] is the probed audio type, not the feed's claim. */
+    suspend fun markComplete(episodeId: Long, bytes: Long, durationMs: Long, mimeType: String?, at: Long) {
+        db.mediaFiles().markComplete(episodeId, bytes, durationMs, mimeType?.take(MAX_MIME), at)
+    }
+
+    suspend fun mimeType(episodeId: Long): String? = db.mediaFiles().get(episodeId)?.mimeType
+
     /**
      * Drops records whose file is gone or whose path is unsafe, for example after restoring a backup on a
      * phone that doesn't have the downloads (backups never include media). Returns how many were dropped.
@@ -230,6 +253,10 @@ class MediaFileRepository internal constructor(private val db: PodDatabase) {
             }
         }
         return dropped
+    }
+
+    private companion object {
+        const val MAX_MIME = 100
     }
 }
 

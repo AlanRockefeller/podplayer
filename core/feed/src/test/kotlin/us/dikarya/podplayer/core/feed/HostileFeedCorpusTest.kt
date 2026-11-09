@@ -219,6 +219,20 @@ class HostileFeedCorpusTest {
     }
 
     @Test
+    fun `a feed that ends before its root element closes is malformed`() {
+        // A server that closes the connection early, with no length to check, sends exactly this. Accepting
+        // it would mark every missing episode "no longer in feed" (found in M1-S5).
+        val full = """<rss version="2.0"><channel><title>T</title><item><guid>a</guid><title>A</title>""" +
+            """<enclosure url="https://m.example.com/a.mp3"/></item><item><guid>b</guid><title>B</title></item></channel></rss>"""
+        for (cut in listOf("</rss>", "</channel></rss>", "</item></channel></rss>", "B</title></item></channel></rss>")) {
+            val text = full.removeSuffix(cut)
+            assertTrue(text, parseFeed(text).problem() is ParseProblem.Malformed)
+        }
+        assertTrue(parseFeed("<rss><channel><item><title>cut off").problem() is ParseProblem.Malformed)
+        assertEquals(2, parseFeed(full).feed().episodes.size)
+    }
+
+    @Test
     fun `references to illegal characters are removed`() {
         val feed = parseFixture("corpus/feeds/illegal-character-references.xml").feed()
         assertEquals("Control characters removed too", feed.title)

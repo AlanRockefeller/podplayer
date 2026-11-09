@@ -13,6 +13,8 @@ import android.os.StrictMode
 import us.dikarya.podplayer.core.data.logs.AppLog
 import us.dikarya.podplayer.core.model.InvariantHandler
 import us.dikarya.podplayer.core.model.StrictInvariantHandler
+import us.dikarya.podplayer.dev.DeveloperScreen
+import us.dikarya.podplayer.ui.shell.DebugScreen
 
 /** Decides which StrictMode thread violations are our bugs. */
 internal object StrictModeFilter {
@@ -64,4 +66,7 @@ internal object BuildTypeSetup {
     /** Debug builds crash on a violated invariant (CLAUDE.md); the crash handler records it in the log first. */
     @Suppress("UNUSED_PARAMETER")
     fun invariantHandler(log: AppLog): InvariantHandler = StrictInvariantHandler
+
+    /** The Developer screen (SPEC §12), debug builds only. */
+    val debugScreen: DebugScreen? = DebugScreen(R.string.dev_title) { DeveloperScreen() }
 }

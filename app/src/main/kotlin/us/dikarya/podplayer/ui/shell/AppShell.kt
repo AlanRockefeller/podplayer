@@ -19,6 +19,7 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -36,6 +37,7 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlin.reflect.KClass
 import kotlinx.serialization.Serializable
+import us.dikarya.podplayer.BuildTypeSetup
 import us.dikarya.podplayer.R
 import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.ui.DataStateDialogs
@@ -56,6 +58,10 @@ data object QueueRoute
 
 @Serializable
 data object SettingsRoute
+
+/** Only registered when the build has a [DebugScreen] (debug builds). */
+@Serializable
+data object DebugRoute
 
 private enum class TopLevelDestination(
     val route: Any,
@@ -80,7 +86,10 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
     val navController = rememberNavController()
     val entry by navController.currentBackStackEntryAsState()
     val destination = entry?.destination
+    val debugScreen = BuildTypeSetup.debugScreen
     val onSettings = destination.isOn(SettingsRoute::class)
+    val onDebug = debugScreen != null && destination.isOn(DebugRoute::class)
+    val onSubScreen = onSettings || onDebug
     val current = TopLevelDestination.entries.firstOrNull { destination.isOn(it.routeClass) }
     DataStateDialogs()
 
@@ -90,13 +99,14 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                 title = {
                     val title = when {
                         onSettings -> R.string.settings_title
+                        onDebug && debugScreen != null -> debugScreen.title
                         current != null -> current.label
                         else -> R.string.app_name
                     }
                     Text(stringResource(title))
                 },
                 navigationIcon = {
-                    if (onSettings) {
+                    if (onSubScreen) {
                         IconButton(onClick = { navController.popBackStack() }) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_arrow_back),
@@ -106,7 +116,12 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                     }
                 },
                 actions = {
-                    if (!onSettings) {
+                    if (!onSubScreen && debugScreen != null) {
+                        TextButton(onClick = { navController.navigate(DebugRoute) { launchSingleTop = true } }) {
+                            Text(stringResource(debugScreen.title))
+                        }
+                    }
+                    if (!onSubScreen) {
                         IconButton(onClick = { navController.navigate(SettingsRoute) { launchSingleTop = true } }) {
                             Icon(
                                 painter = painterResource(R.drawable.ic_settings),
@@ -120,7 +135,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
         bottomBar = {
             Column {
                 MiniPlayerSlot()
-                if (!onSettings) BottomNavigation(navController, current)
+                if (!onSubScreen) BottomNavigation(navController, current)
             }
         },
     ) { padding ->
@@ -138,6 +153,9 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
                     AppearanceScreen(themeMode, onThemeModeChange)
                     BackupSection()
                 }
+            }
+            if (debugScreen != null) {
+                composable<DebugRoute> { debugScreen.content() }
             }
         }
     }

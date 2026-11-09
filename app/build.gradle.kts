@@ -4,6 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+import com.android.build.api.variant.HostTestBuilder
 import java.util.Properties
 
 plugins {
@@ -51,6 +52,14 @@ android {
         compose = true
         // VERSION_NAME goes into the user agent (SPEC §3).
         buildConfig = true
+    }
+}
+
+// Unit tests run for the release variant too, so `src/testRelease` can prove what release builds leave out
+// (the Developer screen, SPEC §12). AGP only creates debug unit tests by default.
+androidComponents {
+    beforeVariants(selector().withBuildType("release")) { variant ->
+        variant.hostTests[HostTestBuilder.UNIT_TEST_TYPE]?.enable = true
     }
 }
 

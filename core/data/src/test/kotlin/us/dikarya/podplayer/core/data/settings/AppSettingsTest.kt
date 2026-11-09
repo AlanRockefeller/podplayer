@@ -92,6 +92,54 @@ class AppSettingsTest {
     }
 
     @Test
+    fun downloadSettingsDefaultToWifiOnlyAndTenGib() {
+        assertEquals(true, withSettings { it.downloadsWifiOnly.first() })
+        assertEquals(10L * 1024 * 1024 * 1024, withSettings { it.storageCapBytes.first() })
+    }
+
+    @Test
+    fun downloadSettingsPersistAndTravelWithABackup() {
+        val snapshot = withSettings {
+            it.setDownloadsWifiOnly(false)
+            it.setStorageCapBytes(3L * 1024 * 1024 * 1024)
+            it.snapshot()
+        }
+        assertEquals(false, withSettings { it.downloadsWifiOnly.first() })
+        withSettings {
+            it.setDownloadsWifiOnly(true)
+            it.setStorageCapBytes(AppSettings.DEFAULT_STORAGE_CAP_BYTES)
+        }
+        assertTrue(withSettings { it.restore(snapshot) })
+        assertEquals(false, withSettings { it.downloadsWifiOnly.first() })
+        assertEquals(3L * 1024 * 1024 * 1024, withSettings { it.storageCapBytes.first() })
+    }
+
+    @Test
+    fun theStorageCapIsKeptWithinSaneBounds() {
+        assertEquals(AppSettings.MIN_STORAGE_CAP_BYTES, withSettings {
+            it.setStorageCapBytes(-5)
+            it.storageCapBytes.first()
+        })
+        assertEquals(AppSettings.MAX_STORAGE_CAP_BYTES, withSettings {
+            it.setStorageCapBytes(Long.MAX_VALUE)
+            it.storageCapBytes.first()
+        })
+    }
+
+    @Test
+    fun aValueOfTheWrongTypeReadsAsTheDefault() {
+        // A hand-made backup can store any type under any key; reading must not throw.
+        val json = """{"format":1,"entries":[
+            {"k":"downloads_wifi_only","t":"string","v":"no"},
+            {"k":"storage_cap_bytes","t":"bool","v":true},
+            {"k":"theme_mode","t":"int","v":3}]}"""
+        assertTrue(withSettings { it.restore(json) })
+        assertEquals(true, withSettings { it.downloadsWifiOnly.first() })
+        assertEquals(AppSettings.DEFAULT_STORAGE_CAP_BYTES, withSettings { it.storageCapBytes.first() })
+        assertEquals(ThemeMode.DARK, withSettings { it.themeMode.first() })
+    }
+
+    @Test
     fun aBadSnapshotChangesNothing() {
         withSettings { it.setThemeMode(ThemeMode.LIGHT) }
         assertFalse(withSettings { it.restore("{\"format\": 99}") })

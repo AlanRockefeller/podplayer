@@ -125,6 +125,16 @@ object ForbiddenApis {
             extensions = codeAndXml,
         ),
         ForbiddenApiRule(
+            id = "developer-screen-outside-debug",
+            reason = "The Developer screen lives in the debug source set only (SPEC §12); main and release code " +
+                "reach it only through BuildTypeSetup.debugScreen.",
+            pattern = Regex("""\bus\.dikarya\.podplayer\.dev\b|\bDeveloperScreen\b|\bR\.string\.dev_\w+|@string/dev_\w+"""),
+            extensions = codeAndXml,
+            appliesTo = { module, path ->
+                module.projectPath == APP && (path.startsWith("src/main/") || path.startsWith("src/release/"))
+            },
+        ),
+        ForbiddenApiRule(
             id = "android-in-plain-module",
             reason = "Plain Kotlin modules must not import android.*, so they can move to Kotlin Multiplatform.",
             pattern = Regex("""^\s*import\s+android\.""", RegexOption.MULTILINE),

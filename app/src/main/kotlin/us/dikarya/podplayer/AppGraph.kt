@@ -7,7 +7,6 @@
 package us.dikarya.podplayer
 
 import android.content.Context
-import androidx.work.WorkManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,9 +20,8 @@ import us.dikarya.podplayer.core.data.logs.AppLog
 import us.dikarya.podplayer.core.data.logs.ExitReasons
 import us.dikarya.podplayer.core.data.settings.AppSettings
 import us.dikarya.podplayer.core.data.settings.ThemeMode
-import us.dikarya.podplayer.core.jobs.BackupWorker
+import us.dikarya.podplayer.core.jobs.Jobs
 import us.dikarya.podplayer.core.jobs.PodplayerWorkerFactory
-import us.dikarya.podplayer.core.jobs.asDailyBackup
 import us.dikarya.podplayer.core.net.NetConfig
 import us.dikarya.podplayer.core.net.NetGate
 
@@ -60,14 +58,17 @@ class AppGraph(context: Context) {
      */
     val netGate: NetGate by lazy { NetGate(NetConfig(appVersion = BuildConfig.VERSION_NAME)) }
 
-    val workerFactory = PodplayerWorkerFactory { data.backups.asDailyBackup() }
+    /** Refresh, downloads and the daily backup (`:core:jobs`). Nothing is built until first use. */
+    val jobs = Jobs(appContext, data, gate = { netGate }, log = log, scope = appScope)
+
+    val workerFactory: PodplayerWorkerFactory get() = jobs.workerFactory
 
     fun start() {
         data.start()
         appScope.launch(Dispatchers.IO) {
             log.i("App", "Started version ${BuildConfig.VERSION_NAME}")
             data.device.setLastExitSeenAt(ExitReasons.record(appContext, log, data.device.lastExitSeenAt()))
-            BackupWorker.schedule(WorkManager.getInstance(appContext))
+            jobs.schedule()
         }
     }
 }

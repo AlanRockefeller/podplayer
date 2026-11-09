@@ -71,7 +71,7 @@ code added by S3 to S6) and fixed what it found. No new dependency; CLAUDE.md, S
   "Questions for owner"; they don't block any session.
 - Manual checks for the owner: none beyond CI. On the phone, a show whose host caps range sizes should now show one
   "Completed" line in the download log instead of a run of failures.
-- PR: `m1-review-fixes`.
+- PR: #10 (`m1-review-fixes`).
 
 ### M1-S5 follow-up: MetadataRetriever probe (2026-11-09)
 - Asked: switch `AudioProbe` to `MetadataRetriever` from `media3-inspector` (allowed in SPEC §2 since PR #7).

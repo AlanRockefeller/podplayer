@@ -14,6 +14,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
+import us.dikarya.podplayer.core.net.NetConfig
+import us.dikarya.podplayer.core.net.NetGate
 import us.dikarya.podplayer.settings.AppSettings
 import us.dikarya.podplayer.settings.ThemeMode
 
@@ -33,4 +35,10 @@ class AppGraph(context: Context) {
      * so it is usually ready before the first frame (see MainActivity).
      */
     val themeMode: StateFlow<ThemeMode?> = settings.themeMode.stateIn(appScope, SharingStarted.Eagerly, null)
+
+    /**
+     * The one gated HTTP client (CLAUDE.md, SPEC §3). Pass this, or a `Call.Factory` from it, to
+     * everything that needs the network, including ExoPlayer. Built on first use.
+     */
+    val netGate: NetGate by lazy { NetGate(NetConfig(appVersion = BuildConfig.VERSION_NAME)) }
 }

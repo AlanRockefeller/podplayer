@@ -5,8 +5,9 @@ a reviewer reads it to see what was really done.
 
 ## Current state
 - Milestone: M1
-- Next session: M1-S2
-- Build status: `./gradlew check` and `assembleRelease` green locally (2026-11-08). The CI result is on the M1-S1 PR.
+- Next session: M1-S3
+- Build status: `./gradlew check` and `assembleRelease` green locally after M1-S2 (2026-11-08). The CI result is
+  on the M1-S2 PR.
 
 ## Session log
 <!-- Newest first. Copy this block for each session. -->
@@ -18,6 +19,127 @@ a reviewer reads it to see what was really done.
 - Manual checks for the owner:
 - PR:
 -->
+
+### M1-S2 Network gate (2026-11-08)
+Plan (written before any code; tests first for every rule):
+- Scope: `:core:net` only (pure Kotlin, no `android.*`), plus one forbidden-API rule in `build-logic` and a lazy
+  `NetGate` in `AppGraph`. SPEC §3 and the LESSONS "Downloads" row.
+- Dependencies (all on the allowlist, already pinned in the catalog): `okhttp` and `kotlinx-coroutines-core` for
+  `:core:net`, `mockwebserver3` for its tests. Verification metadata regenerated from an empty Gradle home.
+- Files in `core/net/src/main/kotlin/us/dikarya/podplayer/core/net/`:
+  - `UrlPolicy.kt`: feed-supplied URL parsing (http/https only, length cap, ambiguous numeric hosts such as
+    `127.1` refused), user-visible link check (http, https, mailto), `redact(url)` and `scrubUrls(text)`.
+  - `AddressClassifier.kt`: loopback, private, link-local, CGNAT, unique-local, site-local, multicast,
+    unspecified, broadcast/reserved, and the IPv4 embedded in IPv4-mapped, IPv4-compatible, NAT64 and 6to4 forms.
+  - `AddressPolicy.kt`: the owner-approved host (typed feed URL), matched per host and per request.
+  - `GatedDns.kt`: filters resolved addresses. `Guards.kt`: application interceptor for literal-IP hosts and the
+    user agent, network interceptor re-checking the connected socket address.
+  - `RedirectInterceptor.kt`: manual redirects, at most 5 hops, each re-checked, credentials dropped on a host
+    change, a `RedirectChain` (301/308 vs 302/307, the permanent URL) attached to the final request.
+  - `NetGate.kt` / `NetConfig.kt`: the one OkHttp client (connect 15 s, read 30 s, no automatic redirects, no
+    proxy, no cache, no cookies, explicit connection pool), per-policy clients sharing pool and dispatcher,
+    `callFactory(policy)` (a `Call.Factory`, so other modules never hold an `OkHttpClient`), and `fetch()`.
+  - `BodyLimit.kt`: size-limited reading (SPEC §3 limits, checked on decompressed bytes) with a per-kind total
+    time limit. `ConditionalGet.kt`: `Validators` (ETag, Last-Modified) sanitized so a hostile value can't crash
+    the next request. `NetError.kt` / `FetchResult`: typed results, messages scrubbed of URLs.
+  - `download/`: `RangeDownloader` (Range + If-Range resume, servers ignoring Range, Content-Range checks,
+    416 handling, stall watchdog, progress, cancellation that waits for the writer to stop), `DownloadSink`
+    (+ file implementation), typed results with restart reasons.
+- Tests first, in `core/net/src/test/` (MockWebServer on 127.0.0.1 behind a fake resolver): redact; URL policy;
+  classifier table; DNS filter; redirect to 127.0.0.1, 10.x, 169.254.169.254, [::1], fc00:: refused; loop stops at
+  5; typed local host allowed only for that host; 301/308 vs 302/307 reporting; body over the limit (declared,
+  chunked, gzip bomb); total time limit; conditional GET and hostile validators; user agent and client settings;
+  Range resume; server ignoring Range; changed file; slow drip stall; steady slow server completes; dropped
+  connection then resume; cancellation; disk full; redirect to a private address during a download.
+- `build-logic`: forbidden-API rule `okhttp-client-outside-net` (resolves the S2 "Later" item), with a sample and
+  test.
+
+Result:
+- Done (file names differ slightly from the plan: redirects live in `Redirects.kt`, limits in `NetConfig.kt`,
+  validators in `Validators.kt`):
+  - `NetGate`: the single OkHttp client. Connect 15 s, read 30 s, no call timeout, automatic redirects off,
+    `Proxy.NO_PROXY`, no cache, no cookies, explicit connection pool. One client per `AddressPolicy` built with
+    `newBuilder()`, so pool and dispatcher are shared, and pooled connections are only reused under an equal
+    policy (OkHttp compares the `Dns`). Other modules get a `Call.Factory` wrapper (`callFactory(policy)`), never
+    the `OkHttpClient`, so nobody can `newBuilder()` the gate away. `fetch()` returns a typed `FetchResult`
+    and never throws for network or server problems.
+  - Address filter, three layers: `GatedDns` (drops blocked answers, fails if none are left), `UrlGuard`
+    (IP-literal hosts, which OkHttp connects to without asking the Dns; ambiguous numeric hosts; user agent),
+    `ConnectionGuard` network interceptor (re-checks the connected socket address before the request is
+    written). The owner-approved host bypasses all three, for that host only.
+  - `RedirectInterceptor`: at most 5 hops, each going back through all three layers. Relative Locations are
+    resolved; non-http(s) or missing Locations are refused. `Authorization`, `Cookie` and
+    `Proxy-Authorization` are dropped when scheme, host or port changes. Only GET/HEAD are followed. The
+    `RedirectChain` is attached to the final request (`Response.redirectChain`), so ExoPlayer calls get it too.
+  - `UrlPolicy.checkFeedUrl`, `UrlPolicy.isAllowedLink` (http, https, mailto; whitespace and control
+    characters removed first, as browsers do), `redact(String)`, `redact(HttpUrl)`, `scrubUrls(text)`.
+    `NetError.Network` details and every `toString()` of a type that holds a URL are redacted.
+  - `BodyLimit` (FEED/OPML 20 MiB, CHAPTERS/TRANSCRIPT 5 MiB, IMAGE 10 MiB) counts decompressed bytes;
+    `NetLimits.MEDIA_MAX_BYTES` is 2 GiB. `Validators` handles conditional GET and If-Range.
+  - `download/RangeDownloader`: Range + If-Range (strong ETag, else Last-Modified, else restart), 200 to a
+    Range request restarts in the same response (`RangeIgnored`, or `FileChanged` when the validator differs),
+    Content-Range checked (wrong start or multipart: one retry from zero), 416 with `*/<size on disk>` means
+    already complete, `Accept-Encoding: identity`, size cap, stall watchdog (`StallPolicy`), throttled progress,
+    storage errors kept apart from network errors, partial bytes flushed and kept on every failure. On
+    cancellation it cancels the call and waits until the writer has stopped before rethrowing.
+    `DownloadSink` plus `FileDownloadSink` (fsync on close).
+  - `AppGraph.netGate` (lazy; user agent from `BuildConfig.VERSION_NAME`, so `buildConfig` is now on in `:app`).
+  - Forbidden-API rule `okhttp-client-outside-net`: the `OkHttpClient` token anywhere outside `:core:net`.
+  - `:core:net` has no `android.*` imports (the existing `android-in-plain-module` rule checks that).
+  - LESSONS "Downloads" row as tests: no Range support, wrong Content-Range, slow drip, silent server,
+    dropped connection then resume, tracker redirect chains, no exact-size requirement (chunked bodies are
+    accepted). Tracker blockers breaking hosts can't be tested here; the download log arrives in S5.
+- Tests added (131: 129 in `:core:net`, 2 in `build-logic`):
+  - RedactTest (15), UrlPolicyTest (11), AddressClassifierTest (9: every SPEC range, its neighbours, the
+    mapped/compatible/NAT64/6to4 forms, and the literal parser), GatedDnsTest (9).
+  - AddressGateTest (18): a redirect to 127.0.0.1, 10.x, 169.254.169.254, [::1], [fc00::1], [::ffff:127.0.0.1],
+    a name that resolves to loopback, or `127.1` is refused, and the server sees only the first request. The
+    typed host is allowed, and only that host (the same server under another name or literal is refused).
+    An enclosure on 192.168.0.1 is refused. The raw `Call.Factory` follows good redirects and refuses bad
+    ones. `ConnectionGuard` refuses loopback even behind a Dns that doesn't filter.
+  - RedirectTest (14): the loop stops at 5 (6 requests); 5 hops still work; 301/308 vs 302/303/307;
+    A-301-B-302-C gives permanent URL B; relative Locations; missing Location; non-http schemes; credentials
+    dropped across hosts and kept on the same host; Range survives a redirect; no secrets in `toString()`.
+  - BodyLimitTest (12): at the limit OK; declared over the limit; chunked over the limit; gzip bomb (8 MB of
+    zeros against a 1 MB limit); slow drip past the total time limit; read timeout; HTTP errors; dropped
+    connection; no query strings in error details; unknown host.
+  - ConditionalGetTest (8), ClientConfigTest (7: settings, shared pool, `Call.Factory` isn't the client, exact
+    user agent replacing ExoPlayer's, version sanitizing).
+  - RangeDownloaderTest (26): every case above, plus progress, cancellation (no write after `cancel` returns,
+    then resume to a byte-exact file), disk full, a redirect to a private address writing nothing, and
+    Content-Range parsing.
+  - `build-logic` ForbiddenApiCheckTest (+2): `OkHttpClient` is refused in `:app`, `:playback`,
+    `:core:imagesandbox`, `:core:feed` and `:core:jobs`, and allowed in `:core:net`. I saw this one fail before
+    adding the rule. The `:core:net` tests were written before the code too, but Kotlin can't compile them
+    without the API, so their first run was against the finished code. Two failed on that run because of test
+    mistakes (MockWebServer's `url()` says `localhost`, not `127.0.0.1`), and I fixed the tests.
+- Deviations from the spec, and why:
+  - Owner approval is per host, as SPEC §3 says ("may use its own host"). CLAUDE.md says "unless the owner typed
+    that exact feed URL". I read that as the trigger for the approval, not a limit to one URL, so the feed's
+    enclosures on its own home server work. `AddressPolicy.ownerTyped(url)` takes the host; S4/S5 store it with
+    the feed. If the owner wants it limited to the exact URL, it's a one-line change.
+  - Also blocked, beyond the SPEC list: 0.0.0.0/8, 240.0.0.0/4 (including broadcast), fec0::/10 (site-local),
+    and the IPv4 inside IPv4-compatible, NAT64 (64:ff9b::/96, used by IPv6-only mobile networks) and 6to4
+    addresses. Not blocked: 198.18.0.0/15 (benchmarking), because "fake-IP" VPN and proxy apps answer every
+    DNS query from it and blocking it would break all traffic for their users; TEST-NETs (not routable anyway);
+    Teredo.
+  - A DNS answer that mixes public and private addresses keeps the public ones instead of failing the host.
+    OkHttp only connects to what the Dns returns, so this is just as safe and more tolerant of misconfigured
+    dual-stack hosts.
+  - Numeric hosts that aren't a plain dotted quad (`127.1`, `2130706433`, `0177.0.0.1`) are refused outright.
+  - System proxies are ignored (`Proxy.NO_PROXY`). Through a proxy, the gate never sees the target address.
+    VPNs still work: they act below the app.
+  - Total time limits per kind, which SPEC §3 doesn't list (CLAUDE.md: every parser has time limits): 2 min for
+    feeds and OPML, 1 min for chapters, transcripts and images. Downloads have none, as the spec says.
+  - "Read stalls 30 s" became two checks: the socket read timeout (30 s) and a stall watchdog (fewer than
+    1 KiB in any 30 s window). The watchdog catches a slow drip that keeps the socket busy.
+  - "MB" is read as MiB (1,048,576 bytes).
+  - Header values from servers (ETag, Last-Modified) longer than 256 characters, or containing anything but
+    printable ASCII, are dropped. OkHttp would throw when sending them back.
+- Manual checks for the owner: none for this session. There's no UI yet. The acceptance item "a feed you
+  control that points an enclosure at a private address is refused" can be tried once S5's Developer screen
+  exists.
+- PR: #3 (`m1-s2-network-gate`).
 
 ### M1-S1 Project skeleton and guardrails (2026-11-08)
 - Done:
@@ -82,12 +204,11 @@ a reviewer reads it to see what was really done.
     DataStore `libdatastore_shared_counter.so`). They aren't our native code; they're listed in THIRD_PARTY.md.
 - Checked on the owner's phone (Galaxy S24 Ultra, Android 17), signed with the release key: the debug build
   installs, opens dark with Home/Discover/Library/Queue and the Settings icon, and runs with no crash.
-- Manual checks for the owner:
-  - Settings › Light → force stop → relaunch: still Light. On Android 12+ the starting window should already be
-    light from the second launch on.
-  - Settings › Use system setting: toggling dark mode in the system quick settings switches the app while it's open.
+- Confirmed by the owner on the phone (2026-11-08): Light persists across a force stop and relaunch, and
+  "Use system setting" follows the system dark-mode toggle.
+- Manual checks for the owner (still open):
   - TalkBack reads "Settings" on the gear, "Back" on the arrow, and the tab names on the bottom bar.
-- PR: see the `m1-s1-skeleton` pull request.
+- PR: #1 (skeleton, guardrails, shell) and #2 (release-key signing, StrictMode fix), both merged.
 
 ## Decisions made during the build
 - applicationId and package root: `us.dikarya.podplayer` (owner's domain dikarya.us). No `.debug` suffix, so M1 data
@@ -113,13 +234,27 @@ a reviewer reads it to see what was really done.
   unit and instrumented tests, compiler plugins, lint checks) and the root build script classpath, which holds
   the Gradle plugins.
 
+- Network gate (M1-S2): callers get a `Call.Factory` per `AddressPolicy`, never an `OkHttpClient`. Redirects are
+  followed by an application interceptor, not by OkHttp, so the same checks cover `fetch()`, downloads and
+  ExoPlayer. A feed's new URL after redirects is `RedirectChain.permanentUrl`: the end of the leading run of
+  301/308 hops.
+
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
 - None open. (Signing key: answered 2026-11-08; see Decisions.)
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
-- S2: add a forbidden-API rule that `OkHttpClient(` / `OkHttpClient.Builder(` may only appear in `:core:net`.
+- S4/S5: store the owner-approved host with each feed and pass `AddressPolicy.ownerTyped(...)` for that feed's
+  requests (feed, enclosures, artwork). Persist `Validators` per feed (conditional GET) and per partial download.
+- S5: private feeds with `user:pass@` in the URL. OkHttp doesn't turn URL userinfo into an `Authorization` header,
+  so the refresh worker has to add it. The redirect interceptor already drops it on a cross-host hop.
+- S7: ExoPlayer gets `OkHttpDataSource.Factory(netGate.callFactory(policy))`. Map its `IOException`s with
+  `NetError.from` for the position/playback log.
+- Redaction: some hosts put the token in the path (`/feed/<token>.xml`). The rule only asks to strip query,
+  fragment and userinfo. Consider also shortening long path segments in logs.
+- The `[::1]` and `[fc00::1]` tests prove refusal, not that a real IPv6 connection would have worked without the
+  filter. MockWebServer listens on IPv4 only, since CI may not have IPv6.
 - Enforce the allowlist mechanically: direct dependencies must come from catalog entries mapped to SPEC §2.
 - S4: settings are part of backups, so `AppSettings` may move to `:core:data`.
 - Release builds: turn on R8 (minify and resource shrinking) with keep rules. (The signing config is done.)

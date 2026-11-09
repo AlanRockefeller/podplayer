@@ -49,6 +49,8 @@ android {
 
     buildFeatures {
         compose = true
+        // VERSION_NAME goes into the user agent (SPEC §3).
+        buildConfig = true
     }
 }
 

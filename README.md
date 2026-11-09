@@ -4,8 +4,8 @@ An open-source (MPL-2.0) Android podcast player built first for one owner's dail
 fast, offline-first and private. It has no analytics, no Google Play services and no closed-source
 dependencies, and it never needs a server for ordinary listening.
 
-Status: Milestone 1, session 1. The project skeleton, the guardrail checks and a dark app shell
-exist; podcasts don't play yet. See `docs/PROGRESS.md` for where things stand and
+Status: Milestone 1, session 2. The project skeleton, the guardrail checks, a dark app shell and
+the gated network layer (`:core:net`) exist; podcasts don't play yet. See `docs/PROGRESS.md` for where things stand and
 `docs/milestones/M1.md` for what comes next.
 
 ## Build
@@ -46,7 +46,7 @@ This runs on every push and pull request in GitHub Actions (`.github/workflows/c
 | Unit tests | `test` | Any failing test, including the guardrails' own tests in `build-logic` |
 | Lint | `lint` | Any lint warning or error. Plain Kotlin modules are linted against minSdk through `:app` |
 | License headers | `checkLicenseHeaders` | A `.kt`, `.kts`, `.java` or `.aidl` file that doesn't start with the MPL-2.0 notice |
-| Forbidden APIs | `checkForbiddenApis` | WebView, `MediaExtractor`, `MediaMetadataRetriever`, image decoders outside `:core:imagesandbox`, other HTTP clients, Coil networking, `android.*` in plain Kotlin modules, hex colors in screens |
+| Forbidden APIs | `checkForbiddenApis` | WebView, `MediaExtractor`, `MediaMetadataRetriever`, image decoders outside `:core:imagesandbox`, other HTTP clients, `OkHttpClient` outside `:core:net`, Coil networking, `android.*` in plain Kotlin modules, hex colors in screens |
 | Closed dependencies | `checkClosedDependencies` | Anything from the SPEC §2 "Never" list (Google Play services, Firebase, crash, analytics and ad SDKs, WebView libraries, FFmpeg and native media libraries) on any classpath, direct or transitive |
 | Dependency verification | (every build) | A downloaded artifact whose SHA-256 doesn't match `gradle/verification-metadata.xml` |
 
@@ -104,7 +104,7 @@ If the key is lost, installed copies can never be updated again. Keep the backup
 | `:app` | Compose UI, navigation, `AppGraph` (manual DI), settings |
 | `:core:model` | Domain types, `assertInvariant` |
 | `:core:feed` | Feed and OPML parsing, show-notes sanitizer (M1-S3) |
-| `:core:net` | The single gated HTTP client and URL policy (M1-S2) |
+| `:core:net` | The single gated HTTP client (`NetGate`), URL policy and redaction, address filter, range download engine |
 | `:core:data` | Database, repositories, backups, logs (M1-S4) |
 | `:core:imagesandbox` | Isolated image decoding (M1-S6) |
 | `:core:jobs` | Refresh and download workers (M1-S5) |

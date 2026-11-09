@@ -11,5 +11,9 @@ plugins {
 
 dependencies {
     api(project(":core:model"))
+    api(libs.okhttp)
+    api(libs.kotlinx.coroutines.core)
+
     testImplementation(project(":core:testing"))
+    testImplementation(libs.okhttp.mockwebserver)
 }

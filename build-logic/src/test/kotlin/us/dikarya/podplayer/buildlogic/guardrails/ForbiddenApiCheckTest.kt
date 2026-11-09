@@ -65,6 +65,20 @@ class ForbiddenApiCheckTest {
     }
 
     @Test
+    fun okHttpClientIsRefusedOutsideTheNetModule() {
+        val jobs = ModuleContext(projectPath = ":core:jobs", plainKotlin = false)
+        for (context in listOf(app, playback, sandbox, feed, jobs)) {
+            assertTrue(context.projectPath, "okhttp-client-outside-net" in rules(context, "OkHttpClientOutsideNet.kt"))
+        }
+    }
+
+    @Test
+    fun okHttpClientIsAllowedInTheNetModule() {
+        val net = ModuleContext(projectPath = ":core:net", plainKotlin = true)
+        assertEquals(emptySet<String>(), rules(net, "OkHttpClientOutsideNet.kt"))
+    }
+
+    @Test
     fun coilNetworkingIsRefused() {
         assertTrue("coil-network" in rules(app, "CoilNetwork.kt"))
         assertTrue("coil-network" in rules(sandbox, "CoilNetwork.kt"))

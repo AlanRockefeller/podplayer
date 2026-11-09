@@ -18,12 +18,14 @@ Only libraries on the SPEC §2 allowlist. Versions are in `gradle/libs.versions.
 | Kotlin standard library, kotlinx-coroutines, kotlinx-serialization | all modules | Apache-2.0 |
 | AndroidX core, activity, lifecycle, navigation, DataStore | `:app` | Apache-2.0 |
 | Jetpack Compose (BOM) and Material 3 | `:app` | Apache-2.0 |
+| OkHttp and Okio | `:core:net` (exposed to the modules that depend on it) | Apache-2.0 |
+| OkHttp MockWebServer (`mockwebserver3`) | `:core:net` tests | Apache-2.0 |
 | JUnit 4 | tests | EPL-1.0 |
 | Gradle wrapper | build | Apache-2.0 |
 | Android Gradle Plugin, Kotlin Gradle Plugin | build | Apache-2.0 |
 
 Pinned in the catalog for later sessions, not used yet. Confirm each license when it is added:
-Media3, Room, WorkManager, AndroidX Startup, OkHttp and MockWebServer, jsoup, Coil 3, Robolectric,
+Media3, Room, WorkManager, AndroidX Startup, jsoup, Coil 3, Robolectric,
 Turbine, kxml2, Jazzer.
 
 Prebuilt native libraries that ship inside AndroidX artifacts (not our own native code):

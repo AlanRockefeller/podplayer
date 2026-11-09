@@ -56,6 +56,7 @@ class ForbiddenApiRule(
 object ForbiddenApis {
     const val IMAGE_SANDBOX = ":core:imagesandbox"
     const val APP = ":app"
+    const val NET = ":core:net"
 
     val EXTENSIONS: Set<String> = setOf("kt", "java", "xml", "aidl")
 
@@ -95,6 +96,13 @@ object ForbiddenApis {
             reason = "All network traffic goes through the gated OkHttp client in :core:net.",
             pattern = Regex("""\bHttpsURLConnection\b|\bHttpURLConnection\b|\.openConnection\(|\.openStream\("""),
             extensions = code,
+        ),
+        ForbiddenApiRule(
+            id = "okhttp-client-outside-net",
+            reason = "Only $NET builds OkHttp clients; other modules get a gated Call.Factory from NetGate.",
+            pattern = Regex("""\bOkHttpClient\b"""),
+            extensions = code,
+            appliesTo = { module, _ -> module.projectPath != NET },
         ),
         ForbiddenApiRule(
             id = "coil-network",

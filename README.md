@@ -75,6 +75,28 @@ Source and javadoc jars, which Android Studio downloads for browsing, are truste
 The metadata includes Linux-specific artifacts such as `aapt2`. Building on macOS or Windows needs
 one regeneration run there.
 
+## Release signing
+
+The signing key never enters the repository. It lives on the owner's machine:
+
+| File | What |
+| --- | --- |
+| `~/keystores/podplayer/podplayer-release.p12` | The keystore (PKCS12, RSA 4096, alias `podplayer`) |
+| `~/keystores/podplayer/signing.properties` | What Gradle reads: `storeFile`, `storePassword`, `keyAlias`, `keyPassword` |
+| `~/keystores/podplayer/podplayer-signing-BACKUP.txt` | Offsite backup: password, fingerprints, base64 keystore, restore steps |
+
+When `signing.properties` exists, debug and release builds are both signed with this key. That
+way the debug build used during M1 can be updated in place by a release build, keeping its data.
+Point Gradle at another location with `-Ppodplayer.signing.file=/path/to/signing.properties`
+(or set it in `~/.gradle/gradle.properties`). Without the file, as on CI, release builds come out
+unsigned and debug builds use the standard Android debug key.
+
+The certificate's SHA-256 fingerprint is
+`0F:C9:66:04:4F:25:30:68:1D:C7:05:09:B6:95:16:CF:A2:D6:DC:55:28:C3:48:B6:4C:99:82:C1:73:DB:27:64`.
+Check an APK with `apksigner verify --print-certs app-release.apk`.
+
+If the key is lost, installed copies can never be updated again. Keep the backup file offsite.
+
 ## Project layout
 
 | Module | Holds |

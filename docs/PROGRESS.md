@@ -42,7 +42,7 @@ a reviewer reads it to see what was really done.
   - Debug builds: StrictMode, and `assertInvariant` crashes. Release builds: logs only. Both live in per-build-type
     source sets, so StrictMode code is not in release.
   - `README.md` (build, install, checks, verification regeneration), `docs/THIRD_PARTY.md`.
-- Tests added (61, all passing):
+- Tests added (65, all passing):
   - `build-logic`: HeaderCheckTest (10), ForbiddenApiCheckTest (16), ClosedDependencyCheckTest (6), and
     GuardrailFunctionalTest (10). The functional tests run the real tasks in throwaway Gradle projects. They prove
     that the header, forbidden-API and closed-dependency checks fail the build on bad samples, including a
@@ -52,6 +52,7 @@ a reviewer reads it to see what was really done.
     back to Dark. NightModeMappingTest (3). ColorTokensTest (5): WCAG AA on every surface, tokens match the spec,
     and the XML window backgrounds match the tokens.
   - `:core:model`: InvariantsTest (4).
+  - `:app` debug: StrictModeFilterTest (4): our frames crash; vendor-only stacks and look-alike packages only log.
   - Also checked by hand: a `WebView` import added to `:app` fails `./gradlew check`, and a corrupted checksum in
     the verification metadata fails the build. Both were reverted.
   - The first CI run failed: verification metadata generated with a warm local cache missed two POMs/BOMs on the
@@ -66,8 +67,11 @@ a reviewer reads it to see what was really done.
     naming `WebView` fails it.
   - Settings › Appearance was built now, in minimal form; the full Settings arrive in S9. The "Light persists across
     restart" check needs a way to switch.
-  - StrictMode: the thread policy crashes (penaltyDeath). The VM policy only logs, because framework and library
-    internals trigger it. Untagged-socket detection is off (OkHttp doesn't tag sockets).
+  - StrictMode: the thread policy logs every violation, and crashes only when our own package
+    (`us.dikarya.podplayer.*`) is on the stack (`StrictModeFilter`). On the owner's Galaxy S24 Ultra (Android 17),
+    Samsung's framework `android.app.IdsController` reads SharedPreferences on the main thread during every
+    activity resume. The original penaltyDeath killed the app at launch even though no app code was involved.
+    The VM policy only logs. Untagged-socket detection is off (OkHttp doesn't tag sockets).
   - Android cloud backup is off (`allowBackup=false`, plus extraction rules that exclude everything from cloud
     backup), because feed URLs can carry tokens. Device-to-device transfer is still allowed. Our own backups are S4.
   - The header check enforces `.kt`, `.kts`, `.java` and `.aidl` (AIDL arrives in S6). XML, TOML and YAML have the
@@ -76,10 +80,9 @@ a reviewer reads it to see what was really done.
     `AndroidGradlePluginVersion`, `OldTargetApi`), so CI doesn't fail just because upstream shipped a release.
   - AndroidX ships two prebuilt native libraries inside its AARs (Compose `libandroidx.graphics.path.so`,
     DataStore `libdatastore_shared_counter.so`). They aren't our native code; they're listed in THIRD_PARTY.md.
-- Manual checks for the owner (not run: no phone or emulator image was available in this session):
-  - CI is green on the PR.
-  - `./gradlew :app:installDebug`: the app opens dark, with Home/Discover/Library/Queue and a Settings icon.
-    Watch for a StrictMode crash on start (`adb logcat -s StrictMode AndroidRuntime`).
+- Checked on the owner's phone (Galaxy S24 Ultra, Android 17), signed with the release key: the debug build
+  installs, opens dark with Home/Discover/Library/Queue and the Settings icon, and runs with no crash.
+- Manual checks for the owner:
   - Settings › Light → force stop → relaunch: still Light. On Android 12+ the starting window should already be
     light from the second launch on.
   - Settings › Use system setting: toggling dark mode in the system quick settings switches the app while it's open.
@@ -99,6 +102,11 @@ a reviewer reads it to see what was really done.
   answered, and `UiModeManager.setApplicationNightMode` (API 31+) makes the system starting window match the saved
   theme from the second launch on. On API 29–30, and on the very first launch, the starting window follows the
   system theme for a moment.
+- Signing key (owner, 2026-11-08): it's kept on the owner's machine in `~/keystores/podplayer/` (PKCS12,
+  RSA 4096, 50 years, alias `podplayer`), and the owner keeps the offsite backup text file. Certificate SHA-256:
+  `0F:C9:66:04:4F:25:30:68:1D:C7:05:09:B6:95:16:CF:A2:D6:DC:55:28:C3:48:B6:4C:99:82:C1:73:DB:27:64`.
+  Debug builds are signed with it too, so the M1 daily-use debug install can be updated by a release build
+  without losing data. CI has no key and builds unsigned releases.
 - Nav icons are Material Symbols vector drawables copied into `res/drawable`, not the Compose icons artifact.
 - The closed-dependency check is a denylist (SPEC §2 "Never" list plus named crash, analytics, ad, WebView, FFmpeg and
   native-media groups, and `coil-network-*`). It covers every resolvable classpath of every module (all variants,
@@ -107,16 +115,14 @@ a reviewer reads it to see what was really done.
 
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
-- None blocking. Before the first release build you'll install: how do you want to keep the signing key? It must
-  stay the same forever, or the app can't update over itself.
+- None open. (Signing key: answered 2026-11-08; see Decisions.)
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
 - S2: add a forbidden-API rule that `OkHttpClient(` / `OkHttpClient.Builder(` may only appear in `:core:net`.
 - Enforce the allowlist mechanically: direct dependencies must come from catalog entries mapped to SPEC §2.
 - S4: settings are part of backups, so `AppSettings` may move to `:core:data`.
-- Release builds: turn on R8 (minify and resource shrinking) with keep rules, and add a signing config once the key
-  question is answered.
+- Release builds: turn on R8 (minify and resource shrinking) with keep rules. (The signing config is done.)
 - A Robolectric Compose test for the shell (four tabs, Settings icon, the theme switch recomposing), once
   Robolectric arrives with S4.
 - Enforce the MPL notice in XML, TOML and YAML files (it's placed there now but not checked).

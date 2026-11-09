@@ -5,9 +5,9 @@ a reviewer reads it to see what was really done.
 
 ## Current state
 - Milestone: M1
-- Next session: M1-S3
-- Build status: `./gradlew check` and `assembleRelease` green locally after M1-S2 (2026-11-08). The CI result is
-  on the M1-S2 PR.
+- Next session: M1-S4
+- Build status: `./gradlew check` and `assembleRelease` green locally after M1-S3 (2026-11-08). The CI result is
+  on the M1-S3 PR.
 
 ## Session log
 <!-- Newest first. Copy this block for each session. -->
@@ -19,6 +19,158 @@ a reviewer reads it to see what was really done.
 - Manual checks for the owner:
 - PR:
 -->
+
+### M1-S3 Feeds, OPML and show notes (2026-11-08)
+Plan (written before any code; tests first for every rule):
+- Scope: `:core:feed` (pure Kotlin) and `:core:testing`, plus two forbidden-API rules in `build-logic`.
+  SPEC §4, §5, §14 (feed, OPML and notes parts of the hostile corpus); LESSONS rows "Episode identity" and
+  "Parser strictness".
+- Dependencies (all on the allowlist and already pinned): jsoup for `:core:feed` (notes only); kxml2 as
+  `compileOnly` in `:core:feed` (it supplies the `org.xmlpull.v1` interface the parser is written against; on
+  Android the platform provides it, so nothing ships) and as `api` of `:core:testing` (the JVM parser in
+  tests). `:core:feed` also gets `implementation(project(":core:net"))` to reuse `UrlPolicy` and `redact`
+  instead of a second copy of the URL rules. Verification metadata regenerated from an empty Gradle home.
+- Files in `core/feed/src/main/kotlin/us/dikarya/podplayer/core/feed/`:
+  - `xml/EncodingDetector.kt`: BOM, then XML declaration, then HTTP `charset`, then UTF-8 with replacement.
+  - `xml/XmlPrepass.kt`: decode, drop characters illegal in XML 1.0 (and character references to them),
+    escape bare `&` (outside CDATA and comments), turn common HTML named entities into character references,
+    refuse any DOCTYPE that declares entities, strip other DOCTYPEs and the XML declaration, sniff HTML.
+    `HtmlEntities.kt`: the small entity table.
+  - `xml/SafeXml.kt`: `XmlParserProvider` (Android passes the platform parser, tests pass kxml2), parser setup
+    (namespaces on, DOCTYPE processing off and verified off), `XmlLimits` (20 MiB, 10,000 items, 10 s, depth
+    64) and a guarded `next()` that enforces depth and time with an injectable clock.
+  - `FeedParser.kt` with `RssReader.kt` and `AtomReader.kt`: SPEC §4 channel and item fields, RSS 2.0 +
+    iTunes + Podcasting 2.0, Atom basics. Typed `FeedParseResult` (`Success` with warnings, `Failure` with a
+    `FeedError`). Every feed-supplied URL goes through `UrlPolicy.checkFeedUrl`; field lengths and list sizes
+    are capped. `ParsedFeed.kt` holds the output types.
+  - `FeedDates.kt` (RFC 822 plus deviations, ISO 8601 for Atom; unparseable → null) and `Durations.kt`
+    (`itunes:duration` in seconds, `mm:ss`, `hh:mm:ss`, fractions, garbage → null).
+  - `identity/EpisodeMerge.kt`: pure function (stored episodes, parsed items, now) → changes: inserts, metadata
+    updates, "no longer in feed", "back in feed", and a broken-feed warning for duplicate GUIDs (with
+    feed-validator links). GUID first; enclosure URL, then normalized title plus publication day as fallbacks.
+  - `opml/OpmlParser.kt` (same XML safety, limits, nested outlines, URL policy, duplicates) and
+    `opml/OpmlWriter.kt` (OPML 2.0 export of all subscriptions).
+  - `notes/ShowNotes.kt`, `notes/RichText.kt`, `notes/Timestamps.kt`: jsoup allowlist (p, br, ul, ol, li,
+    a[href], b, strong, i, em, blockquote, h1–h4 as bold) to a flat rich-text model (text plus style spans:
+    bold, italic, link, timestamp, quote, list item), links limited to http/https/mailto, bare http(s) URLs
+    linked, timestamps (`12:34`, `1:02:03`) as seek spans, input-size, node-count and time limits.
+- `:core:testing`: synthetic fixtures (no copied show notes, no real feeds) under `src/main/resources/`:
+  `corpus/feeds`, `corpus/opml`, `corpus/notes`, and realistic `samples/feeds` that mimic common publisher
+  patterns (hosted platforms, Podcasting 2.0 tags, Atom, Latin-1 legacy feed). `Fixtures.kt` loads them;
+  `SyntheticFeeds.kt` generates the big ones (10,000 items, 25 MB, 65-deep nesting, UTF-16 BOM).
+- Tests first, in `core/feed/src/test/`: one per hostile fixture (entity-expansion bomb, external entity,
+  DOCTYPE with entities, 25 MB feed, 65-deep nesting, too many items, time limit, bare ampersands, invalid
+  dates, wrong declared encoding, BOM, duplicate GUIDs, HTML instead of RSS, `javascript:`/`intent:` links in
+  notes, an enclosure on a private address, which the parser keeps and the network gate then refuses);
+  encoding detection; pre-pass; dates; durations; RSS, iTunes, Podcasting 2.0 and Atom fields on the samples;
+  identity and merge (duplicate GUIDs, re-post, host move with new GUIDs, removed and returning items,
+  missing GUIDs); OPML import (nested, bad schemes, duplicates, hostile) and round trip; sanitizer (scripts,
+  iframes, forms, styles, images, event handlers, `javascript:`/`intent:`/`data:` links, nesting, limits) and
+  timestamps; 10,000-item feed parses under the time limit.
+- `build-logic`: forbidden-API rules `jsoup-network` (`Jsoup.connect` and jsoup's HTTP connection, which would
+  bypass the gate) and `jsoup-outside-feed` (SPEC §2: jsoup is for show notes only), each with a sample and test.
+- Not in scope: storing anything (S4), fetching (S5), rendering `RichText` as `AnnotatedString` (S8).
+
+Result:
+- Done (file layout as planned, except that the RSS and Atom readers share `FeedReaders.kt` and OPML import and
+  export share `opml/Opml.kt`):
+  - Pre-pass (`xml/XmlPrepass.kt`, `xml/EncodingDetector.kt`, `xml/HtmlEntities.kt`): byte limit before
+    decoding; encoding from BOM (UTF-8/16/32), UTF-16 without BOM, XML declaration, HTTP `charset`, then UTF-8
+    with replacement; illegal XML characters and references to them removed (inside CDATA too); bare `&`
+    escaped; about 130 HTML named entities turned into character references; any DOCTYPE that declares an
+    entity or uses a parameter entity refused, any other DOCTYPE and the XML declaration removed; markup
+    declarations after the prolog refused; web pages recognised by DOCTYPE or root element; at most 256
+    attributes per tag; missing declarations for `itunes`, `podcast`, `content`, `atom`, `media`,
+    `googleplay` and `dc` added to the root.
+  - Safe parsing (`xml/SafeXml.kt`): `XmlParserProvider` (Android passes the platform parser, tests pass
+    kxml2), namespaces on, DOCTYPE processing off and checked off, depth checked on every start tag, item count,
+    and one 10 s budget for pre-pass plus parse with an injectable `Ticker`. Typed `ParseProblem` results
+    with a `logReason` that never quotes content; no exception escapes `parse()`.
+  - `FeedParser`: RSS 2.0 + iTunes + Podcasting 2.0 and Atom 1.0 (and the 0.3 namespace) with every SPEC §4
+    field, in `ParsedFeed`/`ParsedEpisode`. Every feed URL passes `UrlPolicy.checkFeedUrl`; titles are
+    whitespace-collapsed; fields and lists are capped (`FieldLimits`); the audio enclosure wins when an item has
+    several. Warnings: repairs made, duplicate GUIDs (with validator links), URLs refused, fields cut.
+    `toString()` of every type holding a media URL redacts it.
+  - `FeedDates` (RFC 822 with deviations, ISO 8601) and `Durations` (`itunes:duration`, Podcasting 2.0 seconds).
+  - `identity/EpisodeMerge`: (stored episodes, parsed items, now) → `FeedChanges` (inserts, updates with the
+    match kind and a re-post flag, no longer in feed, back in feed, unchanged count, items skipped for having no
+    enclosure, duplicate listings dropped), plus a stable SHA-256 `fingerprint` so unchanged items cost no write.
+  - `opml/Opml.kt`: `OpmlParser` (same pre-pass and limits, outlines count as items, nested categories
+    flattened, URL policy, duplicates by canonical URL, reasons for every skipped outline) and `OpmlWriter`
+    (OPML 2.0, everything escaped, characters XML can't carry dropped).
+  - `notes/`: `ShowNotes.sanitize` (jsoup parse, allowlist walk, iterative, limits: 1 MiB input, 50,000
+    elements, 2 s), `RichText` (text plus Bold, Italic, Quote, ListItem, Link with its destination host,
+    Timestamp spans), `Timestamps.find`.
+  - `:core:testing`: 17 hostile feed fixtures, 4 OPML fixtures (2 hostile, 1 bad-URL, 1 web page), 1 hostile
+    notes file, 3 sample feeds (hosting-platform style, Podcasting 2.0, Atom), 1 sample OPML, `Fixtures` and
+    `SyntheticFeeds` (10,000 items, 25 MB, deep nesting, UTF-16 with and without BOM, Latin-1).
+  - `build-logic`: forbidden-API rules `jsoup-network` (`Jsoup.connect`, jsoup's `Connection` and
+    `HttpConnection`, `Jsoup.parse(URL…)`) and `jsoup-outside-feed`.
+  - LESSONS rows: "Episode identity": fixtures and tests for one GUID used many times, GUIDs changed on a host
+    move, re-posts with a new date, removed and returning items. "Parser strictness": bare `&`, bad dates,
+    wrong encodings recover; a failed parse is a typed result, so the caller keeps its last good copy (stored
+    from S4 on).
+- Tests added (161: 158 in `:core:feed`, 3 in `build-logic`):
+  - HostileFeedCorpusTest (30): one test per SPEC §14 feed item: entity-expansion bomb (refused in under 2 s),
+    external entity, external parameter entity, DOCTYPE with a harmless entity, 25 MB feed, one byte over the
+    limit, 65-deep nesting (64 is fine), 200,000-deep nesting without a stack overflow, bare ampersands, invalid
+    dates, wrong declared encoding, Latin-1 bytes under a UTF-8 declaration, UTF-8 and UTF-16 BOMs, duplicate
+    GUIDs, HTML instead of RSS, `javascript:`/`intent:`/`file:` links in feed fields, an enclosure on a private
+    address, not a feed, undeclared prefixes, truncation, illegal characters, too many items, too many attributes,
+    garbage input, and every fixture cut off at every seventh byte parsing without an exception.
+  - EnclosureGateTest (1): the private-address fixture's enclosures, parsed, are each refused by the real
+    `NetGate` before any DNS lookup.
+  - FeedParserTest (17): the sample feeds field by field, enclosure choice, whitespace, blank fields, caps,
+    season/episode bounds, unknown elements, case-insensitive iTunes namespace, redacted `toString()`, and 3,000
+    random byte mutations of a feed without an exception.
+  - FeedLimitsTest (6): spec defaults; 10,000 items parse in about 0.2 s here (asserted under 2.5 s, the parser
+    enforces 10 s); 10,001 refused; the time limit stops a parse.
+  - XmlPrepassTest (20), EncodingDetectorTest (13), FeedDatesTest (7, 67 date strings), DurationsTest (4).
+  - EpisodeMergeTest (21), OpmlTest (11: nested import, bad URLs and duplicates, hostile files, limits, OPML 1
+    spellings, round trip including tokens and special characters, 2,000-feed round trip, redaction),
+    ShowNotesTest (21: scripts, iframes, forms, styles, media, SVG, MathML, templates, images and event handlers
+    dropped; `javascript:`, `intent:`, `data:`, `vbscript:`, `file:`, entity-encoded and whitespace-split
+    schemes refused; destinations; structure; plain text; limits), TimestampsTest (7).
+  - `build-logic` ForbiddenApiCheckTest (+3). I saw the two refusing tests fail before adding the rules.
+  - The `:core:feed` tests were written before the code, but Kotlin can't compile them without the API, so
+    their first run was against the finished code. 7 of 158 failed on that run: 6 from one bug (the year
+    pattern `(\d{2}|\d{4})` took "20" of "2026"), and 1 test mistake (a lone surrogate can't survive UTF-8
+    encoding, so that case moved to the pre-pass test, which works on decoded text).
+- Deviations from the spec, and why:
+  - kxml2 is `compileOnly` in `:core:feed` main code, though SPEC §2 lists it for tests. The parsers must be
+    written against the `org.xmlpull.v1` interface (SPEC §4) and a plain Kotlin module has no other source for
+    it. Nothing ships: Android provides the interface. Tests use kxml2 through `:core:testing`.
+  - `:core:feed` depends on `:core:net` for `UrlPolicy` and `redact`, so there is one copy of the URL rules.
+  - Notes and descriptions are stored raw (capped) and sanitized when shown, not at parse time. The sanitizer
+    can then improve without a re-fetch, and the raw HTML never reaches the screen except through it. SPEC §4
+    says "(sanitized)".
+  - The duplicate-GUID warning's validator links are the validators' front pages, without the feed URL:
+    CLAUDE.md says feed URLs go nowhere but their own host.
+  - Episode identity goes a little beyond "GUID, then enclosure URL, then title plus day when the GUID is
+    missing or duplicated": the fallbacks also run for a GUID the library hasn't seen (LESSONS: publishers
+    change GUIDs when moving hosts), but they never take a stored episode whose own GUID is still in the feed.
+    The enclosure URL is used only when it is unambiguous on both sides; "day" allows one day either way;
+    undated items match by a title only one stored episode has. Items without an enclosure aren't episodes.
+  - Encoding repairs beyond the spec order: ISO-8859-1 and US-ASCII are read as windows-1252 (as browsers do),
+    and a single-byte declaration on bytes that are valid multi-byte UTF-8 is overruled (the "wrong declared
+    encoding" fixture). A UTF-16 declaration on single-byte bytes is ignored.
+  - Limits added: 256 attributes per tag (pull parsers check duplicate attributes in quadratic time); field caps
+    (titles 1,000 characters, notes 512 KiB, lists 100 entries), where a long field is cut and reported, not the
+    whole feed refused; whole-document limits still refuse. Dates outside 1970–2200 and durations over 7 days
+    are not believed. Unknown alphabetic time zones are read as UTC.
+  - Show notes: bare http(s) URLs in the text become links; h5/h6 are plain; table cells keep their text;
+    `img` is dropped with its alt text (SPEC §5: no images in M1); notes over the sanitizer limits come back as
+    `Rejected`, so the UI shows a message instead. Timestamps: "John 3:16" reads as 3:16 (it only ever seeks
+    within the episode); at most 500 per text; ones past the known duration stay text.
+  - Not supported: RSS 1.0 (RDF) feeds (reported as not a feed), relative URLs in Atom (`xml:base`), the
+    `feed://` scheme in OPML (refused as not http/https). See Later.
+  - OPML export writes full feed URLs, tokens included, since import needs them; it only happens when the
+    owner asks.
+  - Parsers don't log themselves: they return `ParseProblem.logReason` and warnings; the log files arrive in
+    S4 and the refresh log in S5.
+- Manual checks for the owner: none for this session; there is no UI that parses feeds yet. S5's Developer
+  screen will run the parser on the owner's real feeds.
+- PR: #4 (`m1-s3-feeds-opml-shownotes`).
 
 ### M1-S2 Network gate (2026-11-08)
 Plan (written before any code; tests first for every rule):
@@ -239,6 +391,14 @@ Result:
   ExoPlayer. A feed's new URL after redirects is `RedirectChain.permanentUrl`: the end of the leading run of
   301/308 hops.
 
+- Feeds (M1-S3): the parsers take an `XmlParserProvider` (the app passes `Xml.newPullParser()`), return typed
+  results and never throw for bad input. Episode notes are stored raw and sanitized at display time.
+  `EpisodeMerge.fingerprint` is stored per episode so unchanged items cost no write; bump its `VERSION` when
+  its fields change.
+- Source files hold no invisible characters (BOM, U+FFFE, no-break space): spell them as code points
+  (`Char(0xFEFF)`) or regex escapes (`\xA0`). The file-writing tool turns `\uXXXX` escapes into the
+  characters themselves, and lint refuses a BOM in the middle of a file.
+
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
 - None open. (Signing key: answered 2026-11-08; see Decisions.)
@@ -261,6 +421,17 @@ Result:
 - A Robolectric Compose test for the shell (four tabs, Settings icon, the theme switch recomposing), once
   Robolectric arrives with S4.
 - Enforce the MPL notice in XML, TOML and YAML files (it's placed there now but not checked).
+- S4: apply `FeedChanges` in one transaction; store `fingerprint` and the raw notes; set `publishedAt` on an
+  update only when it is non-null (the first-seen time otherwise stays).
+- S4/S5: run the feed corpus through Android's own parser too (`Xml.newPullParser()` under Robolectric or an
+  instrumented test). The JVM tests use kxml2 2.2.2; Android's libcore parser differs in places (it reads
+  DOCTYPE internal subsets). The pre-pass removes every DOCTYPE first, so the results should match.
+- S5: write `ParseProblem.logReason` and the feed warnings (repairs, broken feed, refused URLs) to the refresh log.
+- S8: `RichText` to `AnnotatedString`; tapping a link shows `Link.destination` first; timestamps seek.
+- `itunes:new-feed-url` (a feed that moved without a 301) is not in SPEC §4's field list and isn't parsed yet.
+- RSS 1.0 (RDF) feeds, Atom `xml:base` relative URLs, and `feed://`/`pcast://` URLs in OPML and Discover
+  (convert to https?) if a real subscription needs them.
+- S11: seed the Jazzer feed and OPML targets from `core/testing/src/main/resources/corpus`.
 
 ## Known issues
 <!-- Bugs found but not yet fixed, with how to reproduce. -->

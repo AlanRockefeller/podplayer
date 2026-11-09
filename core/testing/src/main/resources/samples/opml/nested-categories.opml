@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="2.0">
+  <head>
+    <title>Exported subscriptions</title>
+    <dateCreated>Sun, 01 Nov 2026 10:00:00 GMT</dateCreated>
+  </head>
+  <body>
+    <outline text="News" title="News">
+      <outline type="rss" text="Daily Example" title="Daily Example" xmlUrl="https://feeds.example.com/daily" htmlUrl="https://www.example.com/daily"/>
+      <outline type="rss" text="Private Feed" xmlUrl="https://premium.example.com/feed/abc?token=s3cr3t&amp;user=7"/>
+    </outline>
+    <outline text="Tech">
+      <outline text="Deeper">
+        <outline type="rss" text="Gadget Talk &amp; More" xmlUrl="http://gadgets.example.org/rss"/>
+      </outline>
+    </outline>
+    <outline type="rss" text="No category" xmlUrl="https://nocat.example.net/feed.xml" htmlUrl="javascript:alert(1)"/>
+    <outline type="link" text="Just a website" url="https://www.example.com/"/>
+  </body>
+</opml>

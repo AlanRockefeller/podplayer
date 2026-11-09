@@ -73,6 +73,25 @@ class ForbiddenApiCheckTest {
     }
 
     @Test
+    fun jsoupNetworkingIsRefusedEverywhereIncludingTheFeedModule() {
+        for (context in listOf(app, playback, feed)) {
+            assertTrue(context.projectPath, "jsoup-network" in rules(context, "JsoupConnect.kt"))
+        }
+    }
+
+    @Test
+    fun jsoupIsRefusedOutsideTheFeedModule() {
+        for (context in listOf(app, playback, sandbox)) {
+            assertTrue(context.projectPath, "jsoup-outside-feed" in rules(context, "JsoupParse.kt"))
+        }
+    }
+
+    @Test
+    fun jsoupParsingIsAllowedInTheFeedModule() {
+        assertEquals(emptySet<String>(), rules(feed, "JsoupParse.kt"))
+    }
+
+    @Test
     fun okHttpClientIsAllowedInTheNetModule() {
         val net = ModuleContext(projectPath = ":core:net", plainKotlin = true)
         assertEquals(emptySet<String>(), rules(net, "OkHttpClientOutsideNet.kt"))

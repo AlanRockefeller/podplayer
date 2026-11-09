@@ -20,13 +20,15 @@ Only libraries on the SPEC §2 allowlist. Versions are in `gradle/libs.versions.
 | Jetpack Compose (BOM) and Material 3 | `:app` | Apache-2.0 |
 | OkHttp and Okio | `:core:net` (exposed to the modules that depend on it) | Apache-2.0 |
 | OkHttp MockWebServer (`mockwebserver3`) | `:core:net` tests | Apache-2.0 |
+| jsoup | `:core:feed` (show-notes sanitizer only; its HTTP client is banned by the forbidden-API check) | MIT |
+| kxml2, with the XmlPull API (`xmlpull`) | `:core:feed` compiles against the XmlPull interface (compile-only; Android provides it); `:core:testing` uses kxml2 as the JVM parser in tests | kxml2: BSD-style; XmlPull API: public domain |
 | JUnit 4 | tests | EPL-1.0 |
 | Gradle wrapper | build | Apache-2.0 |
 | Android Gradle Plugin, Kotlin Gradle Plugin | build | Apache-2.0 |
 
 Pinned in the catalog for later sessions, not used yet. Confirm each license when it is added:
-Media3, Room, WorkManager, AndroidX Startup, jsoup, Coil 3, Robolectric,
-Turbine, kxml2, Jazzer.
+Media3, Room, WorkManager, AndroidX Startup, Coil 3, Robolectric,
+Turbine, Jazzer.
 
 Prebuilt native libraries that ship inside AndroidX artifacts (not our own native code):
 `libandroidx.graphics.path.so` (Compose graphics) and `libdatastore_shared_counter.so` (DataStore),

@@ -5,10 +5,13 @@
  */
 
 // Fixtures, hostile corpus and fakes shared by the tests of other modules.
+// Only test source sets may depend on this module.
 plugins {
     id("podplayer.jvm.library")
 }
 
 dependencies {
     api(project(":core:model"))
+    // The JVM XmlPullParser implementation used in tests (SPEC §2, §4).
+    api(libs.kxml2)
 }

@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Points Inward</title>
+    <item>
+      <title>Router admin</title>
+      <guid>priv-1</guid>
+      <enclosure url="http://192.168.0.1/admin/backup.mp3" type="audio/mpeg" length="1"/>
+    </item>
+    <item>
+      <title>Cloud metadata</title>
+      <guid>priv-2</guid>
+      <enclosure url="http://169.254.169.254/latest/meta-data/iam.mp3" type="audio/mpeg" length="1"/>
+    </item>
+    <item>
+      <title>Loopback</title>
+      <guid>priv-3</guid>
+      <enclosure url="http://127.0.0.1:8080/ep.mp3" type="audio/mpeg" length="1"/>
+    </item>
+    <item>
+      <title>IPv6 loopback</title>
+      <guid>priv-4</guid>
+      <enclosure url="http://[::1]/ep.mp3" type="audio/mpeg" length="1"/>
+    </item>
+    <item>
+      <title>Ten net</title>
+      <guid>priv-5</guid>
+      <enclosure url="http://10.0.0.5/ep.mp3" type="audio/mpeg" length="1"/>
+    </item>
+    <item>
+      <title>Ambiguous number</title>
+      <guid>priv-6</guid>
+      <enclosure url="http://2130706433/ep.mp3" type="audio/mpeg" length="1"/>
+    </item>
+  </channel>
+</rss>

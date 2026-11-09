@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="https://host.example.com/styles/feed.xsl"?>
+<!-- Mimics the shape of feeds from large hosting platforms: CDATA everywhere, iTunes tags,
+     tracking-prefix enclosure URLs, mixed duration formats. All content is invented. -->
+<rss xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd" xmlns:googleplay="http://www.google.com/schemas/play-podcasts/1.0" xmlns:atom="http://www.w3.org/2005/Atom" xmlns:media="http://search.yahoo.com/mrss/" xmlns:content="http://purl.org/rss/1.0/modules/content/" version="2.0">
+  <channel>
+    <atom:link href="https://feeds.example.com/example-hour" rel="self" type="application/rss+xml"/>
+    <title><![CDATA[  The Example   Hour  ]]></title>
+    <link>https://www.example.com/example-hour</link>
+    <language>en-us</language>
+    <copyright><![CDATA[© 2026 Example Media]]></copyright>
+    <description><![CDATA[<p>A weekly show about <strong>examples</strong>.</p><p>New episodes every Monday.</p>]]></description>
+    <image>
+      <url>https://img.example.com/legacy-cover.png</url>
+      <title>The Example Hour</title>
+      <link>https://www.example.com/example-hour</link>
+    </image>
+    <itunes:image href="https://img.example.com/cover-3000.jpg"/>
+    <itunes:author>Example Media</itunes:author>
+    <itunes:owner>
+      <itunes:name>Example Media</itunes:name>
+      <itunes:email>podcasts@example.com</itunes:email>
+    </itunes:owner>
+    <itunes:category text="Technology"/>
+    <itunes:category text="Society &amp; Culture">
+      <itunes:category text="Documentary"/>
+    </itunes:category>
+    <itunes:explicit>false</itunes:explicit>
+    <itunes:type>episodic</itunes:type>
+    <item>
+      <title><![CDATA[Ep. 42: The Answer]]></title>
+      <description><![CDATA[<p>Short description.</p>]]></description>
+      <content:encoded><![CDATA[<p>We talk about the answer.</p><ul><li>00:00 Intro</li><li>12:34 The question</li><li>1:02:03 Wrap-up</li></ul><p>Sponsor: <a href="https://sponsor.example.org/?utm_source=pod">Example Sponsor</a></p>]]></content:encoded>
+      <link><![CDATA[https://www.example.com/example-hour/42]]></link>
+      <guid isPermaLink="false"><![CDATA[a1b2c3d4-0042-4000-8000-000000000042]]></guid>
+      <itunes:title><![CDATA[The Answer]]></itunes:title>
+      <dc:creator xmlns:dc="http://purl.org/dc/elements/1.1/"><![CDATA[Example Media]]></dc:creator>
+      <pubDate>Mon, 02 Nov 2026 08:00:00 -0500</pubDate>
+      <itunes:duration>3723</itunes:duration>
+      <itunes:explicit>false</itunes:explicit>
+      <itunes:season>3</itunes:season>
+      <itunes:episode>42</itunes:episode>
+      <itunes:episodeType>full</itunes:episodeType>
+      <itunes:image href="https://img.example.com/ep42.jpg"/>
+      <enclosure url="https://tracker.example.net/redirect.mp3/media.example.com/example-hour/42.mp3?awCollectionId=1&amp;awEpisodeId=42" length="59576320" type="audio/mpeg"/>
+    </item>
+    <item>
+      <title>Ep. 41: Bonus Round</title>
+      <description>Plain text notes.
+Second line with a link https://www.example.com/41 and a time 05:00.</description>
+      <guid isPermaLink="true">https://www.example.com/example-hour/41</guid>
+      <pubDate>Mon, 26 Oct 2026 08:00:00 GMT</pubDate>
+      <itunes:duration>45:10</itunes:duration>
+      <itunes:episodeType>bonus</itunes:episodeType>
+      <enclosure url="https://media.example.com/example-hour/41.m4a" length="0" type="audio/x-m4a"/>
+    </item>
+    <item>
+      <title>Ep. 40: Mislabeled</title>
+      <guid isPermaLink="false">a1b2c3d4-0040-4000-8000-000000000040</guid>
+      <pubDate>Mon, 19 Oct 2026 08:00:00 +0000</pubDate>
+      <itunes:duration>01:00:00</itunes:duration>
+      <itunes:summary>Only an iTunes summary here.</itunes:summary>
+      <enclosure url="https://media.example.com/example-hour/40.mp3" length="not-a-number" type="application/octet-stream"/>
+    </item>
+    <item>
+      <title>A blog post without audio</title>
+      <guid isPermaLink="false">post-without-audio</guid>
+      <pubDate>Sun, 18 Oct 2026 08:00:00 GMT</pubDate>
+      <description>Not an episode.</description>
+    </item>
+  </channel>
+</rss>

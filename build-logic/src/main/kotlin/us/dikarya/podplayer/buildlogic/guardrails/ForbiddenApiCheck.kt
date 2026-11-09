@@ -57,6 +57,7 @@ object ForbiddenApis {
     const val IMAGE_SANDBOX = ":core:imagesandbox"
     const val APP = ":app"
     const val NET = ":core:net"
+    const val FEED = ":core:feed"
 
     val EXTENSIONS: Set<String> = setOf("kt", "java", "xml", "aidl")
 
@@ -103,6 +104,19 @@ object ForbiddenApis {
             pattern = Regex("""\bOkHttpClient\b"""),
             extensions = code,
             appliesTo = { module, _ -> module.projectPath != NET },
+        ),
+        ForbiddenApiRule(
+            id = "jsoup-network",
+            reason = "jsoup has its own HTTP client; all network traffic goes through the gated client in :core:net.",
+            pattern = Regex("""\bJsoup\.connect\b|\borg\.jsoup\.Connection\b|\borg\.jsoup\.helper\.HttpConnection\b|\bJsoup\.parse\(\s*(java\.net\.)?URL\b"""),
+            extensions = code,
+        ),
+        ForbiddenApiRule(
+            id = "jsoup-outside-feed",
+            reason = "jsoup is allowed for show-notes sanitizing only (SPEC §2), which lives in $FEED.",
+            pattern = Regex("""\borg\.jsoup\b"""),
+            extensions = code,
+            appliesTo = { module, _ -> module.projectPath != FEED },
         ),
         ForbiddenApiRule(
             id = "coil-network",

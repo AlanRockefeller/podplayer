@@ -27,7 +27,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import us.dikarya.podplayer.R
-import us.dikarya.podplayer.settings.ThemeMode
+import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.ui.theme.PodplayerTheme
 
 @StringRes

@@ -5,9 +5,9 @@ a reviewer reads it to see what was really done.
 
 ## Current state
 - Milestone: M1
-- Next session: M1-S4
-- Build status: `./gradlew check` and `assembleRelease` green locally after M1-S3 (2026-11-08). The CI result is
-  on the M1-S3 PR.
+- Next session: M1-S5
+- Build status: `./gradlew check` and `assembleRelease` green locally after M1-S4 (2026-11-08), including a run
+  from an empty Gradle home. The CI result is on the M1-S4 PR.
 
 ## Session log
 <!-- Newest first. Copy this block for each session. -->
@@ -19,6 +19,196 @@ a reviewer reads it to see what was really done.
 - Manual checks for the owner:
 - PR:
 -->
+
+### M1-S4 Database, repositories, backups and logs (2026-11-08)
+Plan (written before any code; tests first for every rule):
+- Scope: `:core:data` (Room, repositories, media paths, backups, settings, logs), domain types in `:core:model`,
+  a daily backup worker in `:core:jobs`, wiring and a minimal Backup section plus a "database damaged" dialog in
+  `:app`. SPEC §7, §13; LESSONS row "Storage"; PROGRESS "Later" items for S4.
+- Dependencies (all on the allowlist and already pinned in the catalog, versions re-checked today): Room runtime,
+  KSP compiler and the Room Gradle plugin (schema export to `core/data/schemas/`), DataStore, WorkManager,
+  kotlinx-serialization JSON; tests: Robolectric, AndroidX test (ext-junit), Turbine, work-testing. Robolectric's
+  Android jar becomes a verified Gradle dependency and Robolectric runs offline, so tests download nothing
+  unverified. Verification metadata regenerated from an empty Gradle home.
+- `:core:model`: `Feed`, `Episode`, `Enclosure`, `QueueEntry`, `PlaybackRecord`, `EpisodeAction`, `DownloadState`.
+  Their `toString()` leaves URLs out (the model can't see `redact`).
+- `:core:data`, package by package:
+  - `db/`: entities for the SPEC §7 tables (feeds, episodes, media_files, queue_entries, playback_records,
+    feed_settings, episode_actions, download_log, refresh_log) with foreign keys and indexes; DAOs with Flows;
+    `PodDatabase` (version 1, schema exported); `Migrations` (empty list, the chain every new version extends).
+    Feeds store the owner-approved host and the conditional-GET validators (PROGRESS "Later").
+  - `db/DatabaseOpener`: on every start, before Room opens: apply a staged restore, run `PRAGMA integrity_check`
+    on a separate connection that never deletes a damaged file, read `user_version`, back up before any
+    migration, refuse a database newer than the app. Room itself gets an open-helper factory whose corruption
+    callback keeps the file (the framework default deletes it). Typed result: Ready, Corrupt (with the backups
+    that could restore it), Failed.
+  - `repo/`: `FeedRepository` (subscribe with the URL policy, list, unsubscribe, and `applyRefresh`, which runs
+    `EpisodeMerge` and applies `FeedChanges` in one transaction: inserts, metadata updates that never touch played
+    state, position, queue or downloads, `publishedAt` only when non-null, "no longer in feed", "back in feed"),
+    `EpisodeRepository`, `QueueRepository`, `PlaybackRepository`, `FeedSettingsRepository`,
+    `EpisodeActionRepository`, `MediaFileRepository`, `LogRepository` (download and refresh logs, capped, redacted).
+  - `media/MediaPaths`: generated relative paths (`media/<feedId>/<episodeId>.<ext>`, extension from an
+    allowlist) and a resolver that refuses absolute paths, `..` and anything outside the media folder.
+  - `settings/`: `AppSettings` (moved from `:app`; user settings, included in backups), `DeviceSettings`
+    (backup folder, last backup, device id: never backed up), `PreferencesSnapshot` (DataStore to JSON and back,
+    with limits).
+  - `backup/`: `DatabaseSnapshot` (`VACUUM INTO` where SQLite has it, API 30+; on API 29 a checkpoint plus file
+    copy under Room's write lock), `BackupArchive` (zip with manifest, database and settings; reading has entry,
+    size and count limits and validates the database), `BackupFolder` (file and Storage Access Framework
+    implementations), `BackupManager` (back up now, daily when due, rotation keeping 7 in the owner's folder and 3
+    in app-private storage, export, list restore candidates, stage a restore for the next start after a safety
+    backup, reconcile downloads after restore).
+  - `logs/`: `AppLog` (rolling files, 5 MiB total, background writer, every message through `scrubUrls`, newlines
+    indented so a feed title can't forge a log line), `CrashHandler` (crash file, chained to the previous
+    handler), `ExitReasons` (ANR and other exit notes on Android 11+).
+  - `DataLayer`: builds all of the above for `AppGraph`.
+- `:core:jobs`: `BackupWorker` (daily periodic unique work) and a `WorkerFactory`.
+- `:app`: `AppGraph` wiring; crash handler installed first; release invariant handler writes to `AppLog`;
+  WorkManager on-demand configuration; Settings gets a minimal "Backup and restore" section (choose folder with a
+  persisted permission, back up now, export, restore from a file; restore restarts the app) and a dialog when the
+  start-up check finds a damaged database (restore the newest good backup, or start empty keeping the damaged file).
+  S9 builds the full Settings.
+- Tests first (Robolectric for everything that touches SQLite or Android):
+  - DAO tests per table, cascade and set-null rules, Flow updates (Turbine).
+  - Merge application: first refresh inserts; second is all unchanged; edited items update; re-post keeps played
+    state, position, queue entry and download; removed then returning items; host move with new GUIDs; null
+    dates keep `publishedAt`; a failure inside the transaction leaves nothing applied; 10,000 items.
+  - Media paths: generated names, traversal, absolute paths, symlinks, unknown extensions.
+  - Backup: snapshot by both methods; backup, wipe, restore round trip bringing back subscriptions, queue,
+    positions and settings; rotation keeps 7 and never touches other files; hostile archives (not a zip,
+    zip bomb, duplicate or unknown entries, missing manifest, newer schema, damaged database, too big);
+    restored media rows with missing files reset; restored paths that escape the media folder are refused.
+  - Opener: damaged file detected and kept; restore offer lists good backups newest first; pre-migration backup
+    taken when `user_version` is older; newer database refused; staged restore applied once.
+  - Migration scaffolding: schema JSON exists for exactly versions 1..current; every version has a migration to
+    the next; a per-version test builds the database from its schema JSON, seeds it, opens it with Room (which
+    validates the identity hash and the migrated schema) and checks the data, and fails if a version has no
+    seed and check.
+  - Logs: rolling at the size limit, total cap, redaction of URLs in messages and exceptions, forged-line
+    newlines, crash file written and previous handler called, exit reasons recorded once.
+  - Settings snapshot round trip and hostile snapshots; `AppSettingsTest` moves with `AppSettings`.
+  - `BackupWorker` with work-testing.
+
+Result:
+- Done (layout as planned, except: integrity check, schema check and snapshot share `backup/SqliteFiles.kt`;
+  `PendingRestore` lives in `db/DatabaseOpener.kt`; the small repositories share `repo/Repositories.kt`):
+  - `:core:model` `Library.kt`: `Feed`, `Episode`, `Enclosure`, `QueueEntry`, `PlaybackRecord`, `EpisodeAction`
+    (+ kind), `MediaFile`, `DownloadState`. Their `toString()` leaves URLs out.
+  - Room schema version 1 with the nine SPEC §7 tables, foreign keys (cascade; `episode_actions` set-null) and
+    indexes; exported to `core/data/schemas/` (committed). `Migrations.ALL` is empty. Enum columns store names.
+    Feeds also store the owner-approved host, conditional-GET validators and refresh status; media files store
+    If-Range validators. Funding, persons, license, transcripts, soundbites and alternate enclosures are JSON
+    columns (kotlinx-serialization) that read as empty when damaged.
+  - `PodDatabases.builder`: file database, WAL, every migration, no destructive fallback, and an open-helper
+    factory whose corruption callback keeps the file (the framework default deletes it).
+  - Repositories (`Repositories`): feeds (subscribe through `UrlPolicy`, canonical URL, owner-approved host only
+    when typed; unsubscribe cascades; `applyRefresh` runs `EpisodeMerge` and applies `FeedChanges` in one
+    transaction: inserts, metadata updates via a partial `@Update` that can't touch other tables, `publishedAt`
+    and GUID kept when the feed has none, "no longer in feed", "back in feed", channel fields kept when the feed
+    leaves them out, IN lists chunked at 500), episodes, queue (dense 0-based positions, add/move/remove/clear,
+    re-adding moves), playback (position, played, in-progress list; unknown episodes are not an error), per-show
+    speed (clamped 0.5–3.0), episode actions (append-only, device id), media files (relative paths enforced,
+    reconcile with disk), refresh and download logs (redacted, 2,000 characters, newest 1,000 rows).
+  - `MediaPaths`: `media/<feedId>/<episodeId>.<ext>` with an allowlisted extension (else `audio`); `resolve()`
+    refuses absolute paths, `.`/`..`, backslashes, control characters, other top folders, and symlink escapes.
+  - Settings: `AppSettings` moved from `:app` (same file path, so the theme carries over) and gained
+    `snapshot()`/`restore()`; `DeviceSettings` (backup folder, last backup and failure, device id, exit-reason
+    bookkeeping) is never backed up. `PreferencesSnapshot`: typed JSON of a whole DataStore with limits.
+  - Backups (`backup/`): `DatabaseSnapshot` (`VACUUM INTO` on SQLite 3.27+, else checkpoint and copy under the
+    write lock); `BackupArchive` (zip: manifest, database, settings; reading has entry-count, per-entry and
+    decompressed-size limits, never uses entry names as paths); `BackupNames`; `FileBackupFolder` (atomic
+    rename) and `SafBackupFolder` (DocumentsContract, lost permission becomes an IOException);
+    `BackupManager`: back up now, daily when due (20 h), export, candidates newest first, rotation (7 in the
+    owner's folder, 3 in app-private storage, only our names), pre-migration backup of the closed file, and
+    staging a restore: full validation (manifest, settings, integrity check, version, migrate older copies,
+    structure compared with a fresh database including triggers, views and Room's identity hash, enum values,
+    `foreign_key_check`), safety backup, then staged files and a marker written last.
+  - Start-up (`DataLayer`, `DatabaseOpener`): apply a staged restore (old database kept aside), integrity check on
+    a connection that never deletes, refuse a newer database, back up before migrating, open Room off the main
+    thread; after a restore, apply settings and drop download records without files. States: Opening, Ready,
+    Damaged (with backups), Failed. `startFresh()` keeps the damaged file in `no_backup/damaged/`.
+  - Logs: `AppLog` (5 × 1 MiB rolling files, background writer, `scrubUrls` on every message and stack trace,
+    continuation lines indented, control characters replaced, 16 KiB per entry, never throws), `CrashHandler`
+    (redacted crash file, newest 10 kept, then the previous handler), `ExitReasons` (Android 11+ exit and ANR
+    notes into the log once).
+  - `:core:jobs`: `BackupWorker` (periodic unique work, 24 h, battery and storage not low, KEEP),
+    `PodplayerWorkerFactory`, `BackupManager.asDailyBackup()`.
+  - `:app`: `AppGraph` builds the log, data layer and worker factory without disk work; `PodplayerApp` installs
+    the crash handler right after StrictMode, routes release invariants to the app log, provides WorkManager's
+    configuration (default initializer removed in the manifest) and starts the data layer, exit-reason logging
+    and the backup schedule. Settings now scrolls and has a "Backup and restore" section (choose folder with a
+    persisted permission, back up now, export, restore from a file with confirmation, then restart).
+    `DataStateDialogs` offers the newest valid backup or an empty library when the database is damaged, and
+    explains the Failed states.
+  - Build: `podplayer.android.robolectric` convention (Robolectric's Android jar as a verified Gradle dependency,
+    offline mode, one `--add-opens` the SDK 37 jar needs on JDK 21). Catalog: `robolectric-android-all` and the
+    `androidx.room` plugin. Verification metadata regenerated from an empty Gradle home (the Gradle distribution
+    was copied in because its download timed out; it isn't a dependency). Only new components were added; no
+    existing checksum changed.
+  - LESSONS "Storage" as tests: internal storage only and relative paths (MediaPathsTest, media upsert refuses
+    absolute paths); automatic backups (rotation, daily-due tests, worker); backup before every migration
+    (DatabaseOpenerTest); migration tests on saved old databases (MigrationTest builds each version from its
+    schema file plus a frozen seed); backup, wipe, restore round trip (BackupRoundTripTest).
+- Tests added (86 new, plus the 7 moved `AppSettingsTest` tests; 93 in `:core:data` and `:core:jobs`):
+  - FeedRepositoryTest (16): URL policy and owner-approved host, duplicates, first refresh, identical refresh
+    writes nothing, re-post keeps played state, position, queue entry and download, missing dates, first-seen
+    time, removed and returning items, host move with new GUIDs, duplicate GUIDs, extras and damaged JSON, a
+    failure mid-transaction applies nothing, unsubscribe cascades, 10,000 items, no tokens in `toString()`.
+  - LibraryRepositoriesTest (10): queue add/move/remove/flow, positions and played, in-progress order, speed
+    bounds, actions survive episode deletion, media path rules, log redaction, caps and trimming.
+  - BackupRoundTripTest (6): backup, wipe, restore brings back subscriptions, owner-approved host, episodes,
+    queue order, positions, played flags, per-show speed and theme, not the device id, and applies once;
+    download records without files dropped and an escaping path dropped; safety backup before restore; rotation
+    7/3 leaving unrelated files alone; daily due; unreachable owner folder reported, local copy kept.
+  - HostileBackupTest (13): random bytes, empty file, missing parts, broken manifest or settings, newer format,
+    schema or `user_version`, manifest/database mismatch, duplicate entry, too many entries, path-traversal
+    names never written, decompression bomb and oversized settings, damaged and truncated databases, an added
+    trigger, view or table, a dropped column or index, unknown enum values; a refused restore changes nothing.
+  - DatabaseOpenerTest (8): fresh install; damaged file kept byte-for-byte with the backup offered and restorable;
+    start fresh keeps the damaged file; newer database refused and untouched; backup before migration (and no
+    migration if it fails); the pre-migration backup restores; Room never deletes a damaged file; a staged
+    restore applies exactly once.
+  - MigrationTest (5): schema file for every version and none beyond, a migration for every step, a seed for
+    every version, the newest schema file's identity hash matches the code, every old version migrates with its
+    data. DatabaseSnapshotTest (2), MediaPathsTest (5), AppLogTest (10: format, redaction, forged lines, control
+    characters, rolling cap, huge message, unwritable folder, crash file and chaining, crash-file cap, exit
+    reasons once), PreferencesSnapshotTest (4), AppSettingsTest (+2), BackupWorkerTest (5).
+  - The tests were written before the code they exercise, but Kotlin can't compile them without the API, so
+    their first run was against finished code. On that run everything passed except a test-class mistake
+    (`setUp` returned a value). To check the tests can fail, I put back the framework's file-deleting
+    corruption handler (DatabaseOpenerTest failed) and made the schema check ignore triggers and views
+    (HostileBackupTest failed), then reverted both.
+- Deviations from the spec, and why:
+  - `AppSettings` moved to `:core:data` (planned in "Later"): backups need it and `:playback` will need settings.
+  - Backups also keep the newest 3 in app-private storage (`no_backup/backups`), so a damaged database can be
+    restored even before the owner picks a folder. They never leave the phone.
+  - Android 10's SQLite (3.22) has no `VACUUM INTO`; there the snapshot is a full checkpoint plus a file copy
+    under Room's write lock (SPEC: "or equivalent"). Both methods are tested by choosing them explicitly
+    (Robolectric's SQLite is newer than Android 10's); on a phone the SQLite version picks the method.
+  - Restores are staged and applied at the next start (the app restarts itself), so a live database is never
+    swapped under open connections. The replaced library is kept in `no_backup/damaged/` as well as in the
+    safety backup.
+  - A restored backup brings back each feed's owner-approved host. A hand-crafted backup could therefore approve
+    a private host for a feed; restoring is the owner's own action, so I kept it (otherwise a home-server feed
+    stops working after a restore). Say if you'd rather clear it on restore.
+  - Integrity check: `PRAGMA integrity_check` on every start, on a separate connection, before Room opens. A
+    0-byte file counts as a fresh install.
+  - Added beyond SPEC §7: the backup before a migration must succeed or the database isn't migrated; a database
+    newer than the app is refused, not downgraded; logs indent continuation lines; refresh/download log rows are
+    capped at 1,000 each; crash files at 10.
+  - Settings gained a minimal "Backup and restore" section now (the full Settings screen is S9), because
+    automatic backups to the owner's folder need a way to choose it. The app's INTERNET permission is still
+    absent; the manifest comment now says it arrives with the first network feature (S5).
+  - Robolectric needs `--add-opens=java.base/jdk.internal.access=ALL-UNNAMED` for the SDK 37 jar on JDK 21
+    (test JVM only).
+- Manual checks for the owner (on the phone):
+  - Settings › Backup and restore › Choose backup folder: pick a folder (for example Documents/Podplayer). A
+    `podplayer-backup-….zip` appears there and "Last backup" shows the time.
+  - Back up now, Export a backup file, then Restore from a backup file with that export: the app restarts and
+    the theme you had at export time is back. (There are no subscriptions to see until S5's Developer screen.)
+  - Rename or delete the chosen folder, tap Back up now: the "Couldn't write to the backup folder" message shows.
+  - A day later, check a second backup appeared without opening Settings (the daily worker).
+- PR: #5 (`m1-s4-database-backups-logs`).
 
 ### M1-S3 Feeds, OPML and show notes (2026-11-08)
 Plan (written before any code; tests first for every rule):
@@ -399,14 +589,27 @@ Result:
   (`Char(0xFEFF)`) or regex escapes (`\xA0`). The file-writing tool turns `\uXXXX` escapes into the
   characters themselves, and lint refuses a BOM in the middle of a file.
 
+- Data layer (M1-S4): `AppGraph.data` (`DataLayer`) opens the database in the background; consumers call
+  `awaitRepositories()` or watch `state`. Never build Room any other way than `PodDatabases.builder`. A schema
+  change needs a version bump, a migration in `Migrations.ALL` and a seed in `MigrationSeeds` (tests enforce
+  all three). Settings that must not travel with a backup go in `DeviceSettings`; everything in `AppSettings`
+  is backed up. Workers are built by `PodplayerWorkerFactory`.
+
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
 - None open. (Signing key: answered 2026-11-08; see Decisions.)
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
-- S4/S5: store the owner-approved host with each feed and pass `AddressPolicy.ownerTyped(...)` for that feed's
-  requests (feed, enclosures, artwork). Persist `Validators` per feed (conditional GET) and per partial download.
+- S5: the owner-approved host is stored (`Feed.ownerApprovedHost`); pass
+  `AddressPolicy.approvingHosts(host)` for that feed's requests (feed, enclosures, artwork). The columns for
+  `Validators` exist (`feeds.etag/lastModified`, `media_files.etag/lastModified`); S5 reads and writes them.
+- S5: add the INTERNET permission to the manifest with the first network feature.
+- S5: delete a feed's media files on unsubscribe (rows cascade, files stay); `MediaFileRepository.reconcileWithDisk`
+  handles the reverse case.
+- S9: log export (concatenate `AppLog.files()`, crash files, and the DB logs) and the full Backup settings.
+- A test that the release variant of `BuildTypeSetup` logs invariants instead of crashing (only the debug one is
+  exercised by tests today).
 - S5: private feeds with `user:pass@` in the URL. OkHttp doesn't turn URL userinfo into an `Authorization` header,
   so the refresh worker has to add it. The redirect interceptor already drops it on a cross-host hop.
 - S7: ExoPlayer gets `OkHttpDataSource.Factory(netGate.callFactory(policy))`. Map its `IOException`s with
@@ -416,13 +619,10 @@ Result:
 - The `[::1]` and `[fc00::1]` tests prove refusal, not that a real IPv6 connection would have worked without the
   filter. MockWebServer listens on IPv4 only, since CI may not have IPv6.
 - Enforce the allowlist mechanically: direct dependencies must come from catalog entries mapped to SPEC §2.
-- S4: settings are part of backups, so `AppSettings` may move to `:core:data`.
 - Release builds: turn on R8 (minify and resource shrinking) with keep rules. (The signing config is done.)
-- A Robolectric Compose test for the shell (four tabs, Settings icon, the theme switch recomposing), once
-  Robolectric arrives with S4.
+- A Robolectric Compose test for the shell (four tabs, Settings icon, the theme switch recomposing). Robolectric
+  is set up now (`podplayer.android.robolectric`); `:app` doesn't apply it yet.
 - Enforce the MPL notice in XML, TOML and YAML files (it's placed there now but not checked).
-- S4: apply `FeedChanges` in one transaction; store `fingerprint` and the raw notes; set `publishedAt` on an
-  update only when it is non-null (the first-seen time otherwise stays).
 - S4/S5: run the feed corpus through Android's own parser too (`Xml.newPullParser()` under Robolectric or an
   instrumented test). The JVM tests use kxml2 2.2.2; Android's libcore parser differs in places (it reads
   DOCTYPE internal subsets). The pre-pass removes every DOCTYPE first, so the results should match.

@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-package us.dikarya.podplayer.settings
+package us.dikarya.podplayer.core.data.settings
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
@@ -19,6 +19,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 enum class ThemeMode(val stored: String) {
@@ -35,15 +36,34 @@ enum class ThemeMode(val stored: String) {
     }
 }
 
-/** App settings in Preferences DataStore. A corrupt or unreadable file falls back to the defaults. */
+/**
+ * The owner's settings, in Preferences DataStore. Everything in this store goes into backups and comes back
+ * on restore; settings that belong to this phone only live in [DeviceSettings]. A corrupt or unreadable file
+ * falls back to the defaults.
+ */
 class AppSettings(private val store: DataStore<Preferences>) {
-    val themeMode: Flow<ThemeMode> = store.data
-        .catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+    private val data: Flow<Preferences> = store.data.catch { e -> if (e is IOException) emit(emptyPreferences()) else throw e }
+
+    val themeMode: Flow<ThemeMode> = data
         .map { ThemeMode.fromStored(it[THEME_MODE]) }
         .distinctUntilChanged()
 
     suspend fun setThemeMode(mode: ThemeMode) {
         store.edit { it[THEME_MODE] = mode.stored }
+    }
+
+    /** Every setting, for a backup. */
+    suspend fun snapshot(): String = PreferencesSnapshot.encode(data.first())
+
+    /** Replaces every setting with a backup's. Returns false, changing nothing, if [json] isn't a snapshot. */
+    suspend fun restore(json: String): Boolean {
+        val entries = PreferencesSnapshot.decode(json) ?: return false
+        val restored = PreferencesSnapshot.toPreferences(entries)
+        store.edit { prefs ->
+            prefs.clear()
+            prefs += restored
+        }
+        return true
     }
 
     companion object {

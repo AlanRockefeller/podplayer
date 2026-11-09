@@ -47,6 +47,10 @@ gradlePlugin {
             id = "podplayer.android.library"
             implementationClass = "us.dikarya.podplayer.buildlogic.AndroidLibraryConventionPlugin"
         }
+        register("androidRobolectric") {
+            id = "podplayer.android.robolectric"
+            implementationClass = "us.dikarya.podplayer.buildlogic.AndroidRobolectricConventionPlugin"
+        }
         register("jvmLibrary") {
             id = "podplayer.jvm.library"
             implementationClass = "us.dikarya.podplayer.buildlogic.JvmLibraryConventionPlugin"

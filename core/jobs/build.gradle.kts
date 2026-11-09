@@ -4,9 +4,10 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-// WorkManager refresh and download workers (M1-S5).
+// WorkManager workers: the daily backup (M1-S4), refresh and downloads (M1-S5).
 plugins {
     id("podplayer.android.library")
+    id("podplayer.android.robolectric")
 }
 
 android {
@@ -17,4 +18,8 @@ dependencies {
     implementation(project(":core:data"))
     implementation(project(":core:net"))
     implementation(project(":core:feed"))
+    api(libs.androidx.work.runtime)
+
+    testImplementation(libs.androidx.work.testing)
+    testImplementation(libs.kotlinx.coroutines.test)
 }

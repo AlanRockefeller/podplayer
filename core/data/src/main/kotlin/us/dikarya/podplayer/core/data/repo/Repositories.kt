@@ -1,0 +1,268 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
+package us.dikarya.podplayer.core.data.repo
+
+import androidx.room.withTransaction
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.map
+import us.dikarya.podplayer.core.data.db.DownloadEvent
+import us.dikarya.podplayer.core.data.db.DownloadLogEntity
+import us.dikarya.podplayer.core.data.db.EpisodeActionEntity
+import us.dikarya.podplayer.core.data.db.FeedSettingsEntity
+import us.dikarya.podplayer.core.data.db.MediaFileEntity
+import us.dikarya.podplayer.core.data.db.PlaybackRecordEntity
+import us.dikarya.podplayer.core.data.db.PodDatabase
+import us.dikarya.podplayer.core.data.db.QueueEntryEntity
+import us.dikarya.podplayer.core.data.db.RefreshLogEntity
+import us.dikarya.podplayer.core.data.db.RefreshOutcome
+import us.dikarya.podplayer.core.data.media.MediaPaths
+import us.dikarya.podplayer.core.model.Episode
+import us.dikarya.podplayer.core.model.EpisodeAction
+import us.dikarya.podplayer.core.model.EpisodeActionKind
+import us.dikarya.podplayer.core.model.MediaFile
+import us.dikarya.podplayer.core.model.PlaybackRecord
+import us.dikarya.podplayer.core.model.QueueEntry
+import us.dikarya.podplayer.core.model.assertInvariant
+import us.dikarya.podplayer.core.net.scrubUrls
+
+/** Every repository over one open database. */
+class Repositories(
+    db: PodDatabase,
+    clock: () -> Long = System::currentTimeMillis,
+    deviceId: suspend () -> String,
+) {
+    val feeds = FeedRepository(db, clock)
+    val episodes = EpisodeRepository(db)
+    val queue = QueueRepository(db, clock)
+    val playback = PlaybackRepository(db, clock)
+    val feedSettings = FeedSettingsRepository(db)
+    val actions = EpisodeActionRepository(db, clock, deviceId)
+    val media = MediaFileRepository(db)
+    val logs = LogRepository(db, clock)
+}
+
+class EpisodeRepository internal constructor(private val db: PodDatabase) {
+    fun forFeed(feedId: Long): Flow<List<Episode>> = db.episodes().observeForFeed(feedId).map { rows -> rows.map { it.toModel() } }
+
+    fun latest(limit: Int): Flow<List<Episode>> = db.episodes().observeLatest(limit).map { rows -> rows.map { it.toModel() } }
+
+    fun observe(id: Long): Flow<Episode?> = db.episodes().observe(id).map { it?.toModel() }
+
+    suspend fun get(id: Long): Episode? = db.episodes().get(id)?.toModel()
+}
+
+/**
+ * Up Next. The database is the source of truth; the player's playlist is a projection of it (CLAUDE.md).
+ * Positions are 0-based and dense after every change.
+ */
+class QueueRepository internal constructor(private val db: PodDatabase, private val clock: () -> Long) {
+    fun entries(): Flow<List<QueueEntry>> = db.queue().observe().map { rows -> rows.map { it.toModel() } }
+
+    fun episodes(): Flow<List<Episode>> = db.queue().observeEpisodes().map { rows -> rows.map { it.toModel() } }
+
+    /** Adds at [index] (clamped), or at the end. An episode already queued moves instead. Unknown ids are ignored. */
+    suspend fun add(episodeId: Long, index: Int? = null) = db.withTransaction {
+        if (!db.episodes().exists(episodeId)) return@withTransaction
+        val order = db.queue().all().map { it.episodeId }.toMutableList()
+        order.remove(episodeId)
+        order.add((index ?: order.size).coerceIn(0, order.size), episodeId)
+        write(order)
+    }
+
+    suspend fun move(episodeId: Long, toIndex: Int) = db.withTransaction {
+        val order = db.queue().all().map { it.episodeId }.toMutableList()
+        if (!order.remove(episodeId)) return@withTransaction
+        order.add(toIndex.coerceIn(0, order.size), episodeId)
+        write(order)
+    }
+
+    suspend fun remove(episodeId: Long) = db.withTransaction {
+        if (db.queue().delete(episodeId) > 0) write(db.queue().all().map { it.episodeId })
+    }
+
+    suspend fun clear() = db.queue().clear()
+
+    private suspend fun write(order: List<Long>) {
+        val existing = db.queue().all().associateBy { it.episodeId }
+        val now = clock()
+        val entries = order.mapIndexed { i, id -> QueueEntryEntity(id, i, existing[id]?.addedAt ?: now) }
+        assertInvariant(entries.map { it.episodeId }.toSet().size == entries.size) { "queue holds an episode twice" }
+        db.queue().upsertAll(entries)
+    }
+}
+
+/** Positions and played state (CLAUDE.md: never lose a position). */
+class PlaybackRepository internal constructor(private val db: PodDatabase, private val clock: () -> Long) {
+    fun record(episodeId: Long): Flow<PlaybackRecord?> = db.playback().observe(episodeId).map { it?.toModel() }
+
+    suspend fun get(episodeId: Long): PlaybackRecord? = db.playback().get(episodeId)?.toModel()
+
+    /**
+     * Saves where the owner is. Keeps the played flag and, when [durationMs] is null, the known duration.
+     * Returns false if the episode no longer exists (unsubscribed mid-play), which is not an error.
+     */
+    suspend fun savePosition(episodeId: Long, positionMs: Long, durationMs: Long?): Boolean = db.withTransaction {
+        if (!db.episodes().exists(episodeId)) return@withTransaction false
+        val old = db.playback().get(episodeId)
+        db.playback().upsert(
+            PlaybackRecordEntity(
+                episodeId = episodeId,
+                positionMs = positionMs.coerceAtLeast(0),
+                durationMs = durationMs?.takeIf { it > 0 } ?: old?.durationMs,
+                played = old?.played ?: false,
+                updatedAt = clock(),
+            ),
+        )
+        true
+    }
+
+    /** Marking played starts the episode over next time; marking unplayed keeps the position. */
+    suspend fun setPlayed(episodeId: Long, played: Boolean): Boolean = db.withTransaction {
+        if (!db.episodes().exists(episodeId)) return@withTransaction false
+        val old = db.playback().get(episodeId)
+        db.playback().upsert(
+            PlaybackRecordEntity(
+                episodeId = episodeId,
+                positionMs = if (played) 0 else old?.positionMs ?: 0,
+                durationMs = old?.durationMs,
+                played = played,
+                updatedAt = clock(),
+            ),
+        )
+        true
+    }
+
+    /** Started, not finished, most recently touched first. */
+    fun inProgress(limit: Int): Flow<List<Episode>> = db.playback().observeInProgress(limit).map { rows -> rows.map { it.toModel() } }
+}
+
+class FeedSettingsRepository internal constructor(private val db: PodDatabase) {
+    /** The per-show speed, or null for the global default. */
+    fun speed(feedId: Long): Flow<Float?> = db.feedSettings().observe(feedId).map { it?.playbackSpeed }
+
+    /** Out-of-range speeds are clamped; NaN or null clears the override. */
+    suspend fun setSpeed(feedId: Long, speed: Float?) = db.withTransaction {
+        if (db.feeds().get(feedId) == null) return@withTransaction
+        val value = speed?.takeUnless { it.isNaN() }?.coerceIn(MIN_SPEED, MAX_SPEED)
+        val old = db.feedSettings().get(feedId) ?: FeedSettingsEntity(feedId)
+        db.feedSettings().upsert(old.copy(playbackSpeed = value))
+    }
+
+    companion object {
+        const val MIN_SPEED = 0.5f
+        const val MAX_SPEED = 3.0f
+    }
+}
+
+/** The append-only action history for M2 sync (SPEC §7). */
+class EpisodeActionRepository internal constructor(
+    private val db: PodDatabase,
+    private val clock: () -> Long,
+    private val deviceId: suspend () -> String,
+) {
+    suspend fun append(episodeId: Long, kind: EpisodeActionKind, positionMs: Long?, durationMs: Long?) {
+        db.episodeActions().insert(
+            EpisodeActionEntity(
+                episodeId = episodeId.takeIf { db.episodes().exists(it) },
+                kind = kind,
+                positionMs = positionMs?.coerceAtLeast(0),
+                durationMs = durationMs,
+                at = clock(),
+                deviceId = deviceId(),
+            ),
+        )
+    }
+
+    suspend fun unsynced(limit: Int): List<EpisodeAction> = db.episodeActions().unsynced(limit).map { it.toModel() }
+
+    suspend fun markSynced(ids: List<Long>) {
+        ids.chunked(500).forEach { db.episodeActions().markSynced(it) }
+    }
+}
+
+/** Download records. The files themselves are handled by `:core:jobs` (M1-S5). */
+class MediaFileRepository internal constructor(private val db: PodDatabase) {
+    suspend fun get(episodeId: Long): MediaFile? = db.mediaFiles().get(episodeId)?.toModel()
+
+    fun observe(episodeId: Long): Flow<MediaFile?> = db.mediaFiles().observe(episodeId).map { it?.toModel() }
+
+    /** [MediaFile.relativePath] must be a safe relative path (SPEC §7); anything else is a programming error. */
+    suspend fun upsert(file: MediaFile, now: Long = System.currentTimeMillis()) {
+        val path = file.relativePath
+        require(path == null || MediaPaths.isSafeRelative(path)) { "media paths must be relative" }
+        val old = db.mediaFiles().get(file.episodeId)
+        db.mediaFiles().upsert(
+            MediaFileEntity(
+                episodeId = file.episodeId,
+                relativePath = file.relativePath,
+                state = file.state,
+                bytesDownloaded = file.bytesDownloaded,
+                totalBytes = file.totalBytes,
+                etag = old?.etag,
+                lastModified = old?.lastModified,
+                probedDurationMs = file.probedDurationMs,
+                mimeType = old?.mimeType,
+                completedAt = file.completedAt,
+                updatedAt = now,
+            ),
+        )
+    }
+
+    suspend fun delete(episodeId: Long) {
+        db.mediaFiles().delete(episodeId)
+    }
+
+    /**
+     * Drops records whose file is gone or whose path is unsafe, for example after restoring a backup on a
+     * phone that doesn't have the downloads (backups never include media). Returns how many were dropped.
+     */
+    suspend fun reconcileWithDisk(paths: MediaPaths): Int {
+        var dropped = 0
+        for (row in db.mediaFiles().all()) {
+            val file = paths.resolve(row.relativePath)
+            if (file == null || !file.isFile) {
+                db.mediaFiles().delete(row.episodeId)
+                dropped++
+            }
+        }
+        return dropped
+    }
+}
+
+/** The refresh log (SPEC §8) and download log (SPEC §9). Every message is redacted and capped here. */
+class LogRepository internal constructor(private val db: PodDatabase, private val clock: () -> Long) {
+    suspend fun addRefresh(feedId: Long, outcome: RefreshOutcome, message: String?, newEpisodes: Int = 0, updatedEpisodes: Int = 0) {
+        db.withTransaction {
+            if (db.feeds().get(feedId) == null) return@withTransaction
+            db.logs().insertRefresh(RefreshLogEntity(0, feedId, clock(), outcome, clean(message), newEpisodes, updatedEpisodes))
+            db.logs().trimRefresh(KEEP_ROWS)
+        }
+    }
+
+    suspend fun addDownload(episodeId: Long, event: DownloadEvent, message: String?) {
+        db.withTransaction {
+            if (!db.episodes().exists(episodeId)) return@withTransaction
+            db.logs().insertDownload(DownloadLogEntity(0, episodeId, clock(), event, clean(message)))
+            db.logs().trimDownloads(KEEP_ROWS)
+        }
+    }
+
+    fun refreshLog(feedId: Long, limit: Int): Flow<List<RefreshLogEntity>> = db.logs().observeRefresh(feedId, limit)
+
+    fun refreshLog(limit: Int): Flow<List<RefreshLogEntity>> = db.logs().observeAllRefresh(limit)
+
+    fun downloadLog(limit: Int): Flow<List<DownloadLogEntity>> = db.logs().observeDownloads(limit)
+
+    fun downloadLog(episodeId: Long, limit: Int): Flow<List<DownloadLogEntity>> = db.logs().observeDownloadsFor(episodeId, limit)
+
+    private fun clean(message: String?): String? = message?.let { scrubUrls(it).take(MAX_MESSAGE) }
+
+    companion object {
+        const val MAX_MESSAGE = 2_000
+        const val KEEP_ROWS = 1_000
+    }
+}

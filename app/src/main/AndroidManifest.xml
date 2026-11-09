@@ -4,12 +4,14 @@
   License, v. 2.0. If a copy of the MPL was not distributed with this
   file, You can obtain one at https://mozilla.org/MPL/2.0/.
 -->
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!--
-      No permissions yet. INTERNET arrives with the gated client in M1-S2.
+      No permissions yet. INTERNET arrives with the first network feature (M1-S5).
       allowBackup is off: Android's cloud backup would send feed URLs (which can carry
-      private tokens) to Google. Our own backups to an owner-chosen folder come in M1-S4.
+      private tokens) to Google. Our own backups go to a folder the owner picks (M1-S4),
+      through the Storage Access Framework, which needs no permission.
     -->
     <application
         android:name=".PodplayerApp"
@@ -32,5 +34,17 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- WorkManager starts on demand with PodplayerApp's configuration (our worker factory). -->
+        <provider
+            android:name="androidx.startup.InitializationProvider"
+            android:authorities="${applicationId}.androidx-startup"
+            android:exported="false"
+            tools:node="merge">
+            <meta-data
+                android:name="androidx.work.WorkManagerInitializer"
+                android:value="androidx.startup"
+                tools:node="remove" />
+        </provider>
     </application>
 </manifest>

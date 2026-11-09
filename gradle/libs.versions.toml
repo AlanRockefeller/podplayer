@@ -33,6 +33,9 @@ coil = "3.6.3"
 
 junit = "4.13.2"
 robolectric = "4.17"
+# The Android jar Robolectric 4.17 runs tests against for SDK 37 (its DefaultSdkProvider). Fetched by
+# Gradle, so dependency verification covers it; Robolectric itself runs offline. Bump with robolectric.
+robolectricAndroidAll = "17-robolectric-15733970-i7"
 turbine = "1.2.1"
 kxml2 = "2.2.2"
 jazzer = "0.30.0"
@@ -87,6 +90,7 @@ coil-compose = { module = "io.coil-kt.coil3:coil-compose", version.ref = "coil" 
 
 junit = { module = "junit:junit", version.ref = "junit" }
 robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
+robolectric-android-all = { module = "org.robolectric:android-all-instrumented", version.ref = "robolectricAndroidAll" }
 turbine = { module = "app.cash.turbine:turbine", version.ref = "turbine" }
 kxml2 = { module = "net.sf.kxml:kxml2", version.ref = "kxml2" }
 jazzer-junit = { module = "com.code-intelligence:jazzer-junit", version.ref = "jazzer" }
@@ -99,3 +103,4 @@ kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
+androidx-room = { id = "androidx.room", version.ref = "room" }

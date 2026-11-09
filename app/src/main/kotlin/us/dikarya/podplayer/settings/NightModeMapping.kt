@@ -7,6 +7,7 @@
 package us.dikarya.podplayer.settings
 
 import android.app.UiModeManager
+import us.dikarya.podplayer.core.data.settings.ThemeMode
 
 /** Whether the app draws dark, given the system's current setting. */
 fun ThemeMode.isDark(systemIsDark: Boolean): Boolean = when (this) {

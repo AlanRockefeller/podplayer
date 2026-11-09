@@ -10,6 +10,8 @@ import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -35,8 +37,10 @@ import androidx.navigation.compose.rememberNavController
 import kotlin.reflect.KClass
 import kotlinx.serialization.Serializable
 import us.dikarya.podplayer.R
-import us.dikarya.podplayer.settings.ThemeMode
+import us.dikarya.podplayer.core.data.settings.ThemeMode
+import us.dikarya.podplayer.ui.DataStateDialogs
 import us.dikarya.podplayer.ui.settings.AppearanceScreen
+import us.dikarya.podplayer.ui.settings.BackupSection
 
 @Serializable
 data object HomeRoute
@@ -78,6 +82,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
     val destination = entry?.destination
     val onSettings = destination.isOn(SettingsRoute::class)
     val current = TopLevelDestination.entries.firstOrNull { destination.isOn(it.routeClass) }
+    DataStateDialogs()
 
     Scaffold(
         topBar = {
@@ -128,7 +133,12 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
             composable<DiscoverRoute> { PlaceholderScreen(TopLevelDestination.DISCOVER.placeholder) }
             composable<LibraryRoute> { PlaceholderScreen(TopLevelDestination.LIBRARY.placeholder) }
             composable<QueueRoute> { PlaceholderScreen(TopLevelDestination.QUEUE.placeholder) }
-            composable<SettingsRoute> { AppearanceScreen(themeMode, onThemeModeChange) }
+            composable<SettingsRoute> {
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    AppearanceScreen(themeMode, onThemeModeChange)
+                    BackupSection()
+                }
+            }
         }
     }
 }

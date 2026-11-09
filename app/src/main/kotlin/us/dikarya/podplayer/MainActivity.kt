@@ -28,7 +28,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.filterNotNull
 import kotlinx.coroutines.launch
-import us.dikarya.podplayer.settings.ThemeMode
+import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.settings.applicationNightMode
 import us.dikarya.podplayer.settings.isDark
 import us.dikarya.podplayer.ui.shell.AppShell

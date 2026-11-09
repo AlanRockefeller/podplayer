@@ -6,14 +6,13 @@
 
 package us.dikarya.podplayer
 
-import android.util.Log
+import us.dikarya.podplayer.core.data.logs.AppLog
 import us.dikarya.podplayer.core.model.InvariantHandler
 import us.dikarya.podplayer.core.model.LoggingInvariantHandler
 
-/** Release builds: no StrictMode; invariant violations are logged and the app keeps going. */
+/** Release builds: no StrictMode; invariant violations go to the (redacted) app log and the app keeps going. */
 internal object BuildTypeSetup {
     fun install() = Unit
 
-    // M1-S4 replaces logcat with the rolling, redacted log files.
-    fun invariantHandler(): InvariantHandler = LoggingInvariantHandler { Log.w("Podplayer", it) }
+    fun invariantHandler(log: AppLog): InvariantHandler = LoggingInvariantHandler { log.w("Invariant", it) }
 }

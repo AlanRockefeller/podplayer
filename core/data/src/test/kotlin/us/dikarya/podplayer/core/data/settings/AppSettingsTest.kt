@@ -4,7 +4,7 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
-package us.dikarya.podplayer.settings
+package us.dikarya.podplayer.core.data.settings
 
 import java.io.File
 import kotlinx.coroutines.CoroutineScope
@@ -14,6 +14,8 @@ import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -76,5 +78,24 @@ class AppSettingsTest {
     @Test
     fun storedValuesRoundTrip() {
         for (mode in ThemeMode.entries) assertEquals(mode, ThemeMode.fromStored(mode.stored))
+    }
+
+    @Test
+    fun snapshotRestoresIntoAnotherStore() {
+        val snapshot = withSettings {
+            it.setThemeMode(ThemeMode.LIGHT)
+            it.snapshot()
+        }
+        withSettings { it.setThemeMode(ThemeMode.SYSTEM) }
+        assertTrue(withSettings { it.restore(snapshot) })
+        assertEquals(ThemeMode.LIGHT, withSettings { it.themeMode.first() })
+    }
+
+    @Test
+    fun aBadSnapshotChangesNothing() {
+        withSettings { it.setThemeMode(ThemeMode.LIGHT) }
+        assertFalse(withSettings { it.restore("{\"format\": 99}") })
+        assertFalse(withSettings { it.restore("garbage") })
+        assertEquals(ThemeMode.LIGHT, withSettings { it.themeMode.first() })
     }
 }

@@ -26,4 +26,46 @@
     <string name="theme_dark">Dark</string>
     <string name="theme_light">Light</string>
     <string name="theme_system">Use system setting</string>
+
+    <string name="settings_backup">Backup and restore</string>
+    <string name="backup_folder_none">No backup folder chosen. Backups are only kept on this phone, which won\'t help if the phone is lost.</string>
+    <string name="backup_folder_chosen">Daily backups go to %1$s. The newest 7 are kept.</string>
+    <string name="backup_folder_unnamed">the chosen folder</string>
+    <string name="backup_choose_folder">Choose backup folder</string>
+    <string name="backup_change_folder">Change backup folder</string>
+    <string name="backup_last">Last backup: %1$s</string>
+    <string name="backup_never">No backup yet</string>
+    <string name="backup_now">Back up now</string>
+    <string name="backup_export">Export a backup file</string>
+    <string name="backup_restore">Restore from a backup file</string>
+    <string name="backup_working">Working…</string>
+    <string name="backup_done">Backup saved.</string>
+    <string name="backup_exported">Backup exported.</string>
+    <string name="backup_failed_folder">Couldn\'t write to the backup folder. Choose it again.</string>
+    <string name="backup_failed_snapshot">The library couldn\'t be copied for the backup. The app log has details.</string>
+    <string name="backup_failed">The backup failed. The app log has details.</string>
+    <string name="backup_not_ready">The library isn\'t open, so it can\'t be backed up.</string>
+
+    <string name="restore_confirm_title">Replace your library?</string>
+    <string name="restore_confirm_body">Your subscriptions, queue, positions and settings will be replaced by the ones in the backup. A copy of the current library is saved first. The app restarts to finish.</string>
+    <string name="restore_confirm">Restore</string>
+    <string name="cancel">Cancel</string>
+    <string name="ok">OK</string>
+    <string name="restore_not_a_backup">That file isn\'t a Podplayer backup.</string>
+    <string name="restore_too_large">That backup is too large to restore.</string>
+    <string name="restore_newer">That backup is from a newer version of Podplayer.</string>
+    <string name="restore_damaged">That backup is damaged.</string>
+    <string name="restore_unexpected">That backup doesn\'t look like one Podplayer made, so it wasn\'t used.</string>
+    <string name="restore_unreadable">The backup file couldn\'t be read.</string>
+    <string name="restore_safety_failed">Your current library couldn\'t be saved first, so nothing was changed.</string>
+
+    <string name="db_damaged_title">Your library is damaged</string>
+    <string name="db_damaged_body_backup">The library database failed its check when the app started. You can restore the backup from %1$s, or start with an empty library. The damaged file is kept either way.</string>
+    <string name="db_damaged_body_none">The library database failed its check when the app started, and there is no backup to restore. You can start with an empty library; the damaged file is kept.</string>
+    <string name="db_damaged_restore">Restore backup</string>
+    <string name="db_damaged_start_fresh">Start empty</string>
+    <string name="db_problem_title">Your library couldn\'t be opened</string>
+    <string name="db_failed_newer">It was saved by a newer version of Podplayer. Install that version again; nothing was changed.</string>
+    <string name="db_failed_backup">It needs updating, but the backup before the update failed, so it wasn\'t changed. Free some storage and restart the app.</string>
+    <string name="db_failed_open">The app log has details.</string>
 </resources>

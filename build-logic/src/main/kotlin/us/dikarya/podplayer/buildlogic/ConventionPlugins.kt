@@ -7,11 +7,14 @@
 package us.dikarya.podplayer.buildlogic
 
 import com.android.build.api.dsl.ApplicationExtension
+import com.android.build.api.dsl.CommonExtension
 import com.android.build.api.dsl.LibraryExtension
 import com.android.build.api.dsl.Lint
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.tasks.Sync
 import org.gradle.api.tasks.compile.JavaCompile
+import org.gradle.api.tasks.testing.Test
 import org.gradle.language.base.plugins.LifecycleBasePlugin
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinJvmCompile
@@ -49,6 +52,43 @@ class AndroidLibraryConventionPlugin : Plugin<Project> {
         project.pluginManager.apply(GuardrailsModulePlugin::class.java)
         project.extensions.configure(LibraryExtension::class.java) {
             project.configureAndroidCommon(this)
+        }
+    }
+}
+
+/**
+ * Robolectric unit tests for an Android module (apply after the Android plugin).
+ *
+ * Robolectric normally downloads its Android jar from Maven Central at test time, outside Gradle's
+ * dependency verification. Here Gradle fetches that jar (checked against `verification-metadata.xml`)
+ * and Robolectric runs offline, reading it from the build directory.
+ */
+class AndroidRobolectricConventionPlugin : Plugin<Project> {
+    override fun apply(project: Project) {
+        val android = project.extensions.getByType(CommonExtension::class.java)
+        android.testOptions.unitTests.isIncludeAndroidResources = true
+
+        val sdk = project.configurations.create("robolectricSdk") {
+            isCanBeConsumed = false
+            isTransitive = false
+        }
+        project.dependencies.add(sdk.name, project.libs.library("robolectric-android-all"))
+        project.dependencies.add("testImplementation", project.libs.library("robolectric"))
+        project.dependencies.add("testImplementation", project.libs.library("androidx-test-ext-junit"))
+
+        val sdkDir = project.layout.buildDirectory.dir("robolectric-sdk")
+        val prepare = project.tasks.register("prepareRobolectricSdk", Sync::class.java) {
+            from(sdk)
+            into(sdkDir)
+        }
+        project.tasks.withType(Test::class.java).configureEach {
+            dependsOn(prepare)
+            inputs.files(sdk).withPropertyName("robolectricSdk")
+            systemProperty("robolectric.offline", "true")
+            systemProperty("robolectric.dependency.dir", sdkDir.get().asFile.absolutePath)
+            maxHeapSize = "2g"
+            // The SDK 37 jar's shared-memory setup reaches into FileDescriptor through jdk.internal.access.
+            jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")
         }
     }
 }

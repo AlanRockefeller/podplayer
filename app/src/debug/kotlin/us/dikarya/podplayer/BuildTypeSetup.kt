@@ -10,6 +10,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.StrictMode
+import us.dikarya.podplayer.core.data.logs.AppLog
 import us.dikarya.podplayer.core.model.InvariantHandler
 import us.dikarya.podplayer.core.model.StrictInvariantHandler
 
@@ -60,5 +61,7 @@ internal object BuildTypeSetup {
         StrictMode.setVmPolicy(vm.penaltyLog().build())
     }
 
-    fun invariantHandler(): InvariantHandler = StrictInvariantHandler
+    /** Debug builds crash on a violated invariant (CLAUDE.md); the crash handler records it in the log first. */
+    @Suppress("UNUSED_PARAMETER")
+    fun invariantHandler(log: AppLog): InvariantHandler = StrictInvariantHandler
 }

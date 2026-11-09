@@ -23,7 +23,7 @@ Allowed without asking (use current stable versions, pinned in the version catal
 - Kotlin stdlib, kotlinx-coroutines, kotlinx-serialization (JSON only)
 - AndroidX: core, activity, lifecycle, Compose (BOM), Material 3, navigation-compose, Room (with KSP),
   DataStore, WorkManager, startup, test libraries
-- Media3: exoplayer, session, datasource-okhttp, test-utils
+- Media3: exoplayer, session, datasource-okhttp, inspector (`MetadataRetriever` for probing), test-utils
 - OkHttp
 - jsoup (show-notes sanitizing only)
 - Coil 3 core and compose (no network artifacts)

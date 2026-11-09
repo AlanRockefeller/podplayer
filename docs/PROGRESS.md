@@ -20,6 +20,21 @@ a reviewer reads it to see what was really done.
 - PR:
 -->
 
+### M1-S5 follow-up: MetadataRetriever probe (2026-11-09)
+- Asked: switch `AudioProbe` to `MetadataRetriever` from `media3-inspector` (allowed in SPEC §2 since PR #7).
+- Done: read the 1.11.1 sources (`androidx.media3.inspector.MetadataRetriever`: `Builder(context, mediaItem)`,
+  `setMediaSourceFactory`, `retrieveTrackGroups()`, `retrieveDurationUs()`, `close()`). Tried it on the probe
+  inputs with a file-only `ProgressiveMediaSource.Factory` (no `DefaultDataSource`, so no HTTP path). It's worse
+  on two rules (memory limit; audio with no stated duration), so I stopped as asked. The probe is unchanged, and
+  so are the catalog, build files and verification metadata (no new dependency, nothing to regenerate). Details
+  and options are under "Questions for owner".
+- Tests added: `AudioProbeTest` +2 (16 now): audio with no stated duration is measured; a declared video track
+  that never comes is refused as Video. Both pass on the current probe. `TestAudio.flv` builds the FLV in test
+  code.
+- Docs: owner decisions recorded (backup keeps the owner-approved host; `media3-inspector` allowed), and the
+  matching open-choice wording removed from M1-S4, M1-S5 and Later.
+- Manual checks for the owner: none (no app change).
+
 ### M1-S6 Image sandbox (2026-11-09)
 Plan (written before any code; tests first for every rule):
 - Scope: `:core:imagesandbox` (isolated decode service, client, image cache, Coil setup, artwork content
@@ -366,10 +381,10 @@ Result:
     (timed out) before its fix. Mutation check: with joining a running refresh disabled, only
     `concurrentRefreshRequestsCollapseIntoOne` failed (10 requests per feed); reverted.
 - Deviations from the spec, and why:
-  - The probe drives Media3's extractors (`media3-extractor`, part of `media3-exoplayer`'s API) itself:
-    Media3 1.11 moved `MetadataRetriever` to `media3-inspector`, which isn't on the allowlist. This is what
-    CLAUDE.md asks for ("Media3's JVM extractors"); if you'd rather add `media3-inspector` to the allowlist, the
-    probe could use it instead (see Later).
+  - The probe drives Media3's extractors (`media3-extractor`, part of `media3-exoplayer`'s API) itself.
+    Media3 1.11 moved `MetadataRetriever` to `media3-inspector`; the owner has since allowed that artifact
+    (SPEC §2, 2026-11-09), but a trial switch found `MetadataRetriever` worse on two probe rules, so the probe
+    still uses the extractors (see the follow-up entry above and "Questions for owner").
   - Refresh and download log messages are English text stored with the log rows (like the app log), not
     `strings.xml` resources, because they are stored. S8/S9 can store a reason code and map it (Later).
   - Backoff is 30 min doubling to 24 h (SPEC §8 gives no numbers). A healthy feed has no next time of its own: it
@@ -579,9 +594,8 @@ Result:
   - Restores are staged and applied at the next start (the app restarts itself), so a live database is never
     swapped under open connections. The replaced library is kept in `no_backup/damaged/` as well as in the
     safety backup.
-  - A restored backup brings back each feed's owner-approved host. A hand-crafted backup could therefore approve
-    a private host for a feed; restoring is the owner's own action, so I kept it (otherwise a home-server feed
-    stops working after a restore). Say if you'd rather clear it on restore.
+  - A restored backup brings back each feed's owner-approved host (otherwise a home-server feed stops working
+    after a restore). The owner confirmed this on 2026-11-09 (see Decisions).
   - Integrity check: `PRAGMA integrity_check` on every start, on a separate connection, before Room opens. A
     0-byte file counts as a fresh install.
   - Added beyond SPEC §7: the backup before a migration must succeed or the database isn't migrated; a database
@@ -1000,9 +1014,32 @@ Result:
   the isolated process. `PodplayerApp.onCreate` returns at once in that process; anything added to start-up
   goes after that check.
 
+- 2026-11-09, owner: a restored backup keeps each feed's owner-approved host (a hand-crafted backup is not a
+  realistic threat); and media3-inspector is allowed (SPEC §2).
+- 2026-11-09, owner: the download probe keeps driving Media3's extractors directly; it does not switch to
+  `MetadataRetriever`. The trial findings that led to this:
+  1. Memory. While it prepares, `MetadataRetriever` keeps loading and holds every sample in memory, with no byte
+     limit, until all announced tracks have a format. A file that announces a track it never fills never
+     finishes preparing. In a scratch run, an FLV announcing video but carrying only audio (300 MiB) kept 300 MiB
+     on the heap until cancelled. A phone app has 256–512 MiB, so one hostile download could crash the app
+     (CLAUDE.md: every parser needs a byte limit). The current probe throws sample data away and refused that
+     file as Video in 0.1 s, with no memory growth.
+  2. Duration. It stops at preparation, so audio whose container states no duration (FLV, and WebM/Matroska as
+     browsers record it) has an unknown duration and would be refused as "no duration". The current probe reads
+     on to the last sample (4.6 s measured on the test file) and accepts it.
+  - Also: it posts its error check 100 ms later on its own `HandlerThread`. That's fine on a phone, but under
+    Robolectric every refusal (random bytes, empty, truncated, missing) hangs until the time limit unless the
+    test advances the shadow clock.
+  - What works with it: audio and duration (MP3, WAV, truncated MP3), images as non-audio, track formats for
+    the video check.
+  - A 16 MiB read cap on its data source did stop the memory growth (refused after 0.3 s). But the cap is a new
+    limit: ID3 tags with chapter images can be large. It reports a plain `IOException` that is hard to tell
+    apart from a damaged file. And it doesn't solve point 2.
+  - Two `AudioProbeTest` cases pin both properties, so any future switch would have to keep them.
+
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
-- None open. (Signing key: answered 2026-11-08; see Decisions.)
+- None open.
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
@@ -1018,8 +1055,6 @@ Result:
 - S8/S9: store a reason code with refresh and download log rows and map it to `strings.xml`; today the rows hold
   English text.
 - S8/S9: the full Downloads settings (cap, Wi-Fi only); applying a Wi-Fi-only change to downloads already queued.
-- If `media3-inspector` joins the allowlist, `AudioProbe` could use its `MetadataRetriever` instead of driving the
-  extractors itself.
 - An instrumented test of `AudioProbe` on real podcast files (MP3 with ID3 art, M4A/AAC, Opus) on a device.
 - S9: log export (concatenate `AppLog.files()`, crash files, and the DB logs) and the full Backup settings.
 - A test that the release variant of `BuildTypeSetup` logs invariants instead of crashing. `:app` runs release

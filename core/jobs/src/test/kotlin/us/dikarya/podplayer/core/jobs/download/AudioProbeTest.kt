@@ -102,6 +102,26 @@ class AudioProbeTest {
         assertEquals(ProbeResult.Rejected(ProbeProblem.TooSlow), slow.probe(fileOf(TestAudio.mp3(400))))
     }
 
+    /**
+     * Audio whose container states no duration is measured by reading on to its last sample. (Media3's
+     * `MetadataRetriever` stops at preparation and reports no duration here, so it would refuse the file.)
+     */
+    @Test
+    fun audioWithoutAStatedDurationIsMeasured() {
+        assertDuration(199 * 23L, probe.probe(fileOf(TestAudio.flv(packets = 200))), tolerance = 0.01)
+    }
+
+    /**
+     * A file announcing a video track it never delivers is refused as video, in one pass with sample data
+     * discarded. (`MetadataRetriever` never finishes preparing such a file and buffers all of it in memory
+     * meanwhile: 300 MiB of heap for a 300 MiB file in a scratch run.)
+     */
+    @Test
+    fun aDeclaredVideoTrackThatNeverComesIsRefusedAsVideo() {
+        val file = fileOf(TestAudio.flv(packets = 2_000, packetBytes = 4_096, declareVideo = true))
+        assertEquals(ProbeResult.Rejected(ProbeProblem.Video), probe.probe(file))
+    }
+
     @Test
     fun aVideoTrackMeansVideo() {
         val tracks = listOf(ProbedTrack(C.TRACK_TYPE_AUDIO, MimeTypes.AUDIO_AAC), ProbedTrack(C.TRACK_TYPE_VIDEO, MimeTypes.VIDEO_H264))

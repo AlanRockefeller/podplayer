@@ -178,6 +178,45 @@ internal object TestAudio {
         return buffer.array()
     }
 
+    /**
+     * FLV with an AAC sequence header and [packets] audio tags 23 ms apart, and no `onMetaData`, so the
+     * container states no duration. With [declareVideo] the header also announces a video track that never
+     * comes: a stream whose preparation can never finish.
+     */
+    fun flv(packets: Int, packetBytes: Int = 300, declareVideo: Boolean = false): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        fun u24(v: Int) {
+            out.write(v ushr 16 and 0xFF)
+            out.write(v ushr 8 and 0xFF)
+            out.write(v and 0xFF)
+        }
+        fun u32(v: Int) {
+            out.write(v ushr 24 and 0xFF)
+            u24(v and 0xFFFFFF)
+        }
+        fun tag(timestampMs: Int, data: ByteArray) {
+            out.write(8)
+            u24(data.size)
+            u24(timestampMs and 0xFFFFFF)
+            out.write(timestampMs ushr 24 and 0xFF)
+            u24(0)
+            out.write(data)
+            u32(11 + data.size)
+        }
+        out.write("FLV".toByteArray())
+        out.write(1)
+        out.write(if (declareVideo) 0x05 else 0x04)
+        u32(9)
+        u32(0)
+        tag(0, byteArrayOf(0xAF.toByte(), 0x00, 0x12, 0x10))
+        val payload = ByteArray(packetBytes).also {
+            it[0] = 0xAF.toByte()
+            it[1] = 0x01
+        }
+        for (i in 0 until packets) tag(i * 23, payload)
+        return out.toByteArray()
+    }
+
     /** The classic 1x1 PNG. Only its header matters here: it must be recognised as an image, never decoded. */
     val png: ByteArray = intArrayOf(
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,

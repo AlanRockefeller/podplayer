@@ -52,10 +52,58 @@ class ForbiddenApiCheckTest {
         assertTrue("image-decoding" in rules(playback, "ImageDecoderUse.kt"))
     }
 
+    /** Only the sandbox package of :core:imagesandbox runs in the isolated process. */
+    private val sandboxPackage = "src/main/kotlin/us/dikarya/podplayer/core/imagesandbox/sandbox/SandboxDecoder.kt"
+
     @Test
-    fun imageDecodingIsAllowedInsideTheSandbox() {
-        assertEquals(emptySet<String>(), rules(sandbox, "BitmapFactoryUse.kt"))
-        assertEquals(emptySet<String>(), rules(sandbox, "ImageDecoderUse.kt"))
+    fun imageDecodingIsAllowedInsideTheSandboxPackage() {
+        assertEquals(emptySet<String>(), rules(sandbox, "BitmapFactoryUse.kt", sandboxPackage))
+        assertEquals(emptySet<String>(), rules(sandbox, "ImageDecoderUse.kt", sandboxPackage))
+        val test = "src/test/kotlin/us/dikarya/podplayer/core/imagesandbox/Fixtures.kt"
+        assertEquals(emptySet<String>(), rules(sandbox, "BitmapFactoryUse.kt", test))
+    }
+
+    @Test
+    fun imageDecodingIsRefusedInTheSandboxModulesMainProcessCode() {
+        for (path in listOf(
+            "src/main/kotlin/us/dikarya/podplayer/core/imagesandbox/client/SandboxClient.kt",
+            "src/main/kotlin/us/dikarya/podplayer/core/imagesandbox/cache/ImageCache.kt",
+            "src/main/kotlin/us/dikarya/podplayer/core/imagesandbox/ImageSandbox.kt",
+            // A look-alike folder name elsewhere doesn't count.
+            "src/main/kotlin/us/dikarya/podplayer/core/imagesandbox/client/sandbox/X.kt",
+            "src/debug/kotlin/us/dikarya/podplayer/core/imagesandbox/sandbox/X.kt",
+        )) {
+            assertTrue(path, "image-decoding" in rules(sandbox, "BitmapFactoryUse.kt", path))
+            assertTrue(path, "image-decoding" in rules(sandbox, "ImageDecoderUse.kt", path))
+        }
+    }
+
+    @Test
+    fun coilLoadersAreBuiltOnlyInTheSandboxModule() {
+        for (context in listOf(app, playback)) {
+            assertTrue(context.projectPath, "coil-loader-outside-imagesandbox" in rules(context, "CoilLoaderBuilder.kt"))
+        }
+        assertEquals(emptySet<String>(), rules(sandbox, "CoilLoaderBuilder.kt"))
+    }
+
+    @Test
+    fun media3MayNotDecodeArtworkBytesOrFetchArtworkItself() {
+        for (context in listOf(app, playback, sandbox)) {
+            val found = ForbiddenApis.scan(context, mainKt, Samples.text("Media3UntrustedArtwork.kt"))
+                .filter { it.ruleId == "media3-untrusted-artwork" }
+                .map { it.match }
+                .toSet()
+            assertEquals(
+                context.projectPath,
+                setOf("DataSourceBitmapLoader", "setArtworkData", "maybeSetArtworkData", "SimpleBitmapLoader"),
+                found,
+            )
+        }
+    }
+
+    @Test
+    fun theSandboxedBitmapLoaderIsNotMistakenForAForbiddenOne() {
+        assertEquals(emptySet<String>(), rules(playback, "AllowedArtworkLoader.kt"))
     }
 
     @Test

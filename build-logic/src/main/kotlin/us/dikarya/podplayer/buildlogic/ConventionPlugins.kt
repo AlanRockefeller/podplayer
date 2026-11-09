@@ -81,11 +81,17 @@ class AndroidRobolectricConventionPlugin : Plugin<Project> {
             from(sdk)
             into(sdkDir)
         }
+        // Robolectric writes temporary files (its native graphics library, shadowed pipes and shared memory,
+        // test databases). Keep them in the build folder: a full /tmp made every Robolectric test fail.
+        val tmpDir = project.layout.buildDirectory.dir("tmp/robolectric")
         project.tasks.withType(Test::class.java).configureEach {
             dependsOn(prepare)
             inputs.files(sdk).withPropertyName("robolectricSdk")
             systemProperty("robolectric.offline", "true")
             systemProperty("robolectric.dependency.dir", sdkDir.get().asFile.absolutePath)
+            val tmp = tmpDir.get().asFile
+            doFirst { tmp.mkdirs() }
+            systemProperty("java.io.tmpdir", tmp.absolutePath)
             maxHeapSize = "2g"
             // The SDK 37 jar's shared-memory setup reaches into FileDescriptor through jdk.internal.access.
             jvmArgs("--add-opens=java.base/jdk.internal.access=ALL-UNNAMED")

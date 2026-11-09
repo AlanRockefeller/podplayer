@@ -85,12 +85,28 @@ object ForbiddenApis {
         ),
         ForbiddenApiRule(
             id = "image-decoding",
-            reason = "Untrusted image bytes are decoded only inside $IMAGE_SANDBOX.",
+            reason = "Untrusted image bytes are decoded only inside the isolated process: $IMAGE_SANDBOX's " +
+                "sandbox package (src/main/kotlin/.../imagesandbox/sandbox/).",
             pattern = Regex(
                 """\b(BitmapFactory|ImageDecoder|BitmapRegionDecoder)\b|\bDrawable\.createFrom(Stream|Path)\b""",
             ),
             extensions = code,
+            appliesTo = { module, path -> !(module.projectPath == IMAGE_SANDBOX && isSandboxProcessCode(path)) },
+        ),
+        ForbiddenApiRule(
+            id = "coil-loader-outside-imagesandbox",
+            reason = "The app has one Coil loader, built in $IMAGE_SANDBOX: it loads sandbox-produced cache files " +
+                "only. Another loader would have Coil's default fetchers and none of the guards.",
+            pattern = Regex("""\bImageLoader\.Builder\b|\bImageLoader\s*\("""),
+            extensions = code,
             appliesTo = { module, _ -> module.projectPath != IMAGE_SANDBOX },
+        ),
+        ForbiddenApiRule(
+            id = "media3-untrusted-artwork",
+            reason = "Media3 shows artwork only from sandbox-produced cache files: no artwork bytes in metadata " +
+                "(they would be decoded in the app process) and no Media3 loader that fetches or decodes by itself.",
+            pattern = Regex("""\b(maybeSetArtworkData|setArtworkData)\b|\bDataSourceBitmapLoader\b|\bSimpleBitmapLoader\b"""),
+            extensions = code,
         ),
         ForbiddenApiRule(
             id = "other-http-client",
@@ -151,6 +167,11 @@ object ForbiddenApis {
             appliesTo = { module, path -> module.projectPath == APP && "/ui/theme/" !in path },
         ),
     )
+
+    /** The isolated-process code of [IMAGE_SANDBOX], and its tests (which never ship). */
+    private fun isSandboxProcessCode(path: String): Boolean =
+        path.startsWith("src/main/kotlin/us/dikarya/podplayer/core/imagesandbox/sandbox/") ||
+            path.startsWith("src/test/")
 
     fun scan(module: ModuleContext, relativePath: String, text: String): List<Violation> {
         val extension = relativePath.substringAfterLast('.', "")

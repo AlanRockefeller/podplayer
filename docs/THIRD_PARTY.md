@@ -30,12 +30,16 @@ Only libraries on the SPEC §2 allowlist. Versions are in `gradle/libs.versions.
 | Turbine | `:core:data` and `:core:jobs` tests | Apache-2.0 |
 | Media3 ExoPlayer (`media3-exoplayer`), with `media3-extractor`, `media3-common` and the rest of its API, Guava (Android flavour) and AndroidX ExifInterface as its dependencies | `:core:jobs`: only its extractors, to probe downloads (SPEC §9) | Apache-2.0 |
 | OkHttp MockWebServer (`mockwebserver3`) | `:core:jobs` tests | Apache-2.0 |
+| Coil 3 core (`coil-core`; no network artifact, service loader off) | `:core:imagesandbox`: the one image loader, reading sandbox-produced cache files only | Apache-2.0 |
+| Coil 3 Compose (`coil-compose`), with `coil`, `coil-compose-core`, Accompanist Drawable Painter and the JetBrains Compose Multiplatform runtime artifacts as its dependencies | `:app`: `AsyncImage` for artwork | Apache-2.0 |
+| Media3 session (`media3-session`), with AndroidX Media (`androidx.media:media`) and Lifecycle Service as its dependencies | `:playback`: the `BitmapLoader` interface now; the session in S7 | Apache-2.0 |
+| Robolectric native graphics runtime (part of Robolectric's native runtime) | `:core:imagesandbox` tests: real platform image decoding and encoding on the JVM | MIT / Apache-2.0 |
 | JUnit 4 | tests | EPL-1.0 |
 | Gradle wrapper | build | Apache-2.0 |
 | Android Gradle Plugin, Kotlin Gradle Plugin | build | Apache-2.0 |
 
 Pinned in the catalog for later sessions, not used yet. Confirm each license when it is added:
-Media3 session and datasource-okhttp, AndroidX Startup, Coil 3, Jazzer.
+Media3 datasource-okhttp, AndroidX Startup, Jazzer.
 
 Prebuilt native libraries that ship inside AndroidX artifacts (not our own native code):
 `libandroidx.graphics.path.so` (Compose graphics) and `libdatastore_shared_counter.so` (DataStore),

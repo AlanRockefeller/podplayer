@@ -49,6 +49,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -62,16 +63,21 @@ import us.dikarya.podplayer.core.data.db.DownloadLogEntity
 import us.dikarya.podplayer.core.data.db.RefreshLogEntity
 import us.dikarya.podplayer.core.data.repo.Repositories
 import us.dikarya.podplayer.core.data.repo.SubscribeResult
+import us.dikarya.podplayer.core.imagesandbox.ArtworkResult
+import us.dikarya.podplayer.core.imagesandbox.CacheUsage
 import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.core.model.Episode
 import us.dikarya.podplayer.core.model.Feed
 import us.dikarya.podplayer.core.model.MediaFile
 import us.dikarya.podplayer.core.net.redact
+import us.dikarya.podplayer.ui.artwork.ArtworkImage
+import us.dikarya.podplayer.ui.artwork.rememberArtwork
 
 /**
  * Debug builds only (SPEC §12): try feeds, refresh and downloads on a phone before the real UI exists (S8).
  * Add a feed by URL (as typed by the owner), refresh one or all, list episodes, download, cancel, delete,
- * and read the refresh and download logs. Everything shown from a feed is plain text.
+ * and read the refresh and download logs. Everything shown from a feed is plain text. Artwork (M1-S6) comes
+ * only from sandbox-produced cache files; the image sandbox's counters and cache size are shown too.
  */
 @Composable
 fun DeveloperScreen() {
@@ -103,10 +109,15 @@ private fun DeveloperContent(repos: Repositories) {
     var status by remember { mutableStateOf<String?>(null) }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
 
+    val sandboxStats by graph.images.stats.collectAsStateWithLifecycle()
+    var cacheCleared by remember { mutableStateOf(0) }
+    val cacheUsage by produceState(CacheUsage(0, 0), sandboxStats, cacheCleared) { value = graph.images.cacheUsage() }
+
     val subscribedText = stringResource(R.string.dev_subscribed)
     val alreadyText = stringResource(R.string.dev_already_subscribed)
     val refusedText = stringResource(R.string.dev_refused)
     val mediaById = media.associateBy { it.episodeId }
+    val selectedFeed = feeds.firstOrNull { it.id == selected }
 
     fun download(episode: Episode) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -165,9 +176,34 @@ private fun DeveloperContent(repos: Repositories) {
             )
         }
 
+        item {
+            Heading(R.string.dev_image_sandbox)
+            Text(
+                stringResource(
+                    R.string.dev_sandbox_stats,
+                    sandboxStats.decoded,
+                    sandboxStats.refused,
+                    sandboxStats.crashed,
+                    sandboxStats.timedOut,
+                    sandboxStats.badOutput,
+                ),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    stringResource(R.string.dev_image_cache, Formatter.formatFileSize(context, cacheUsage.bytes), cacheUsage.files),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f),
+                )
+                TextButton(onClick = { scope.launch { graph.images.clearCache(); cacheCleared++ } }) {
+                    Text(stringResource(R.string.dev_clear_image_cache))
+                }
+            }
+        }
+
         item { Heading(R.string.dev_feeds) }
         if (feeds.isEmpty()) item { Text(stringResource(R.string.dev_no_feeds)) }
-        items(feeds, key = { "feed-${it.id}" }) { feed ->
+        items(feeds, key = { "feed-${it.id}-$cacheCleared" }) { feed ->
             FeedRow(
                 feed = feed,
                 isSelected = feed.id == selected,
@@ -183,9 +219,10 @@ private fun DeveloperContent(repos: Repositories) {
         if (selected != null) {
             item { Heading(R.string.dev_episodes) }
             if (episodes.isEmpty()) item { Text(stringResource(R.string.dev_no_episodes)) }
-            items(episodes, key = { "episode-${it.id}" }) { episode ->
+            items(episodes, key = { "episode-${it.id}-$cacheCleared" }) { episode ->
                 EpisodeRow(
                     episode = episode,
+                    feed = selectedFeed,
                     media = mediaById[episode.id],
                     onDownload = { download(episode) },
                     onCancel = { scope.launch(Dispatchers.IO) { graph.jobs.downloads.cancel(episode.id) } },
@@ -210,21 +247,30 @@ private fun Heading(title: Int) {
     Text(stringResource(title), style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 16.dp))
 }
 
+/** Artwork with, on this screen, the reason when there is none. */
+@Composable
+private fun ArtworkWithReason(imageUrl: String?, approvedHost: String?, size: Dp) {
+    val artwork = rememberArtwork(imageUrl, approvedHost)
+    Column(modifier = Modifier.width(size)) {
+        ArtworkImage(artwork, size = size)
+        if (artwork is ArtworkResult.Unavailable) {
+            Text(
+                stringResource(R.string.dev_no_artwork, artwork.problem.describe()),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
 @Composable
 private fun FeedRow(feed: Feed, isSelected: Boolean, onSelect: () -> Unit, onRefresh: () -> Unit, onUnsubscribe: () -> Unit) {
     Column(modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onSelect).padding(vertical = 4.dp)) {
-        Text(feed.title ?: redact(feed.url), style = MaterialTheme.typography.bodyLarge)
-        Text(redact(feed.url), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        feed.lastRefreshSuccessAt?.let { Text(stringResource(R.string.dev_last_success, time(it)), style = MaterialTheme.typography.bodySmall) }
-        val errorAt = feed.lastRefreshErrorAt
-        if (errorAt != null && errorAt > (feed.lastRefreshSuccessAt ?: 0)) {
-            Text(
-                stringResource(R.string.dev_last_error, time(errorAt), feed.lastRefreshError.orEmpty()),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
+        Row(verticalAlignment = Alignment.Top) {
+            ArtworkWithReason(feed.imageUrl, feed.ownerApprovedHost, 72.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) { FeedText(feed) }
         }
-        feed.nextRefreshAt?.let { Text(stringResource(R.string.dev_next_try, time(it)), style = MaterialTheme.typography.bodySmall) }
         Row {
             TextButton(onClick = onSelect) {
                 Text(stringResource(if (isSelected) R.string.dev_hide_episodes else R.string.dev_show_episodes))
@@ -237,14 +283,44 @@ private fun FeedRow(feed: Feed, isSelected: Boolean, onSelect: () -> Unit, onRef
 }
 
 @Composable
-private fun EpisodeRow(episode: Episode, media: MediaFile?, onDownload: () -> Unit, onCancel: () -> Unit, onDelete: () -> Unit) {
+private fun FeedText(feed: Feed) {
+    Text(feed.title ?: redact(feed.url), style = MaterialTheme.typography.bodyLarge)
+    Text(redact(feed.url), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    feed.lastRefreshSuccessAt?.let { Text(stringResource(R.string.dev_last_success, time(it)), style = MaterialTheme.typography.bodySmall) }
+    val errorAt = feed.lastRefreshErrorAt
+    if (errorAt != null && errorAt > (feed.lastRefreshSuccessAt ?: 0)) {
+        Text(
+            stringResource(R.string.dev_last_error, time(errorAt), feed.lastRefreshError.orEmpty()),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+    feed.nextRefreshAt?.let { Text(stringResource(R.string.dev_next_try, time(it)), style = MaterialTheme.typography.bodySmall) }
+}
+
+@Composable
+private fun EpisodeRow(
+    episode: Episode,
+    feed: Feed?,
+    media: MediaFile?,
+    onDownload: () -> Unit,
+    onCancel: () -> Unit,
+    onDelete: () -> Unit,
+) {
     val context = LocalContext.current
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-        Text(episode.title ?: stringResource(R.string.dev_untitled), style = MaterialTheme.typography.bodyLarge)
-        Text(
-            time(episode.publishedAt) + if (episode.inFeed) "" else " · " + stringResource(R.string.dev_not_in_feed),
-            style = MaterialTheme.typography.bodySmall,
-        )
+        Row(verticalAlignment = Alignment.Top) {
+            // The episode's own image, else the show's (both from the feed, both through the sandbox).
+            ArtworkWithReason(episode.imageUrl ?: feed?.imageUrl, feed?.ownerApprovedHost, 48.dp)
+            Spacer(Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(episode.title ?: stringResource(R.string.dev_untitled), style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    time(episode.publishedAt) + if (episode.inFeed) "" else " · " + stringResource(R.string.dev_not_in_feed),
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
+        }
         val state = media?.state
         val bytes = Formatter.formatFileSize(context, media?.bytesDownloaded ?: 0)
         Text(

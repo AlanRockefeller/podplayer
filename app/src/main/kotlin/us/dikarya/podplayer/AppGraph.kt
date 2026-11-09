@@ -20,6 +20,7 @@ import us.dikarya.podplayer.core.data.logs.AppLog
 import us.dikarya.podplayer.core.data.logs.ExitReasons
 import us.dikarya.podplayer.core.data.settings.AppSettings
 import us.dikarya.podplayer.core.data.settings.ThemeMode
+import us.dikarya.podplayer.core.imagesandbox.ImageSandbox
 import us.dikarya.podplayer.core.jobs.Jobs
 import us.dikarya.podplayer.core.jobs.PodplayerWorkerFactory
 import us.dikarya.podplayer.core.net.NetConfig
@@ -62,6 +63,14 @@ class AppGraph(context: Context) {
     val jobs = Jobs(appContext, data, gate = { netGate }, log = log, scope = appScope)
 
     val workerFactory: PodplayerWorkerFactory get() = jobs.workerFactory
+
+    /**
+     * Artwork (`:core:imagesandbox`): fetched by the gate, decoded only in the isolated sandbox process, shown
+     * only from its cache. Built on first use.
+     */
+    val images: ImageSandbox by lazy {
+        ImageSandbox(appContext, gate = { netGate }, log = { log.i("Artwork", it) }, scope = appScope)
+    }
 
     fun start() {
         data.start()

@@ -51,7 +51,7 @@ This runs on every push and pull request in GitHub Actions (`.github/workflows/c
 | Unit tests | `test` | Any failing test, including the guardrails' own tests in `build-logic`; `:app` runs its unit tests for the release variant too |
 | Lint | `lint` | Any lint warning or error. Plain Kotlin modules are linted against minSdk through `:app` |
 | License headers | `checkLicenseHeaders` | A `.kt`, `.kts`, `.java` or `.aidl` file that doesn't start with the MPL-2.0 notice |
-| Forbidden APIs | `checkForbiddenApis` | WebView, `MediaExtractor`, `MediaMetadataRetriever`, image decoders outside `:core:imagesandbox`, other HTTP clients, `OkHttpClient` outside `:core:net`, jsoup's HTTP client, jsoup outside `:core:feed`, Coil networking, `android.*` in plain Kotlin modules, hex colors in screens, the Developer screen named outside the debug source set |
+| Forbidden APIs | `checkForbiddenApis` | WebView, `MediaExtractor`, `MediaMetadataRetriever`, image decoders outside `:core:imagesandbox`'s isolated-process `sandbox` package, a second Coil image loader, Media3 artwork bytes or Media3's own bitmap loaders, other HTTP clients, `OkHttpClient` outside `:core:net`, jsoup's HTTP client, jsoup outside `:core:feed`, Coil networking, `android.*` in plain Kotlin modules, hex colors in screens, the Developer screen named outside the debug source set |
 | Closed dependencies | `checkClosedDependencies` | Anything from the SPEC §2 "Never" list (Google Play services, Firebase, crash, analytics and ad SDKs, WebView libraries, FFmpeg and native media libraries) on any classpath, direct or transitive |
 | Dependency verification | (every build) | A downloaded artifact whose SHA-256 doesn't match `gradle/verification-metadata.xml` |
 
@@ -115,9 +115,9 @@ If the key is lost, installed copies can never be updated again. Keep the backup
 | `:core:feed` | RSS/Atom/Podcasting 2.0 parsing with the XML pre-pass and limits, episode identity and merge, OPML import and export, show-notes sanitizer |
 | `:core:net` | The single gated HTTP client (`NetGate`), URL policy and redaction, address filter, range download engine |
 | `:core:data` | Room database (schemas in `core/data/schemas/`), repositories, start-up integrity check, backups and restore, settings, rolling redacted logs and crash files |
-| `:core:imagesandbox` | Isolated image decoding (M1-S6) |
+| `:core:imagesandbox` | The isolated decoder service (`android:isolatedProcess`, shared memory in and out), its client (5 s limit, crash and hang handling), the check of what it sends back, the artwork pipeline (gated fetch, sandbox, cache, failure memory), the app's only Coil loader, and the read-only artwork content provider for Media3 and Android Auto |
 | `:core:jobs` | WorkManager work: the daily backup, feed refresh (periodic and on request, per-feed backoff), downloads (resume, storage cap, Wi-Fi only, foreground `dataSync`) and the Media3-extractor probe that accepts a finished download |
-| `:playback` | Media3 playback service and Android Auto (M1-S7, S10) |
+| `:playback` | Media3 playback service and Android Auto (M1-S7, S10); the artwork bitmap loader (M1-S6) |
 | `:core:testing` | Fixtures for tests: the hostile corpus and synthetic sample feeds (`src/main/resources/corpus`, `samples`), generators for the big ones |
 | `build-logic` | Convention plugins and the guardrail checks |
 

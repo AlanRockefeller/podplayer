@@ -5,9 +5,9 @@ a reviewer reads it to see what was really done.
 
 ## Current state
 - Milestone: M1
-- Next session: M1-S6
-- Build status: `./gradlew check` and `assembleRelease` green locally after M1-S5 (2026-11-09), including a run
-  from an empty Gradle home. The CI result is on the M1-S5 PR.
+- Next session: M1-S7
+- Build status: `./gradlew check`, `assembleDebug` and `assembleRelease` green locally after M1-S6 (2026-11-09),
+  including runs from two empty Gradle homes. The CI result is on the M1-S6 PR.
 
 ## Session log
 <!-- Newest first. Copy this block for each session. -->
@@ -19,6 +19,198 @@ a reviewer reads it to see what was really done.
 - Manual checks for the owner:
 - PR:
 -->
+
+### M1-S6 Image sandbox (2026-11-09)
+Plan (written before any code; tests first for every rule):
+- Scope: `:core:imagesandbox` (isolated decode service, client, image cache, Coil setup, artwork content
+  provider), a Media3 `BitmapLoader` in `:playback`, wiring, the sandbox-process start guard and artwork on the
+  Developer screen in `:app`, forbidden-API rules in `build-logic`. SPEC §6, §11 (artwork), §14 (image corpus);
+  CLAUDE.md security rules; PROGRESS "Later" item for S6 (artwork uses the feed's owner-approved host). LESSONS has
+  no image row; each CLAUDE.md image rule becomes a test or a guardrail below.
+- Dependencies (all allowlisted, versions re-checked today: Coil 3.6.3, Media3 1.11.1 are current stable):
+  `coil-core` in `:core:imagesandbox` (no network artifact; Coil's service loader switched off), `coil-compose`
+  in `:app`, `media3-session` in `:playback` (for `BitmapLoader`). Robolectric (already verified) for the
+  `:core:imagesandbox`, `:playback` and `:app` tests, with native graphics so the real platform decoders run in
+  tests. Verification metadata regenerated from an empty Gradle home.
+- Process boundary, in `core/imagesandbox/src/main/`:
+  - `aidl/.../ipc/IImageSandbox.aidl`: one call, `decode(in SharedMemory input, in SharedMemory output, int
+    maxSidePx)`, returning the output length or a negative refusal code. Input is a read-only shared-memory copy
+    of the fetched bytes; output is a fixed-size region the main process created, so the sandbox can't send more
+    than that.
+  - `AndroidManifest.xml`: `ImageSandboxService` with `isolatedProcess="true"`, `exported="false"`,
+    `process=":imagesandbox"`; `ArtworkProvider` not exported, `grantUriPermissions="true"`.
+  - `sandbox/` (the only place decoders may appear): `ImageSandboxService` (binder, one decode at a time, a
+    watchdog that kills its own process after 4 s), `SandboxDecoder` (refuses to run unless
+    `Process.isIsolated()`; input ≤ 10 MiB; sniff: PNG, JPEG, GIF, WebP only, SVG and everything else refused;
+    `ImageDecoder` header callback refuses > 8,000 px a side; target size ≤ 1,024 px; software allocator, sRGB;
+    partial images refused; first frame of animations; re-encode PNG when there is alpha, else JPEG).
+- Main process:
+  - `ImageFormat.kt`: magic-byte sniffing shared by both sides (no decoding).
+  - `client/SandboxClient.kt`: binds with an explicit component, one request at a time, 5 s limit on bind plus
+    decode, any exception or `DeadObjectException` is a crash result (never thrown), a timeout unbinds (Android
+    kills an isolated process once nothing is bound) and the next request binds a fresh one; idle unbind after
+    30 s; counters for the Developer screen.
+  - `client/OutputCheck.kt`: the sandbox is treated as hostile too. Its output is copied out of shared memory
+    first, then checked structurally without decoding (PNG: signature, IHDR, every chunk length and CRC, ends at
+    IEND; JPEG: SOI, segment walk, SOF size, EOI), ≤ 1,024 px a side, size cap. Only then is it cached.
+  - `cache/ImageCache.kt`: `cacheDir/artwork/<sha256 of URL>.png|.jpg`, atomic writes, size cap with oldest-first
+    eviction, failure memory per URL that survives restarts (24 h for refusals, crashes and timeouts; 1 h for
+    network errors). `ArtworkFile` can only be made by the cache.
+  - `Artwork.kt`: URL policy (http/https), fetch through `NetGate.fetch(BodyLimit.IMAGE)` with the feed's
+    owner-approved host, sniff, sandbox, output check, cache; one fetch per URL at a time; results `Ready(file)`
+    or `Unavailable(reason)`; redacted log lines.
+  - `coil/`: the app's only Coil `ImageLoader`: no disk cache, service loader off, and a first interceptor that
+    refuses every request whose data isn't an `ArtworkFile` of the cache (URLs, `data:`, content and file URIs,
+    raw files, bytes, bitmaps) or that carries its own fetcher or decoder.
+  - `provider/ArtworkProvider.kt` and `ArtworkUris`: `content://<package>.artwork/<name>`, read-only, serving
+    cache files only (name pattern, no traversal). `artworkUriFor(url)` returns such a URI or null, never a
+    remote URL. `loadBitmap(uri)` loads only those URIs, through the guarded Coil loader.
+  - `ImageSandbox.kt`: builds it all for `AppGraph`; `isSandboxProcess()`.
+- `:playback`: `ArtworkBitmapLoader` (Media3 `BitmapLoader`): `decodeBitmap(bytes)` always fails (embedded
+  artwork from audio files is never decoded in the app process), `loadBitmap` accepts artwork URIs only,
+  `loadBitmapFromMetadata` ignores artwork bytes. S7 sets it on the session.
+- `:app`: `PodplayerApp` returns right after `super.onCreate()` in the sandbox process (Android runs the
+  Application class there too: no StrictMode, database, WorkManager or crash file in it), implements Coil's
+  `SingletonImageLoader.Factory` with the guarded loader; `AppGraph.images`; `ui/artwork/ArtworkImage.kt`
+  (placeholder until `Ready`). Developer screen: artwork on feed and episode rows, sandbox counters, cache size,
+  "Clear image cache".
+- `build-logic` forbidden-API rules: `image-decoding` narrowed to `:core:imagesandbox`'s `sandbox/` package (and
+  its tests); new `coil-loader-outside-imagesandbox` (`ImageLoader.Builder`, `ImageLoader(`) and
+  `media3-untrusted-artwork` (`setArtworkData`, Media3's data-source and simple bitmap loaders). Robolectric's
+  temporary files move from `/tmp` to the build folder.
+- Tests first:
+  - Decoder (Robolectric native graphics, images generated in test code): valid PNG with alpha, opaque JPEG
+    scaled to 1,024, small image kept, WebP, animated GIF (first frame); truncated PNG and JPEG, header over
+    8,000 px, decompression bomb (20,000² PNG of a few KB) refused quickly, an 8,000² bomb inside the limits
+    decoded to 1,024 px, SVG (plain, with XML prolog, BOM), HTML, random bytes, empty, 10 MiB + 1; refusal when
+    not in an isolated process.
+  - Service through its binder: shared-memory round trip, refusal codes, oversized input not mapped, small output
+    region, watchdog kill on a slow decode.
+  - Output check: valid outputs pass; too large, bad CRC, truncated, trailing bytes, wrong magic, GIF/SVG, JPEG
+    without EOI or with a huge SOF refused.
+  - Client: success; `DeadObjectException` and runtime exceptions become crash results and the next request
+    binds again; a hang times out and unbinds; bind failure; bad lengths; counters.
+  - Pipeline (MockWebServer behind the gate, a recording fake sandbox): every hostile input (truncated,
+    oversized, mislabeled, bombs, SVG) goes only to the sandbox and ends as a placeholder with nothing cached; a
+    sandbox that answers with hostile output (a bomb, an SVG, a 2,000 px PNG) is refused and nothing is cached;
+    image over 10 MiB refused by the gate; private address refused, owner-approved host allowed; non-http URLs
+    refused offline; cache hit makes no request; failures remembered across restarts and retried after expiry;
+    concurrent requests make one fetch; no token in the log. Plus an end-to-end run with the real decoder.
+  - Coil loader: an http URL (MockWebServer sees zero requests), `data:`, content and file URIs, raw files,
+    files outside the cache, bytes, bitmaps, custom fetchers all refused; a cache file loads.
+  - Provider and URIs: reads cache files only; write mode, traversal, unknown names, other operations refused;
+    `artworkUriFor` is null until cached, then a content URI of a sandbox-produced file, never remote.
+  - Manifest (merged, read through `PackageManager`): isolated, not exported, own process; provider not exported.
+  - `:playback`: the bitmap loader refuses bytes, http, file, `data:` and foreign content URIs; uses the URI from
+    metadata, never its bytes.
+  - `:app`: the Application skips start-up in an isolated process; the merged app manifest keeps the service
+    isolated.
+  - `build-logic`: each new or narrowed rule with a refusing sample and an allowed one.
+
+Result:
+- Done (layout as planned, except: the binding lives in `client/BindingConnector.kt`; the client runs the output
+  check itself, so nothing gets a sandbox answer unchecked; `ImageHeaders` joined `ImageFormat.kt`):
+  - Sandbox process (`core/imagesandbox/src/main/kotlin/.../sandbox/`, AIDL in `src/main/aidl/.../ipc/`):
+    `ImageSandboxService` is `isolatedProcess`, not exported, in `:imagesandbox`. `SandboxBinder` takes one
+    request at a time, copies the input out of shared memory, refuses inputs over 10 MiB without mapping them,
+    writes into the app's fixed 6 MiB output region, and kills its own process when a decode passes 4 s.
+    `SandboxDecoder` refuses to run unless `Process.isIsolated()`; sniffs (PNG, JPEG, GIF, WebP; SVG, HEIF/AVIF,
+    BMP, ICO, TIFF, gzip and non-images refused); reads the declared size from the header bytes (`ImageHeaders`)
+    and refuses anything over 8,000 px a side before the platform decoder sees it; then `ImageDecoder` with the
+    size checked again in its header callback, target size ≤ 1,024 px, software memory, sRGB, partial images
+    refused, first frame only; re-encodes PNG (alpha) or JPEG (quality 88).
+  - App side: `SandboxClient` (shared memory in and out, 5 s for bind plus decode, binder calls on their own
+    threads so a timeout returns at once, every exception a result, crash and timeout drop the binding so the next
+    request gets a fresh process, idle release after 30 s, counters). `OutputCheck` parses the answer's structure
+    without decoding and rebuilds it with only what a plain image needs: PNG (IHDR first, PLTE/tRNS/IDAT/IEND,
+    every CRC, consecutive IDATs, ends at IEND; text, colour-profile, EXIF and other ancillary chunks dropped,
+    unknown critical chunks refused) or baseline JPEG (one SOF0, DQT/DHT/DRI, one SOS, only stuffed bytes and
+    restart markers in the scan, EOI last; APPn and comments dropped), ≤ 1,024 px a side.
+  - `ImageCache` (`cacheDir/artwork/<sha256(url)>.png|jpg`, fsync then rename, 100 MiB with least-recently-used
+    eviction, failure records in `failed/` that survive restarts, `ArtworkFile` only made by the cache, `owns()`
+    by name without disk access). `ArtworkRepository` (`Artwork.kt`): URL policy, `NetGate.fetch` with
+    `BodyLimit.IMAGE` and the feed's owner-approved host (the S6 "Later" item), sniff, sandbox, cache; one fetch
+    per URL at a time, 4 at most; failures remembered 24 h (refusals, crashes, timeouts, 4xx) or 1 h (timeouts,
+    5xx, 408/429, sandbox not starting); redacted log lines.
+  - `SandboxImageLoader`: no disk cache, service loader off, first interceptor refuses all but `ArtworkFile`s of
+    the cache and requests with their own fetcher or decoder. `PodplayerApp` makes it Coil's singleton.
+  - `ArtworkProvider` / `ArtworkUris`: `content://us.dikarya.podplayer.artwork/<name>`, read-only, cache names
+    only, not exported, `grantUriPermissions`. `ImageSandbox` (facade): `artworkUri` / `cachedArtworkUri` give
+    such a URI or null, `loadBitmap` loads only those URIs through the guarded loader.
+  - `:playback` `ArtworkBitmapLoader`: `decodeBitmap` always fails, `loadBitmap` takes artwork URIs only,
+    `loadBitmapFromMetadata` uses the URI and never the bytes, PNG/JPEG only.
+  - `:app`: `PodplayerApp` returns right after `super.onCreate()` in the sandbox process; `AppGraph.images`;
+    `ui/artwork/ArtworkImage.kt` (`rememberArtwork`, `ArtworkImage` with a token-coloured placeholder). Developer
+    screen: artwork on feed rows (72 dp) and episode rows (48 dp, episode image or the show's), the reason under a
+    placeholder, an "Image sandbox" section with counters, cache size and "Clear image cache".
+  - `build-logic`: `image-decoding` now allows decoders only in `:core:imagesandbox`'s
+    `src/main/kotlin/.../imagesandbox/sandbox/` and its tests; new `coil-loader-outside-imagesandbox` and
+    `media3-untrusted-artwork` (`setArtworkData`, `maybeSetArtworkData`, Media3's data-source and simple bitmap
+    loaders, everywhere including tests). The Robolectric convention puts Java's temp folder under
+    `build/tmp/robolectric`, so tests no longer write to `/tmp`.
+  - Found by the tests and fixed: (1) a refusal by the address filter was remembered per URL, so the same image
+    under an owner-approved host stayed refused; address refusals are no longer remembered (they depend on the
+    policy and send nothing). (2) A JPEG header without tables makes the platform decoder fail before its header
+    callback, so "too large" read as "unreadable"; the sandbox now reads the declared size itself first.
+  - Checked by hand: `BitmapFactory` added to `cache/ImageCache.kt` fails `checkForbiddenApis` (reverted).
+    Mutation check: with the isolated-process guard, the Coil interceptor and the output check all disabled, 9
+    tests failed, each pointing at its own mutation (reverted).
+- Tests added (107; 647 test runs in all, every one passing):
+  - `:core:imagesandbox` (95, Robolectric with native graphics, every image generated in test code):
+    SandboxDecoderTest (15: alpha PNG, opaque JPEG scaled to 1,024, tall image, small image, WebP, animated GIF
+    first frame, truncated PNG/JPEG/hand-made PNG, headers over 8,000 px, a 400-megapixel PNG bomb of a few KB
+    refused in under 2 s, an 8,000² bomb inside the limits decoded at 1,024 only, SVG plain and with BOM/prolog,
+    HTML, noise, HEIC, empty, 10 MiB + 1, garbage behind real signatures, not isolated, output side bounds),
+    ImageSandboxServiceTest (8), OutputCheckTest (8), SandboxClientTest (11), BindingConnectorTest (3),
+    ImageCacheTest (11), ArtworkRepositoryTest (14), SandboxImageLoaderTest (6), ArtworkProviderTest (5),
+    ImageSandboxTest (3), ManifestTest (3), ImageFormatTest (8).
+  - `:playback`: ArtworkBitmapLoaderTest (6). `:app`: SandboxProcessTest (2, run for debug and release).
+  - `build-logic`: ForbiddenApiCheckTest (+4, 27 now).
+  - Written before the code they test; Kotlin needs the API to compile them, so their first run was against
+    finished code. On that run 4 of 95 failed: the two real bugs above, one Robolectric quirk (it reports bound
+    services as started) and one test that expected one refusal code where random bytes can produce either.
+- Deviations from the spec, and why:
+  - Formats: PNG, JPEG, GIF and WebP only. HEIF/AVIF, BMP, ICO and TIFF are refused although Android decodes
+    them: podcast art doesn't need them, and each is more decoder code an attacker can aim at, even in the sandbox.
+  - Beyond SPEC §6: the sandbox reads the declared size from the header bytes before `ImageDecoder` runs; the app
+    checks and strips the sandbox's answer (`OutputCheck`) before caching it, so a sandbox taken over by an image
+    still can't hand the app's decoder anything but a plain, small PNG or baseline JPEG; the sandbox kills itself
+    after 4 s (the app's limit is 5 s, bind included).
+  - Both directions use `SharedMemory` (SPEC: a `ParcelFileDescriptor` or `SharedMemory`); the output region has
+    a fixed size, so the sandbox can't send more than 6 MiB.
+  - The image cache is in the app's cache folder (Android may clear it; images are fetched again), not in the
+    database or `MediaPaths`: nothing about images is stored in Room, so there is no schema change.
+  - Failure memory: 24 h, or 1 h for transient trouble (SPEC §6 says "remember the failure" without a time).
+    Address-filter refusals aren't remembered.
+  - Embedded artwork in audio files (ID3 pictures) is never shown: `ArtworkBitmapLoader.decodeBitmap` refuses
+    all bytes. Feed images cover podcasts; embedded art could go through the sandbox later (see Later).
+  - The artwork provider isn't exported; Android Auto will get a per-URI read grant in S10 (SPEC §11 only asks
+    for content URIs of cache files).
+  - `media3-session` joins `:playback` now (S7 needed it anyway) for the `BitmapLoader` interface; the loader
+    is built now so S6's "artwork access for Media3" is tested.
+  - Coil 3.6.3 asks for Lifecycle 2.9.4, whose bundled lint checks are too old for this lint; `:core:imagesandbox`
+    constrains `lifecycle-runtime` to the pinned 2.11.0 (allowlisted, what the app already ships). New catalog
+    entry `androidx-lifecycle-runtime`.
+  - `:app` applies the Robolectric convention now (for SandboxProcessTest).
+  - Verification metadata: regenerated from an empty Gradle home under `~/.cache` (not `/tmp`), with only the
+    Gradle distribution copied in; a second run from another empty home gave a byte-identical file. Only new
+    components were added (Coil 3.6.3, media3-session 1.11.1, `androidx.media` 1.7.0, Accompanist Drawable
+    Painter, JetBrains Compose Multiplatform runtime artifacts, and the older AndroidX versions those ask for);
+    no existing checksum changed.
+- Not yet run on the phone: it wasn't connected over adb, so the build wasn't installed or launched. Install it
+  first: `./gradlew :app:installDebug`.
+- Manual checks for the owner (on the phone; debug build):
+  1. Open the app, tap "Developer" (top right). The feeds you added in S5 now show artwork on the left of each row
+     after a moment; feeds whose image failed show a plain placeholder square with "No artwork: ..." under it.
+  2. The "Image sandbox" section shows "Decoded N · refused 0 · crashed 0 · timed out 0 · bad answers 0" and
+     "Image cache: <size> (files: N)". Tap a feed's "Episodes": episode rows show their own image or the show's.
+  3. Tap "Clear image cache": the size goes to 0, the artwork disappears and comes back (Decoded goes up again).
+  4. With the phone on USB: `adb shell ps -A | grep podplayer` while artwork loads shows a second process
+     `us.dikarya.podplayer:imagesandbox` whose user starts with `u0_i` (an isolated user id). About 30 s after the
+     last image it goes away. `adb logcat | grep -i -E "podplayer|imagesandbox|FATAL"` shows no crash.
+  5. Optional: subscribe to a feed you control whose `<itunes:image>` points at an SVG or a web page: its row
+     shows "No artwork: The server didn't send an image we show (Svg)" (or `Unknown`) and nothing crashes.
+- PR: #8 (`m1-s6-image-sandbox`).
 
 ### M1-S5 Refresh and downloads (2026-11-08)
 Plan (written before any code; tests first for every rule):
@@ -797,7 +989,16 @@ Result:
   queued record. Nothing is `Complete` until `AudioProbe` accepts the file. Debug-only screens go through
   `BuildTypeSetup.debugScreen`; main and release code never name them (forbidden-API rule, release unit tests).
   Test temp files: Robolectric needs room in `/tmp` (a full per-user quota there makes every Robolectric test
-  fail with "Disk quota exceeded" or "Failed creating temp file").
+  fail with "Disk quota exceeded" or "Failed creating temp file"). Since S6 its temp files go to each module's
+  `build/tmp/robolectric` instead.
+
+- Images (M1-S6): artwork only through `AppGraph.images` (`ImageSandbox`): `artwork.artwork(url, approvedHost)`
+  or the `rememberArtwork` / `ArtworkImage` composables in `:app`; Media3 and Android Auto get
+  `artworkUri(...)` / `cachedArtworkUri(...)` (content URIs of cache files, or null) and the session must use
+  `ArtworkBitmapLoader`. Never build another Coil `ImageLoader`, never put artwork bytes in `MediaMetadata`
+  (forbidden-API rules). Code that decodes images belongs in `core/imagesandbox/.../sandbox/` only and runs in
+  the isolated process. `PodplayerApp.onCreate` returns at once in that process; anything added to start-up
+  goes after that check.
 
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
@@ -805,8 +1006,15 @@ Result:
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
-- S6: artwork requests use the feed's owner-approved host too (`AddressPolicy.approvingHosts`), as refresh and
-  downloads now do.
+- S7: `MediaSession.Builder.setBitmapLoader(ArtworkBitmapLoader(graph.images, scope))` (wrapped in Media3's
+  caching loader if wanted), with a test that the built session uses it; `MediaItem` artwork from
+  `images.cachedArtworkUri(episode.imageUrl ?: feed.imageUrl)`, never the feed's URL.
+- S10: grant Android Auto (`com.google.android.projection.gearhead`) read access to each artwork URI it is given
+  (`Context.grantUriPermission`); the provider already allows per-URI grants.
+- Embedded artwork in audio files (ID3 `APIC`, MP4 `covr`) through the sandbox, if feed images turn out not to be
+  enough; today those bytes are never decoded.
+- An on-device check that the sandbox process really has no network and no file access (an instrumented test
+  with a debug-only probe in the service), beyond what `isolatedProcess` promises.
 - S8/S9: store a reason code with refresh and download log rows and map it to `strings.xml`; today the rows hold
   English text.
 - S8/S9: the full Downloads settings (cap, Wi-Fi only); applying a Wi-Fi-only change to downloads already queued.
@@ -824,8 +1032,8 @@ Result:
   filter. MockWebServer listens on IPv4 only, since CI may not have IPv6.
 - Enforce the allowlist mechanically: direct dependencies must come from catalog entries mapped to SPEC §2.
 - Release builds: turn on R8 (minify and resource shrinking) with keep rules. (The signing config is done.)
-- A Robolectric Compose test for the shell (four tabs, Settings icon, the theme switch recomposing). Robolectric
-  is set up now (`podplayer.android.robolectric`); `:app` doesn't apply it yet.
+- A Robolectric Compose test for the shell (four tabs, Settings icon, the theme switch recomposing). `:app`
+  applies `podplayer.android.robolectric` since S6.
 - Enforce the MPL notice in XML, TOML and YAML files (it's placed there now but not checked).
 - An instrumented run of the feed corpus on a real device's parser (S5 compares Robolectric's copy of Android's
   parser with kxml2).

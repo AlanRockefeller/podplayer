@@ -68,4 +68,7 @@
     <string name="db_failed_newer">It was saved by a newer version of Podplayer. Install that version again; nothing was changed.</string>
     <string name="db_failed_backup">It needs updating, but the backup before the update failed, so it wasn\'t changed. Free some storage and restart the app.</string>
     <string name="db_failed_open">The app log has details.</string>
+
+    <!-- Artwork (M1-S6) -->
+    <string name="artwork">Artwork</string>
 </resources>

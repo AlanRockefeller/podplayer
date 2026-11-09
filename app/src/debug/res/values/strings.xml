@@ -39,4 +39,9 @@
     <string name="dev_refresh_log">Refresh log</string>
     <string name="dev_download_log">Download log</string>
     <string name="dev_log_empty">Nothing yet.</string>
+    <string name="dev_image_sandbox">Image sandbox</string>
+    <string name="dev_sandbox_stats">Decoded %1$d · refused %2$d · crashed %3$d · timed out %4$d · bad answers %5$d</string>
+    <string name="dev_image_cache">Image cache: %1$s (files: %2$d)</string>
+    <string name="dev_clear_image_cache">Clear image cache</string>
+    <string name="dev_no_artwork">No artwork: %1$s</string>
 </resources>

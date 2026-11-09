@@ -1,0 +1,21 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
+package sample
+
+import android.content.Context
+import androidx.media3.common.MediaMetadata
+import androidx.media3.datasource.DataSourceBitmapLoader
+
+// Media3's own loaders fetch any URI and decode in the app process.
+fun loader(context: Context) = DataSourceBitmapLoader(context)
+
+// Bytes from a feed or an audio file's tags, decoded in the app process by the session.
+fun metadata(bytes: ByteArray) = MediaMetadata.Builder().setArtworkData(bytes, null).build()
+
+fun maybe(builder: MediaMetadata.Builder, bytes: ByteArray) = builder.maybeSetArtworkData(bytes, 3)
+
+fun old() = androidx.media3.session.SimpleBitmapLoader()

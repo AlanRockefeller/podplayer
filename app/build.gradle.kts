@@ -11,6 +11,7 @@ plugins {
     id("podplayer.android.application")
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    id("podplayer.android.robolectric")
 }
 
 // Signing key: it lives outside the repository (README, "Release signing"). Without the file,
@@ -85,6 +86,8 @@ dependencies {
     implementation(libs.compose.ui.graphics)
     implementation(libs.compose.ui.tooling.preview)
     implementation(libs.compose.material3)
+    // Shows artwork from sandbox-produced cache files only, through :core:imagesandbox's guarded loader.
+    implementation(libs.coil.compose)
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.kotlinx.coroutines.test)

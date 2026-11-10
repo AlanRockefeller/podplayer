@@ -208,4 +208,23 @@ class ShowNotesTest {
     fun `the default input limit is generous`() {
         assertTrue(ShowNotes.sanitize("<p>" + "word ".repeat(100_000) + "</p>") is NotesResult.Ok)
     }
+
+    @Test
+    fun `a bare URL followed by a long run of brackets is trimmed in linear time`() {
+        // The trimming of unbalanced brackets used to recount them for every bracket dropped, so 200,000
+        // of them took minutes, with no time check in between: a hostile note could hang the notes screen.
+        val html = "see https://example.com/a" + ")".repeat(200_000) + " and https://example.com/b]]]."
+        val start = System.nanoTime()
+        val text = rich(html)
+        val millis = (System.nanoTime() - start) / 1_000_000
+        assertTrue("took $millis ms", millis < 2_000)
+        assertEquals(listOf("https://example.com/a", "https://example.com/b"), text.links())
+    }
+
+    @Test
+    fun `brackets a URL opened are kept, brackets it didn't open are trimmed`() {
+        assertEquals(listOf("https://example.com/a_(b)"), rich("(see https://example.com/a_(b))").links())
+        assertEquals(listOf("https://example.com/x"), rich("[https://example.com/x]").links())
+        assertEquals(listOf("https://example.com/p?q=1"), rich("Visit https://example.com/p?q=1.").links())
+    }
 }

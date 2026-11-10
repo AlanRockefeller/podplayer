@@ -1,0 +1,15 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
+package sample
+
+import android.app.DownloadManager
+import android.content.Context
+import android.net.Uri
+
+// The system downloader fetches outside the gated client: no address filter, no limits, no redaction.
+fun fetch(context: Context, url: String) =
+    context.getSystemService(DownloadManager::class.java).enqueue(DownloadManager.Request(Uri.parse(url)))

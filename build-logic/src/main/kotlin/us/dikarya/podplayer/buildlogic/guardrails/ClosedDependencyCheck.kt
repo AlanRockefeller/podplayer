@@ -70,6 +70,9 @@ object ClosedDependencies {
         BannedCoordinate("androidx.media3", artifactPrefix = "media3-decoder-ffmpeg", reason = "FFmpeg"),
         BannedCoordinate("androidx.media3", artifactPrefix = "media3-exoplayer-ima", reason = ADS),
         BannedCoordinate("io.coil-kt.coil3", artifactPrefix = "coil-network", reason = "Coil network fetching"),
+        BannedCoordinate("io.coil-kt.coil3", artifactPrefix = "coil-gif", reason = "Coil decoding untrusted bytes in the app process"),
+        BannedCoordinate("io.coil-kt.coil3", artifactPrefix = "coil-svg", reason = "Coil decoding untrusted bytes in the app process"),
+        BannedCoordinate("io.coil-kt.coil3", artifactPrefix = "coil-video", reason = "Coil decoding untrusted bytes in the app process"),
     )
 
     fun findBanned(group: String, artifact: String): BannedCoordinate? =

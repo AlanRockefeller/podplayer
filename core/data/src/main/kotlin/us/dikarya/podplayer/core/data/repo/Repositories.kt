@@ -7,6 +7,7 @@
 package us.dikarya.podplayer.core.data.repo
 
 import androidx.room.withTransaction
+import java.io.IOException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import us.dikarya.podplayer.core.data.db.DownloadEvent
@@ -20,6 +21,7 @@ import us.dikarya.podplayer.core.data.db.QueueEntryEntity
 import us.dikarya.podplayer.core.data.db.RefreshLogEntity
 import us.dikarya.podplayer.core.data.db.RefreshOutcome
 import us.dikarya.podplayer.core.data.media.MediaPaths
+import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.core.model.Episode
 import us.dikarya.podplayer.core.model.EpisodeAction
 import us.dikarya.podplayer.core.model.EpisodeActionKind
@@ -185,6 +187,9 @@ class EpisodeActionRepository internal constructor(
     }
 }
 
+/** What [MediaFileRepository.reconcileWithDisk] did. */
+data class Reconciliation(val droppedRecords: Int, val deletedFiles: Int)
+
 /** Download records. The files themselves are handled by `:core:jobs` (M1-S5). */
 class MediaFileRepository internal constructor(private val db: PodDatabase) {
     suspend fun get(episodeId: Long): MediaFile? = db.mediaFiles().get(episodeId)?.toModel()
@@ -240,19 +245,35 @@ class MediaFileRepository internal constructor(private val db: PodDatabase) {
     suspend fun mimeType(episodeId: Long): String? = db.mediaFiles().get(episodeId)?.mimeType
 
     /**
-     * Drops records whose file is gone or whose path is unsafe, for example after restoring a backup on a
-     * phone that doesn't have the downloads (backups never include media). Returns how many were dropped.
+     * After a restore (backups never include media): drops records whose file is gone, whose path is unsafe,
+     * or whose finished download isn't the size the record says (this phone's file under an id the restored
+     * library gave to another episode), and deletes media files that no remaining record owns, so they don't
+     * take space outside the storage cap.
      */
-    suspend fun reconcileWithDisk(paths: MediaPaths): Int {
+    suspend fun reconcileWithDisk(paths: MediaPaths): Reconciliation {
+        val owned = HashSet<String>()
         var dropped = 0
         for (row in db.mediaFiles().all()) {
-            val file = paths.resolve(row.relativePath)
-            if (file == null || !file.isFile) {
+            val file = paths.resolve(row.relativePath)?.takeIf { it.isFile }
+            val isTheRecordsFile = file != null &&
+                (row.state != DownloadState.Complete || file.length() == row.bytesDownloaded)
+            if (file != null && isTheRecordsFile) {
+                owned += file.path
+            } else {
                 db.mediaFiles().delete(row.episodeId)
                 dropped++
             }
         }
-        return dropped
+        var deleted = 0
+        for (file in paths.mediaFiles()) {
+            val path = try {
+                file.canonicalPath
+            } catch (_: IOException) {
+                continue
+            }
+            if (path !in owned && file.delete()) deleted++
+        }
+        return Reconciliation(dropped, deleted)
     }
 
     private companion object {

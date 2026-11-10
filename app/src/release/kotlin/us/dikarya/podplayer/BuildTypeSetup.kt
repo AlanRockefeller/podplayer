@@ -6,6 +6,7 @@
 
 package us.dikarya.podplayer
 
+import android.util.Log
 import us.dikarya.podplayer.core.data.logs.AppLog
 import us.dikarya.podplayer.core.model.InvariantHandler
 import us.dikarya.podplayer.core.model.LoggingInvariantHandler
@@ -18,7 +19,14 @@ import us.dikarya.podplayer.ui.shell.DebugScreen
 internal object BuildTypeSetup {
     fun install() = Unit
 
-    fun invariantHandler(log: AppLog): InvariantHandler = LoggingInvariantHandler { log.w("Invariant", it) }
+    /**
+     * Violations go to the app log, or to logcat while there is no log yet (before `AppGraph` exists, and in
+     * the sandbox process). Invariant messages carry no URLs or other secrets (`assertInvariant`).
+     */
+    fun invariantHandler(log: () -> AppLog?): InvariantHandler = LoggingInvariantHandler { message ->
+        val appLog = log()
+        if (appLog != null) appLog.w("Invariant", message) else Log.w("Podplayer", message)
+    }
 
     val debugScreen: DebugScreen? = null
 }

@@ -24,6 +24,13 @@ class PodplayerApp : Application(), Configuration.Provider, SingletonImageLoader
     /** False in the image sandbox process, where nothing is set up. */
     internal val isStarted: Boolean get() = ::graph.isInitialized
 
+    init {
+        // Before anything else runs in the process: ContentProviders (androidx.startup, WorkManager) are created
+        // before onCreate, and the sandbox process never gets past the check below. A release build must never
+        // crash on a violated invariant, whoever hits it first; until the log exists, a violation goes to logcat.
+        Invariants.handler = BuildTypeSetup.invariantHandler { if (isStarted) graph.log else null }
+    }
+
     override fun onCreate() {
         super.onCreate()
         // Android runs this class in the isolated image sandbox process too (SPEC §6). Nothing belongs there:
@@ -34,7 +41,6 @@ class PodplayerApp : Application(), Configuration.Provider, SingletonImageLoader
         graph = AppGraph(this)
         // Then the crash handler, so a crash anywhere later leaves a (redacted) crash file.
         CrashHandler.install(graph.log, { graph.files.crashDir }, BuildConfig.VERSION_NAME)
-        Invariants.handler = BuildTypeSetup.invariantHandler(graph.log)
         graph.start()
     }
 

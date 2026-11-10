@@ -6,8 +6,9 @@ a reviewer reads it to see what was really done.
 ## Current state
 - Milestone: M1
 - Next session: M1-S7
-- Build status: `./gradlew check`, `assembleDebug` and `assembleRelease` green locally after M1-S6 (2026-11-09),
-  including runs from two empty Gradle homes. The CI result is on the M1-S6 PR.
+- Build status: `./gradlew check` green locally after the review pass (2026-11-09); `assembleDebug` and
+  `assembleRelease` green after M1-S6, including runs from two empty Gradle homes. The CI result is on the
+  review-pass PR.
 
 ## Session log
 <!-- Newest first. Copy this block for each session. -->
@@ -19,6 +20,58 @@ a reviewer reads it to see what was really done.
 - Manual checks for the owner:
 - PR:
 -->
+
+### Review pass over M1-S1 to M1-S6 (2026-11-09)
+A separate session reviewed every file on `main` after the S6 merge (the S2 review's findings first, then all
+code added by S3 to S6) and fixed what it found. No new dependency; CLAUDE.md, SPEC.md and `.claude/` untouched.
+- Done:
+  - `:core:net`: response bodies are read off OkHttp's dispatcher. `awaitResponse` ran the body read inside the
+    `onResponse` callback, which holds a dispatcher slot (five per host, 64 in all) until it returns, so five
+    downloads from one tracker host queued every other fetch to that host for hours, a queued `fetch()`'s total time
+    limit only started once it ran, and the download stall watchdog could fire on a call that was only waiting for
+    a slot. Now the callback hands over the response headers and the body is read on `NetGate.transferDispatcher`
+    (`Dispatchers.IO`), with the same cancellation guarantee: the call is cancelled, and nothing writes to the
+    caller's files after the caller has returned.
+  - `:core:net`: a 206 that is shorter than asked for but says so in `Content-Range` (servers that cap range sizes)
+    is continued within the same download (at most 4,096 pieces of at least 64 KiB each) instead of ending as a
+    "network" failure per piece, which after five attempts would have given up. A body that ends before its
+    announced end stays a resumable failure, now with an accurate message. `DownloadResult.Complete.resumedFrom`
+    is where the whole download resumed, not the last piece.
+  - `:core:net`: `RedirectChain.downgraded` (an https hop to http) for the S8 "not secure" marker.
+  - `:core:feed`: the show-notes sanitizer trimmed trailing brackets off bare URLs by recounting every bracket in
+    the URL for each one dropped (quadratic), with no time check in between: a note holding a URL followed by
+    200,000 brackets hung the sanitizer for minutes. Linear now.
+  - `:core:data`: after a restore, a download record whose finished file isn't the size the record says is dropped
+    (this phone's file under an id the restored library gave to a different episode would otherwise play as that
+    episode), and media files no remaining record owns are deleted; they took space outside the storage cap.
+  - `:app`: the invariant handler is installed from `PodplayerApp`'s constructor, before ContentProviders run and
+    before the sandbox-process check, so a release build never crashes on a violated invariant whoever hits it
+    first. Until the log exists it writes to logcat.
+  - `build-logic`: forbidden-API rules widened. `android-in-plain-module` also catches fully qualified `android.*`
+    and any `androidx.*`; new `other-network-apis` (DownloadManager, platform MediaPlayer, `java.net` sockets and
+    `URL`, socket channels); `image-decoding` adds ExifInterface, Movie, `BitmapDrawable` constructors, Icon from
+    data, file or URI, and `setImageURI`; new `coil-decoders` (coil-gif, coil-svg, coil-video and their decoder
+    classes). The closed-dependency denylist bans the coil-gif, coil-svg and coil-video artifacts.
+  - CI: pushes only run for `main`; a pull request branch no longer runs twice.
+- Review findings that needed no change (recorded so nobody re-checks them): the three-layer address filter and the
+  per-policy connection pools are correct; the redirect interceptor closes bodies before re-entering the chain; the
+  XML pre-pass, parsers, OPML, episode merge, Room layer, backups (archive limits, staging, validation), image
+  sandbox (client, output check, decoder, provider) and workers hold their limits and redact as CLAUDE.md asks.
+  Tests were sampled, not read in full.
+- Tests added (17, one extended; 664 test runs in all, every one passing): `ClientConfigTest` six slow bodies on one
+  host don't hold up a seventh request (fails on the old code); `RangeDownloaderTest` capped pieces are continued
+  with the accepted `If-Range`, tiny pieces are not, a body shorter than its Content-Range is a resumable failure;
+  `RedirectTest` another port on the approved host is followed without credentials, the chain reports a downgrade
+  (built by hand: MockWebServer has no TLS and `okhttp-tls` isn't allowlisted); `ShowNotesTest` 200,000 brackets
+  trim in linear time, opened brackets are kept; `BackupRoundTripTest` extended with a wrong-size record and an
+  orphan file; `ReleaseInvariantHandlerTest` (logs, never throws, installed by the constructor),
+  `DebugInvariantHandlerTest` (throws); `ForbiddenApiCheckTest` and `ClosedDependencyCheckTest` one test per new
+  rule, with nine new samples.
+- Deviations from the spec, and why: none. Two S2 design choices the review flagged for the owner are under
+  "Questions for owner"; they don't block any session.
+- Manual checks for the owner: none beyond CI. On the phone, a show whose host caps range sizes should now show one
+  "Completed" line in the download log instead of a run of failures.
+- PR: #10 (`m1-review-fixes`).
 
 ### M1-S5 follow-up: MetadataRetriever probe (2026-11-09)
 - Asked: switch `AudioProbe` to `MetadataRetriever` from `media3-inspector` (allowed in SPEC §2 since PR #7).
@@ -1039,7 +1092,12 @@ Result:
 
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
-- None open.
+- Two S2 design choices to confirm, from the review pass (2026-11-09). Neither blocks a session; the code stays as
+  it is until the owner says otherwise.
+  - Owner approval is per host: `AddressPolicy` approves every port and path on the host the owner typed, while
+    CLAUDE.md says "that exact feed URL". S2 chose the host so a private feed's own media and images work too.
+  - A hostname that resolves to a mix of public and private addresses keeps its public addresses (`GatedDns`)
+    instead of being refused outright.
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
@@ -1057,8 +1115,13 @@ Result:
 - S8/S9: the full Downloads settings (cap, Wi-Fi only); applying a Wi-Fi-only change to downloads already queued.
 - An instrumented test of `AudioProbe` on real podcast files (MP3 with ID3 art, M4A/AAC, Opus) on a device.
 - S9: log export (concatenate `AppLog.files()`, crash files, and the DB logs) and the full Backup settings.
-- A test that the release variant of `BuildTypeSetup` logs invariants instead of crashing. `:app` runs release
-  unit tests since S5, so it can live in `app/src/testRelease`.
+- NAT64 with a carrier-specific prefix (RFC 7050): on an IPv6-only network, a hostname resolving to a private
+  IPv4 address behind such a prefix passes `AddressClassifier`, which knows only the well-known 64:ff9b::/96. The
+  Android layer could feed it `LinkProperties.getNat64Prefix()` (API 30+).
+- The feed pre-pass holds about seven times the feed's size in heap (bytes, decoded text, cleaned text, the
+  parser's copy): a 20 MiB feed is ~150 MiB. Lower the cap or clean in place if a real feed gets near it.
+- A live test that an https feed redirecting to http is followed and flagged needs a TLS test server
+  (`okhttp-tls` isn't allowlisted); `RedirectChain.downgraded` is unit-tested on a hand-built chain instead.
 - S7: ExoPlayer gets `OkHttpDataSource.Factory(netGate.callFactory(policy))`. Map its `IOException`s with
   `NetError.from` for the position/playback log.
 - Redaction: some hosts put the token in the path (`/feed/<token>.xml`). The rule only asks to strip query,

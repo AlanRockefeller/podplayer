@@ -48,7 +48,7 @@ class DownloadRequest(
     override fun toString() = "DownloadRequest(${redact(url)}, maxBytes=$maxBytes)"
 }
 
-/** Called on a network thread; keep it quick. [totalBytes] is null while the size is unknown. */
+/** Called on the download's reading thread between reads; keep it quick. [totalBytes] is null while the size is unknown. */
 fun interface DownloadProgressListener {
     fun onProgress(bytesOnDisk: Long, totalBytes: Long?)
 }
@@ -128,32 +128,55 @@ class RangeDownloader(
             offset = 0
             truncate(sink)?.let { return it.failed(sink, fallbackValidators, restart) }
         }
-        var outcome = attempt(request, sink, offset, ifRange, restart, onProgress)
-        if (outcome is Attempt.Retry) {
-            restart = outcome.reason
-            truncate(sink)?.let { return it.failed(sink, fallbackValidators, restart) }
-            outcome = attempt(request, sink, 0, null, restart, onProgress)
-        }
-        return when (outcome) {
-            is Attempt.Done -> outcome.result
-            is Attempt.Retry -> NetError.Network("the server sent an unusable partial response")
-                .failed(sink, fallbackValidators, restart)
+        var resumedFrom = offset
+        var restarted = false
+        var continuations = 0
+        var outcome = attempt(request, sink, offset, ifRange, restart, resumedFrom, onProgress)
+        while (true) {
+            outcome = when (val current = outcome) {
+                is Attempt.Done -> return current.result
+                is Attempt.Retry -> {
+                    // One restart from zero per download; a second unusable answer is a failure.
+                    if (restarted) {
+                        return NetError.Network("the server sent an unusable partial response")
+                            .failed(sink, fallbackValidators, restart)
+                    }
+                    restarted = true
+                    restart = current.reason
+                    truncate(sink)?.let { return it.failed(sink, fallbackValidators, restart) }
+                    resumedFrom = 0
+                    attempt(request, sink, 0, null, restart, resumedFrom, onProgress)
+                }
+                is Attempt.Continue -> {
+                    // The server sent less than asked for and said so: ask for the rest, within reason.
+                    if (++continuations > MAX_CONTINUATIONS) {
+                        return NetError.Network("the server split the file into more than $MAX_CONTINUATIONS pieces")
+                            .failed(sink, current.validators, restart)
+                    }
+                    attempt(request, sink, current.offset, current.ifRange, restart, resumedFrom, onProgress)
+                }
+            }
         }
     }
 
     private sealed interface Attempt {
         class Done(val result: DownloadResult) : Attempt
 
+        /** Throw the partial file away and start over, for [reason]. */
         class Retry(val reason: RestartReason) : Attempt
+
+        /** The response ended, as announced, before the end of the file: fetch on from [offset]. */
+        class Continue(val offset: Long, val ifRange: String, val validators: Validators) : Attempt
     }
 
-    /** One request. [offset] > 0 asks for the rest of the file. */
+    /** One request. [offset] > 0 asks for the rest of the file; [resumedFrom] is where the whole download started. */
     private suspend fun attempt(
         request: DownloadRequest,
         sink: DownloadSink,
         offset: Long,
         ifRange: String?,
         restart: RestartReason?,
+        resumedFrom: Long,
         onProgress: DownloadProgressListener,
     ): Attempt {
         val httpRequest = Request.Builder().url(request.url).get()
@@ -162,11 +185,11 @@ class RangeDownloader(
             .apply { if (offset > 0 && ifRange != null) header("Range", "bytes=$offset-").header("If-Range", ifRange) }
             .build()
         val call = gate.client(request.policy).newCall(httpRequest)
-        val transfer = Transfer(request, sink, offset, restart, onProgress)
+        val transfer = Transfer(request, sink, offset, ifRange, restart, resumedFrom, onProgress)
         return coroutineScope {
             val watchdog = launch { watchForStall(call, transfer) }
             try {
-                call.awaitResponse { response -> transfer.handle(response) }
+                call.awaitResponse(gate.transferDispatcher) { response -> transfer.handle(response) }
             } catch (e: IOException) {
                 val error = when {
                     transfer.stalled.get() -> NetError.Stalled
@@ -195,12 +218,15 @@ class RangeDownloader(
         }
     }
 
-    /** State of one attempt, touched by the network thread and read by the watchdog. */
+    /** State of one attempt, touched by the reading thread and read by the watchdog. */
     private inner class Transfer(
         val request: DownloadRequest,
         val sink: DownloadSink,
         var offset: Long,
+        /** The `If-Range` value sent with this attempt, if any. */
+        val ifRange: String?,
         var restart: RestartReason?,
+        var resumedFrom: Long,
         val onProgress: DownloadProgressListener,
     ) {
         val received = AtomicLong(0)
@@ -226,7 +252,7 @@ class RangeDownloader(
                 return Attempt.Done(NetError.Network("unexpected partial response").failed(sink, validators, restart))
             }
             val total = range.total ?: response.body.contentLength().takeIf { it >= 0 }?.let { it + offset }
-            return Attempt.Done(writeBody(response, validators, total))
+            return writeBody(response, validators, total, announcedEnd = range.last?.plus(1))
         }
 
         private fun handleFull(response: Response, validators: Validators): Attempt {
@@ -236,8 +262,9 @@ class RangeDownloader(
                 restart = if (changed(request.validators, validators)) RestartReason.FileChanged else RestartReason.RangeIgnored
                 sinkOp { sink.truncate() }
                 offset = 0
+                resumedFrom = 0
             }
-            return Attempt.Done(writeBody(response, validators, declared))
+            return writeBody(response, validators, declared, announcedEnd = declared)
         }
 
         private fun handleUnsatisfiable(response: Response, validators: Validators): Attempt {
@@ -249,7 +276,11 @@ class RangeDownloader(
             return Attempt.Done(NetError.HttpStatus(416).failed(sink, validators, restart))
         }
 
-        private fun writeBody(response: Response, validators: Validators, total: Long?): DownloadResult {
+        /**
+         * Streams the body to the sink. [total] is the whole file's size when known; [announcedEnd] is where
+         * the server said this response's bytes end (from Content-Range, or Content-Length for a full response).
+         */
+        private fun writeBody(response: Response, validators: Validators, total: Long?, announcedEnd: Long?): Attempt {
             if (total != null && total > request.maxBytes) throw BodyTooLargeException(request.maxBytes)
             val source = response.body.source()
             val buffer = ByteArray(BUFFER_SIZE)
@@ -283,17 +314,41 @@ class RangeDownloader(
                 }
             }
             if (total != null && onDisk != total) {
-                return NetError.Network("the transfer ended after $onDisk of $total bytes").failed(sink, validators, restart)
+                if (reported != onDisk) onProgress.onProgress(onDisk, total)
+                return shortBody(onDisk, total, announcedEnd, validators)
             }
             if (reported != onDisk) onProgress.onProgress(onDisk, total ?: onDisk)
-            return complete(response, validators, onDisk)
+            return Attempt.Done(complete(response, validators, onDisk))
+        }
+
+        /**
+         * The body ended cleanly before the end of the file. A server may answer a Range request with a
+         * smaller piece than asked for (RFC 9110 §15.3.7) and say so in Content-Range: then the download
+         * carries on from where the piece ended, with the validator the server has already accepted. Anything
+         * else (bytes missing from what was announced, no validator, pieces too small to be a server capping
+         * ranges in good faith) is a failure that the next attempt resumes from.
+         */
+        private fun shortBody(onDisk: Long, total: Long, announcedEnd: Long?, validators: Validators): Attempt {
+            val failure = when {
+                onDisk != announcedEnd -> "the transfer ended after $onDisk of $total bytes"
+                onDisk - offset < MIN_CONTINUATION_BYTES ->
+                    "the server sent only ${onDisk - offset} bytes of the remaining ${total - offset}"
+                else -> null
+            }
+            if (failure != null) return Attempt.Done(NetError.Network(failure).failed(sink, validators, restart))
+            val next = ifRange ?: validators.ifRangeValue
+                ?: return Attempt.Done(
+                    NetError.Network("the server sent $onDisk of $total bytes and no validator to fetch the rest with")
+                        .failed(sink, validators, restart),
+                )
+            return Attempt.Continue(onDisk, next, validators)
         }
 
         private fun complete(response: Response, validators: Validators, bytes: Long) = DownloadResult.Complete(
             bytes = bytes,
             contentType = response.header("Content-Type")?.take(200),
             validators = validators,
-            resumedFrom = offset,
+            resumedFrom = resumedFrom,
             restart = restart,
             redirects = response.redirectChain,
         )
@@ -324,6 +379,12 @@ class RangeDownloader(
 
     private companion object {
         const val BUFFER_SIZE = 64 * 1024
+
+        /** The most pieces a server may split one download into before it counts as misbehaving. */
+        const val MAX_CONTINUATIONS = 4096
+
+        /** A piece smaller than this that doesn't end the file is not a server capping ranges in good faith. */
+        const val MIN_CONTINUATION_BYTES = 64L * 1024
     }
 }
 

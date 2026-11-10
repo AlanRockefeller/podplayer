@@ -86,12 +86,24 @@ object ForbiddenApis {
         ForbiddenApiRule(
             id = "image-decoding",
             reason = "Untrusted image bytes are decoded only inside the isolated process: $IMAGE_SANDBOX's " +
-                "sandbox package (src/main/kotlin/.../imagesandbox/sandbox/).",
+                "sandbox package (src/main/kotlin/.../imagesandbox/sandbox/). That rules out BitmapFactory, " +
+                "ImageDecoder, ExifInterface, Movie, and Drawables or Icons built from streams, files or URIs.",
             pattern = Regex(
-                """\b(BitmapFactory|ImageDecoder|BitmapRegionDecoder)\b|\bDrawable\.createFrom(Stream|Path)\b""",
+                """\b(BitmapFactory|ImageDecoder|BitmapRegionDecoder|ExifInterface)\b|\bDrawable\.createFrom(Stream|Path)\b|""" +
+                    """\bBitmapDrawable\s*\(|\bandroid\.graphics\.Movie\b|\bMovie\.decode\w*\(|""" +
+                    """\bIcon\.createWith(Data|FilePath|ContentUri|AdaptiveBitmapContentUri)\b|\bsetImageURI\b""",
             ),
             extensions = code,
             appliesTo = { module, path -> !(module.projectPath == IMAGE_SANDBOX && isSandboxProcessCode(path)) },
+        ),
+        ForbiddenApiRule(
+            id = "coil-decoders",
+            reason = "Coil's GIF, SVG and video decoders decode untrusted bytes in the app process; Coil only " +
+                "loads what the sandbox produced.",
+            pattern = Regex(
+                """\bcoil3\.(gif|svg|video)\b|\bcoil-(gif|svg|video)\b|\b(GifDecoder|AnimatedImageDecoder|SvgDecoder|VideoFrameDecoder)\b""",
+            ),
+            extensions = codeAndXml,
         ),
         ForbiddenApiRule(
             id = "coil-loader-outside-imagesandbox",
@@ -112,6 +124,19 @@ object ForbiddenApis {
             id = "other-http-client",
             reason = "All network traffic goes through the gated OkHttp client in :core:net.",
             pattern = Regex("""\bHttpsURLConnection\b|\bHttpURLConnection\b|\.openConnection\(|\.openStream\("""),
+            extensions = code,
+        ),
+        ForbiddenApiRule(
+            id = "other-network-apis",
+            reason = "Only the gated client in $NET talks to the network: no DownloadManager, no platform " +
+                "MediaPlayer (it fetches by itself), and no sockets or java.net.URL connections of our own.",
+            pattern = Regex(
+                """\bDownloadManager\b|\bMediaPlayer\b|""" +
+                    """\bjava\.net\.(URL|Socket|ServerSocket|DatagramSocket|MulticastSocket)\b|""" +
+                    """^\s*import\s+java\.net\.(URL|Socket|ServerSocket|DatagramSocket|MulticastSocket)\b|""" +
+                    """\bjava\.nio\.channels\.\w*SocketChannel\b|^\s*import\s+java\.nio\.channels\.\w*SocketChannel\b""",
+                RegexOption.MULTILINE,
+            ),
             extensions = code,
         ),
         ForbiddenApiRule(
@@ -152,8 +177,9 @@ object ForbiddenApis {
         ),
         ForbiddenApiRule(
             id = "android-in-plain-module",
-            reason = "Plain Kotlin modules must not import android.*, so they can move to Kotlin Multiplatform.",
-            pattern = Regex("""^\s*import\s+android\.""", RegexOption.MULTILINE),
+            reason = "Plain Kotlin modules must not use android.* or androidx.* (imported or fully qualified), " +
+                "so they can move to Kotlin Multiplatform.",
+            pattern = Regex("""^\s*import\s+androidx?\.|\bandroidx?\.[a-z][\w.]*\.[A-Z]\w*""", RegexOption.MULTILINE),
             extensions = code,
             appliesTo = { module, _ -> module.plainKotlin },
         ),

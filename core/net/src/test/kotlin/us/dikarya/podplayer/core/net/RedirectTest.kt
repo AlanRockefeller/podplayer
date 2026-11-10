@@ -8,6 +8,7 @@ package us.dikarya.podplayer.core.net
 
 import kotlinx.coroutines.runBlocking
 import mockwebserver3.MockWebServer
+import okhttp3.HttpUrl
 import okhttp3.Request
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -172,5 +173,40 @@ class RedirectTest {
         val chain = (fetch("/f?key=SECRET") as FetchResult.Success).redirects
         assertFalse(chain.toString(), "SECRET" in chain.toString())
         assertFalse("SECRET" in chain.hops.single().toString())
+    }
+
+    @Test
+    fun redirectToAnotherPortOnTheApprovedHostIsFollowedWithoutCredentials() {
+        // The owner approved the host, not a port, so the move is followed. The port makes it another
+        // origin, so credentials stay behind.
+        val other = startServer()
+        try {
+            server.enqueue(redirect(302, other.urlOn(FEED_HOST, "/moved").toString()))
+            other.enqueue(ok("<rss/>"))
+            val request = Request.Builder().url(server.urlOn(FEED_HOST)).header("Authorization", "Basic c2VjcmV0").build()
+            gate.callFactory(approvedFeedHost).newCall(request).execute().use { response ->
+                assertEquals(200, response.code)
+                assertEquals(other.port, response.redirectChain.finalUrl.port)
+            }
+            assertEquals("Basic c2VjcmV0", server.takeRequest().headers["Authorization"])
+            val moved = other.takeRequest()
+            assertEquals("/moved", moved.url.encodedPath)
+            assertNull(moved.headers["Authorization"])
+        } finally {
+            other.close()
+        }
+    }
+
+    @Test
+    fun chainReportsADowngradeFromHttpsToHttp() {
+        // MockWebServer speaks plain HTTP, so the chain is built by hand here. The interceptor allows the
+        // hop (SPEC §3 allows cleartext); the chain tells the UI to mark the feed as not secure.
+        val secure = HttpUrl.Builder().scheme("https").host(FEED_HOST).encodedPath("/feed").build()
+        val plain = secure.newBuilder().scheme("http").build()
+        assertTrue(RedirectChain(secure, listOf(RedirectHop(secure, plain, 302))).downgraded)
+        assertTrue(RedirectChain(secure, listOf(RedirectHop(secure, secure, 301), RedirectHop(secure, plain, 307))).downgraded)
+        assertFalse("an upgrade is not a downgrade", RedirectChain(plain, listOf(RedirectHop(plain, secure, 301))).downgraded)
+        assertFalse(RedirectChain(secure, emptyList()).downgraded)
+        assertFalse(RedirectChain(plain, listOf(RedirectHop(plain, plain, 302))).downgraded)
     }
 }

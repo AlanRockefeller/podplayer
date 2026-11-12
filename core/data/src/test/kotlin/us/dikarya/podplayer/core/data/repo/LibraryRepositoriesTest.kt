@@ -32,6 +32,8 @@ import us.dikarya.podplayer.core.data.parsedFeed
 import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.core.model.EpisodeActionKind
 import us.dikarya.podplayer.core.model.MediaFile
+import us.dikarya.podplayer.core.model.PositionCause
+import us.dikarya.podplayer.core.model.PositionChange
 
 /** Queue, playback records, per-show settings, episode actions, media files and the two DB logs. */
 @RunWith(AndroidJUnit4::class)
@@ -194,5 +196,29 @@ class LibraryRepositoriesTest {
 
         repeat(LogRepository.KEEP_ROWS + 20) { repos.logs.addDownload(ids[1], DownloadEvent.Started, "n=$it") }
         assertEquals(LogRepository.KEEP_ROWS, repos.logs.downloadLog(LogRepository.KEEP_ROWS * 2).first().size)
+    }
+
+    @Test
+    fun positionLogKeepsEveryChangeWithItsCauseNewestFirst() = runBlocking {
+        repos.logs.addPosition(PositionChange(episodeId = ids[0], at = 0, fromMs = 0, toMs = 61_000, cause = PositionCause.Restore, streaming = false))
+        clock.advance(1_000)
+        repos.logs.addPosition(PositionChange(episodeId = ids[0], at = 0, fromMs = 70_000, toMs = 55_000, cause = PositionCause.SkipBack, streaming = true))
+        val log = repos.logs.positionLog(10).first()
+        assertEquals(listOf(PositionCause.SkipBack, PositionCause.Restore), log.map { it.cause })
+        // The clock stamps the row; the caller's `at` is ignored.
+        assertEquals(clock.now, log.first().at)
+        assertEquals(70_000L to 55_000L, log.first().fromMs to log.first().toMs)
+        assertTrue(log.first().streaming)
+    }
+
+    @Test
+    fun positionLogIsCappedAndOutlivesAnUnsubscribe() = runBlocking {
+        repeat(LogRepository.KEEP_POSITION_ROWS + 30) {
+            repos.logs.addPosition(PositionChange(episodeId = ids[1], at = 0, fromMs = it.toLong(), toMs = it + 1L, cause = PositionCause.Seek, streaming = false))
+        }
+        assertEquals(LogRepository.KEEP_POSITION_ROWS, repos.logs.positionLog(LogRepository.KEEP_POSITION_ROWS * 2).first().size)
+        // The owner reviews this log after a jump; unsubscribing the show must not erase the evidence.
+        repos.feeds.unsubscribe(feedId)
+        assertEquals(LogRepository.KEEP_POSITION_ROWS, repos.logs.positionLog(LogRepository.KEEP_POSITION_ROWS * 2).first().size)
     }
 }

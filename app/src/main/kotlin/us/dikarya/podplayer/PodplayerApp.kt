@@ -16,8 +16,10 @@ import coil3.SingletonImageLoader
 import us.dikarya.podplayer.core.data.logs.CrashHandler
 import us.dikarya.podplayer.core.imagesandbox.ImageSandbox
 import us.dikarya.podplayer.core.model.Invariants
+import us.dikarya.podplayer.playback.PlaybackDependencies
+import us.dikarya.podplayer.playback.PlaybackHost
 
-class PodplayerApp : Application(), Configuration.Provider, SingletonImageLoader.Factory {
+class PodplayerApp : Application(), Configuration.Provider, SingletonImageLoader.Factory, PlaybackHost {
     lateinit var graph: AppGraph
         private set
 
@@ -53,6 +55,9 @@ class PodplayerApp : Application(), Configuration.Provider, SingletonImageLoader
      * only show sandbox-produced cache files (CLAUDE.md).
      */
     override fun newImageLoader(context: PlatformContext): ImageLoader = graph.images.imageLoader
+
+    /** The playback service, which Android builds, gets its dependencies here. */
+    override fun playbackDependencies(): PlaybackDependencies = graph.playbackDependencies
 }
 
 val Context.appGraph: AppGraph

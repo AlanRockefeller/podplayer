@@ -6,6 +6,7 @@
 
 package us.dikarya.podplayer
 
+import android.app.PendingIntent
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -23,8 +24,13 @@ import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.core.imagesandbox.ImageSandbox
 import us.dikarya.podplayer.core.jobs.Jobs
 import us.dikarya.podplayer.core.jobs.PodplayerWorkerFactory
+import us.dikarya.podplayer.core.net.AddressPolicy
 import us.dikarya.podplayer.core.net.NetConfig
 import us.dikarya.podplayer.core.net.NetGate
+import us.dikarya.podplayer.playback.BluetoothPlayGate
+import us.dikarya.podplayer.playback.PlaybackClient
+import us.dikarya.podplayer.playback.PlaybackDependencies
+import us.dikarya.podplayer.playback.RoomPlaybackStore
 
 /**
  * Manual dependency injection: the app's long-lived objects, built once in [PodplayerApp].
@@ -72,7 +78,31 @@ class AppGraph(context: Context) {
         ImageSandbox(appContext, gate = { netGate }, log = { log.i("Artwork", it) }, scope = appScope)
     }
 
+    /**
+     * CLAUDE.md: never auto-start on Bluetooth connect (the owner's car sends Play when it connects). It watches
+     * Bluetooth audio for the life of the process, so it is created in [start], before any service runs.
+     */
+    val playGate: BluetoothPlayGate by lazy { BluetoothPlayGate.watching(appContext) }
+
+    /** What the playback service (`:playback`) needs; it is built by Android, so it asks the app for these. */
+    val playbackDependencies: PlaybackDependencies by lazy {
+        PlaybackDependencies(
+            store = RoomPlaybackStore(data, log) { url -> images.cachedArtworkUri(url) },
+            callFactoryFor = { host -> netGate.callFactory(if (host == null) AddressPolicy.Default else AddressPolicy.approvingHosts(host)) },
+            artwork = images,
+            playGate = playGate,
+            processScope = appScope,
+            sessionActivity = appContext.packageManager.getLaunchIntentForPackage(appContext.packageName)?.let {
+                PendingIntent.getActivity(appContext, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
+            },
+        )
+    }
+
+    /** Our screens' connection to the playback session. Connects on first use. */
+    val playback: PlaybackClient by lazy { PlaybackClient(appContext) }
+
     fun start() {
+        playGate
         data.start()
         appScope.launch(Dispatchers.IO) {
             log.i("App", "Started version ${BuildConfig.VERSION_NAME}")

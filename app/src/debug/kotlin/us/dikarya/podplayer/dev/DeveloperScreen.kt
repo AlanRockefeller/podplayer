@@ -46,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
@@ -100,6 +101,9 @@ private fun DeveloperContent(repos: Repositories) {
     val media by repos.media.observeAll().collectAsStateWithLifecycle(emptyList())
     val refreshLog by repos.logs.refreshLog(LOG_ROWS).collectAsStateWithLifecycle(emptyList())
     val downloadLog by repos.logs.downloadLog(LOG_ROWS).collectAsStateWithLifecycle(emptyList())
+    val positionLog by repos.logs.positionLog(LOG_ROWS).collectAsStateWithLifecycle(emptyList())
+    val queue by repos.queue.episodes().collectAsStateWithLifecycle(emptyList())
+    val keyboard = LocalSoftwareKeyboardController.current
     val wifiOnly by graph.settings.downloadsWifiOnly.collectAsStateWithLifecycle(true)
     val cap by graph.settings.storageCapBytes.collectAsStateWithLifecycle(0L)
     var selected by rememberSaveable { mutableStateOf<Long?>(null) }
@@ -130,6 +134,11 @@ private fun DeveloperContent(repos: Repositories) {
 
     LazyColumn(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
+            Heading(R.string.dev_player)
+            DeveloperPlayer(graph.playback)
+        }
+
+        item {
             Heading(R.string.dev_add_feed)
             OutlinedTextField(
                 value = url,
@@ -143,6 +152,7 @@ private fun DeveloperContent(repos: Repositories) {
                 Button(
                     enabled = url.isNotBlank(),
                     onClick = {
+                        keyboard?.hide()
                         scope.launch {
                             status = when (val result = repos.feeds.subscribe(url, ownerTyped = true)) {
                                 is SubscribeResult.Subscribed -> {
@@ -201,6 +211,16 @@ private fun DeveloperContent(repos: Repositories) {
             }
         }
 
+        item { Heading(R.string.dev_queue) }
+        if (queue.isEmpty()) item { Text(stringResource(R.string.dev_queue_empty)) }
+        items(queue, key = { "queue-${it.id}" }) { episode ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(episode.title ?: stringResource(R.string.dev_untitled), modifier = Modifier.weight(1f))
+                TextButton(onClick = { graph.playback.playEpisode(episode.id) }) { Text(stringResource(R.string.dev_play)) }
+                TextButton(onClick = { scope.launch { repos.queue.remove(episode.id) } }) { Text(stringResource(R.string.dev_remove)) }
+            }
+        }
+
         item { Heading(R.string.dev_feeds) }
         if (feeds.isEmpty()) item { Text(stringResource(R.string.dev_no_feeds)) }
         items(feeds, key = { "feed-${it.id}-$cacheCleared" }) { feed ->
@@ -224,6 +244,8 @@ private fun DeveloperContent(repos: Repositories) {
                     episode = episode,
                     feed = selectedFeed,
                     media = mediaById[episode.id],
+                    onPlay = { graph.playback.playEpisode(episode.id) },
+                    onQueue = { scope.launch { repos.queue.add(episode.id) } },
                     onDownload = { download(episode) },
                     onCancel = { scope.launch(Dispatchers.IO) { graph.jobs.downloads.cancel(episode.id) } },
                     onDelete = { scope.launch(Dispatchers.IO) { graph.jobs.downloads.delete(episode.id) } },
@@ -231,6 +253,7 @@ private fun DeveloperContent(repos: Repositories) {
             }
         }
 
+        logSection(R.string.dev_position_log, positionLog, key = { "p-${it.id}" }) { PositionLogRow(it) }
         logSection(R.string.dev_refresh_log, refreshLog, key = { "r-${it.id}" }) { RefreshLogRow(it, feeds) }
         logSection(R.string.dev_download_log, downloadLog, key = { "d-${it.id}" }) { DownloadLogRow(it) }
     }
@@ -303,6 +326,8 @@ private fun EpisodeRow(
     episode: Episode,
     feed: Feed?,
     media: MediaFile?,
+    onPlay: () -> Unit,
+    onQueue: () -> Unit,
     onDownload: () -> Unit,
     onCancel: () -> Unit,
     onDelete: () -> Unit,
@@ -341,6 +366,8 @@ private fun EpisodeRow(
             }
         }
         Row {
+            TextButton(onClick = onPlay) { Text(stringResource(R.string.dev_play)) }
+            TextButton(onClick = onQueue) { Text(stringResource(R.string.dev_add_to_queue)) }
             when (state) {
                 DownloadState.Queued, DownloadState.Downloading -> TextButton(onClick = onCancel) { Text(stringResource(R.string.dev_cancel)) }
                 DownloadState.Complete -> Unit

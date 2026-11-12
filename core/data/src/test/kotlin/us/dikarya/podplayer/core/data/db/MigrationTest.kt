@@ -30,6 +30,7 @@ import org.junit.runner.RunWith
 import us.dikarya.podplayer.core.data.TestClock
 import us.dikarya.podplayer.core.data.appContext
 import us.dikarya.podplayer.core.data.repo.Repositories
+import us.dikarya.podplayer.core.model.PositionCause
 
 /**
  * Migration scaffolding (SPEC §7, LESSONS "Storage": subscriptions lost on an upgrade).
@@ -118,6 +119,24 @@ internal object MigrationSeeds {
                 assertEquals(4242L, repos.playback.get(10)!!.positionMs)
                 assertEquals(false, repos.episodes.get(11)!!.inFeed)
                 assertEquals(1.5f, repos.feedSettings.speed(1).first())
+                // Version 2 added the position log; a migrated database starts with it empty.
+                assertEquals(emptyList<Any>(), repos.logs.positionLog(10).first())
+            },
+        ),
+        2 to Seed(
+            sql = listOf(
+                "INSERT INTO feeds (id, url, title, subscribedAt, consecutiveFailures) VALUES (1, 'https://f.example.com/rss', 'Show', 1, 0)",
+                "INSERT INTO episodes (id, feedId, guid, title, publishedAt, firstSeenAt, enclosureUrl, fingerprint, inFeed) " +
+                    "VALUES (10, 1, 'g1', 'One', 100, 100, 'https://f.example.com/1.mp3', 'fp', 1)",
+                "INSERT INTO position_log (id, episodeId, at, fromMs, toMs, cause, streaming) VALUES (1, 10, 50, 0, 61000, 'Restore', 0)",
+                // An episode id with no episode row: the log has no foreign key, so it outlives an unsubscribe.
+                "INSERT INTO position_log (id, episodeId, at, fromMs, toMs, cause, streaming) VALUES (2, 999, 60, 5000, 1000, 'Unexplained', 1)",
+            ),
+            check = { repos ->
+                val log = repos.logs.positionLog(10).first()
+                assertEquals(listOf(999L, 10L), log.map { it.episodeId })
+                assertEquals(PositionCause.Unexplained, log.first().cause)
+                assertEquals(true, log.first().streaming)
             },
         ),
     )

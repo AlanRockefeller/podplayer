@@ -12,6 +12,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.core.model.EpisodeActionKind
+import us.dikarya.podplayer.core.model.PositionCause
 import us.dikarya.podplayer.core.net.redact
 
 /*
@@ -192,6 +193,21 @@ data class DownloadLogEntity(
     val at: Long,
     val event: DownloadEvent,
     val message: String?,
+)
+
+/**
+ * The position log (SPEC §10: every position change with its cause). [episodeId] deliberately has no foreign
+ * key: the owner reads this log after a jump, and unsubscribing must not erase the evidence.
+ */
+@Entity(tableName = "position_log", indices = [Index(value = ["at"])])
+data class PositionLogEntity(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val episodeId: Long,
+    val at: Long,
+    val fromMs: Long,
+    val toMs: Long,
+    val cause: PositionCause,
+    val streaming: Boolean,
 )
 
 enum class RefreshOutcome { Updated, NotModified, Failed }

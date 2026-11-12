@@ -284,4 +284,13 @@ interface LogDao {
 
     @Query("DELETE FROM download_log WHERE id NOT IN (SELECT id FROM download_log ORDER BY id DESC LIMIT :keep)")
     suspend fun trimDownloads(keep: Int): Int
+
+    @Insert
+    suspend fun insertPosition(entry: PositionLogEntity): Long
+
+    @Query("SELECT * FROM position_log ORDER BY at DESC, id DESC LIMIT :limit")
+    fun observePositions(limit: Int): Flow<List<PositionLogEntity>>
+
+    @Query("DELETE FROM position_log WHERE id NOT IN (SELECT id FROM position_log ORDER BY id DESC LIMIT :keep)")
+    suspend fun trimPositions(keep: Int): Int
 }

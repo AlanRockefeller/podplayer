@@ -21,7 +21,12 @@ dependencies {
     implementation(project(":core:net"))
     implementation(project(":core:imagesandbox"))
     implementation(libs.media3.session)
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.datasource.okhttp)
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.media3.test.utils)
+    testImplementation(libs.media3.test.utils.robolectric)
+    testImplementation(libs.okhttp.mockwebserver)
 }

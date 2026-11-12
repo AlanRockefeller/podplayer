@@ -13,10 +13,13 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
+import androidx.datastore.preferences.core.floatPreferencesKey
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import java.io.File
 import java.io.IOException
+import us.dikarya.podplayer.core.model.PlaybackSettings
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.catch
@@ -73,6 +76,42 @@ class AppSettings(private val store: DataStore<Preferences>) {
         store.edit { it[STORAGE_CAP_BYTES] = bytes.coerceIn(MIN_STORAGE_CAP_BYTES, MAX_STORAGE_CAP_BYTES) }
     }
 
+    /** SPEC §10: global speed, skip intervals and rewind-after-pause, clamped on read. */
+    val playback: Flow<PlaybackSettings> = data
+        .map { prefs ->
+            val default = PlaybackSettings()
+            PlaybackSettings(
+                speed = prefs.read<Float>(PLAYBACK_SPEED) ?: default.speed,
+                skipBackSeconds = prefs.read<Int>(SKIP_BACK_SECONDS) ?: default.skipBackSeconds,
+                skipForwardSeconds = prefs.read<Int>(SKIP_FORWARD_SECONDS) ?: default.skipForwardSeconds,
+                rewindAfterPause = prefs.read<Boolean>(REWIND_AFTER_PAUSE) ?: default.rewindAfterPause,
+                rewindSeconds = prefs.read<Int>(REWIND_SECONDS) ?: default.rewindSeconds,
+                rewindAfterPauseMinutes = prefs.read<Int>(REWIND_AFTER_PAUSE_MINUTES) ?: default.rewindAfterPauseMinutes,
+            ).normalized()
+        }
+        .distinctUntilChanged()
+
+    suspend fun setPlaybackSpeed(speed: Float) {
+        store.edit { it[PLAYBACK_SPEED] = PlaybackSettings.clampSpeed(speed) }
+    }
+
+    suspend fun setSkipSeconds(back: Int, forward: Int) {
+        val clamped = PlaybackSettings(skipBackSeconds = back, skipForwardSeconds = forward).normalized()
+        store.edit {
+            it[SKIP_BACK_SECONDS] = clamped.skipBackSeconds
+            it[SKIP_FORWARD_SECONDS] = clamped.skipForwardSeconds
+        }
+    }
+
+    suspend fun setRewindAfterPause(enabled: Boolean, rewindSeconds: Int, afterPauseMinutes: Int) {
+        val clamped = PlaybackSettings(rewindSeconds = rewindSeconds, rewindAfterPauseMinutes = afterPauseMinutes).normalized()
+        store.edit {
+            it[REWIND_AFTER_PAUSE] = enabled
+            it[REWIND_SECONDS] = clamped.rewindSeconds
+            it[REWIND_AFTER_PAUSE_MINUTES] = clamped.rewindAfterPauseMinutes
+        }
+    }
+
     /** Every setting, for a backup. */
     suspend fun snapshot(): String = PreferencesSnapshot.encode(data.first())
 
@@ -98,6 +137,12 @@ class AppSettings(private val store: DataStore<Preferences>) {
         private val THEME_MODE = stringPreferencesKey("theme_mode")
         private val DOWNLOADS_WIFI_ONLY = booleanPreferencesKey("downloads_wifi_only")
         private val STORAGE_CAP_BYTES = longPreferencesKey("storage_cap_bytes")
+        private val PLAYBACK_SPEED = floatPreferencesKey("playback_speed")
+        private val SKIP_BACK_SECONDS = intPreferencesKey("skip_back_seconds")
+        private val SKIP_FORWARD_SECONDS = intPreferencesKey("skip_forward_seconds")
+        private val REWIND_AFTER_PAUSE = booleanPreferencesKey("rewind_after_pause")
+        private val REWIND_SECONDS = intPreferencesKey("rewind_seconds")
+        private val REWIND_AFTER_PAUSE_MINUTES = intPreferencesKey("rewind_after_pause_minutes")
 
         private const val GIB = 1024L * 1024 * 1024
         const val DEFAULT_STORAGE_CAP_BYTES = 10 * GIB

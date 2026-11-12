@@ -17,6 +17,7 @@ import us.dikarya.podplayer.core.data.db.FeedSettingsEntity
 import us.dikarya.podplayer.core.data.db.MediaFileEntity
 import us.dikarya.podplayer.core.data.db.PlaybackRecordEntity
 import us.dikarya.podplayer.core.data.db.PodDatabase
+import us.dikarya.podplayer.core.data.db.PositionLogEntity
 import us.dikarya.podplayer.core.data.db.QueueEntryEntity
 import us.dikarya.podplayer.core.data.db.RefreshLogEntity
 import us.dikarya.podplayer.core.data.db.RefreshOutcome
@@ -27,6 +28,7 @@ import us.dikarya.podplayer.core.model.EpisodeAction
 import us.dikarya.podplayer.core.model.EpisodeActionKind
 import us.dikarya.podplayer.core.model.MediaFile
 import us.dikarya.podplayer.core.model.PlaybackRecord
+import us.dikarya.podplayer.core.model.PositionChange
 import us.dikarya.podplayer.core.model.QueueEntry
 import us.dikarya.podplayer.core.model.assertInvariant
 import us.dikarya.podplayer.core.net.Validators
@@ -307,10 +309,27 @@ class LogRepository internal constructor(private val db: PodDatabase, private va
 
     fun downloadLog(episodeId: Long, limit: Int): Flow<List<DownloadLogEntity>> = db.logs().observeDownloadsFor(episodeId, limit)
 
+    /** SPEC §10: one row per position change. [PositionChange.at] is ignored; the row gets this clock's time. */
+    suspend fun addPosition(change: PositionChange) {
+        db.withTransaction {
+            db.logs().insertPosition(
+                PositionLogEntity(0, change.episodeId, clock(), change.fromMs, change.toMs, change.cause, change.streaming),
+            )
+            db.logs().trimPositions(KEEP_POSITION_ROWS)
+        }
+    }
+
+    fun positionLog(limit: Int): Flow<List<PositionChange>> = db.logs().observePositions(limit).map { rows ->
+        rows.map { PositionChange(it.id, it.episodeId, it.at, it.fromMs, it.toMs, it.cause, it.streaming) }
+    }
+
     private fun clean(message: String?): String? = message?.let { scrubUrls(it).take(MAX_MESSAGE) }
 
     companion object {
         const val MAX_MESSAGE = 2_000
         const val KEEP_ROWS = 1_000
+
+        /** Several long listening sessions' worth of seeks, skips and transitions. */
+        const val KEEP_POSITION_ROWS = 2_000
     }
 }

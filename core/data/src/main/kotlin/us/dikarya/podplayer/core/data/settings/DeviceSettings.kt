@@ -90,8 +90,19 @@ class DeviceSettings(private val store: DataStore<Preferences>) {
         store.edit { it[LAST_EXIT_SEEN] = at }
     }
 
+    /**
+     * The episode loaded in the player on this phone, for playback resumption after the service or the
+     * process died (SPEC §10). Device-only: a restore on another phone starts from the queue instead.
+     */
+    suspend fun currentEpisodeId(): Long? = data.first()[CURRENT_EPISODE]
+
+    suspend fun setCurrentEpisodeId(id: Long?) {
+        store.edit { if (id == null) it.remove(CURRENT_EPISODE) else it[CURRENT_EPISODE] = id }
+    }
+
     companion object {
         const val FILE_NAME = "device.preferences_pb"
+        private val CURRENT_EPISODE = longPreferencesKey("current_episode_id")
         private val FOLDER_URI = stringPreferencesKey("backup_folder_uri")
         private val FOLDER_NAME = stringPreferencesKey("backup_folder_name")
         private val LAST_BACKUP_AT = longPreferencesKey("last_backup_at")

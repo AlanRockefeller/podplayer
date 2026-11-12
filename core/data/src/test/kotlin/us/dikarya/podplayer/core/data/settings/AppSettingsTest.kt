@@ -19,6 +19,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import us.dikarya.podplayer.core.model.PlaybackSettings
 
 class AppSettingsTest {
     @get:Rule
@@ -137,6 +138,66 @@ class AppSettingsTest {
         assertEquals(true, withSettings { it.downloadsWifiOnly.first() })
         assertEquals(AppSettings.DEFAULT_STORAGE_CAP_BYTES, withSettings { it.storageCapBytes.first() })
         assertEquals(ThemeMode.DARK, withSettings { it.themeMode.first() })
+    }
+
+    @Test
+    fun playbackDefaultsFollowSpec10() {
+        val settings = withSettings { it.playback.first() }
+        assertEquals(PlaybackSettings(), settings)
+        assertEquals(1.0f, settings.speed)
+        assertEquals(15, settings.skipBackSeconds)
+        assertEquals(30, settings.skipForwardSeconds)
+        assertFalse("rewind after a long pause is off by default (SPEC §10)", settings.rewindAfterPause)
+    }
+
+    @Test
+    fun playbackSettingsPersistAcrossRestart() {
+        withSettings {
+            it.setPlaybackSpeed(1.5f)
+            it.setSkipSeconds(back = 10, forward = 45)
+            it.setRewindAfterPause(enabled = true, rewindSeconds = 20, afterPauseMinutes = 30)
+        }
+        assertEquals(
+            PlaybackSettings(speed = 1.5f, skipBackSeconds = 10, skipForwardSeconds = 45, rewindAfterPause = true, rewindSeconds = 20, rewindAfterPauseMinutes = 30),
+            withSettings { it.playback.first() },
+        )
+    }
+
+    @Test
+    fun playbackSettingsAreClampedOnWriteAndOnRead() {
+        val written = withSettings {
+            it.setPlaybackSpeed(40f)
+            it.setSkipSeconds(back = 0, forward = 100_000)
+            it.setRewindAfterPause(enabled = true, rewindSeconds = -3, afterPauseMinutes = Int.MAX_VALUE)
+            it.playback.first()
+        }
+        assertEquals(PlaybackSettings.MAX_SPEED, written.speed)
+        assertEquals(PlaybackSettings.MIN_SKIP_SECONDS, written.skipBackSeconds)
+        assertEquals(PlaybackSettings.MAX_SKIP_SECONDS, written.skipForwardSeconds)
+        assertEquals(PlaybackSettings.MIN_REWIND_SECONDS, written.rewindSeconds)
+        assertEquals(PlaybackSettings.MAX_REWIND_AFTER_PAUSE_MINUTES, written.rewindAfterPauseMinutes)
+
+        // A hand-made backup bypasses the setters; reading clamps again, and NaN is the default.
+        val json = """{"format":1,"entries":[
+            {"k":"playback_speed","t":"float","v":0.01},
+            {"k":"skip_back_seconds","t":"int","v":-50},
+            {"k":"skip_forward_seconds","t":"int","v":99999}]}"""
+        assertTrue(withSettings { it.restore(json) })
+        val read = withSettings { it.playback.first() }
+        assertEquals(PlaybackSettings.MIN_SPEED, read.speed)
+        assertEquals(PlaybackSettings.MIN_SKIP_SECONDS, read.skipBackSeconds)
+        assertEquals(PlaybackSettings.MAX_SKIP_SECONDS, read.skipForwardSeconds)
+        assertEquals(1.0f, PlaybackSettings.clampSpeed(Float.NaN))
+    }
+
+    @Test
+    fun playbackSettingsOfTheWrongTypeReadAsDefaults() {
+        val json = """{"format":1,"entries":[
+            {"k":"playback_speed","t":"string","v":"fast"},
+            {"k":"skip_back_seconds","t":"bool","v":true},
+            {"k":"rewind_after_pause","t":"int","v":1}]}"""
+        assertTrue(withSettings { it.restore(json) })
+        assertEquals(PlaybackSettings(), withSettings { it.playback.first() })
     }
 
     @Test

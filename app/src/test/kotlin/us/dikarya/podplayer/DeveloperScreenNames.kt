@@ -8,6 +8,6 @@ package us.dikarya.podplayer
 
 /** What the Developer screen consists of, for the debug/release twin tests. */
 internal object DeveloperScreenNames {
-    val CLASSES = listOf("us.dikarya.podplayer.dev.DeveloperScreenKt")
+    val CLASSES = listOf("us.dikarya.podplayer.dev.DeveloperScreenKt", "us.dikarya.podplayer.dev.DeveloperPlayerKt")
     const val STRING_PREFIX = "dev_"
 }

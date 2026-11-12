@@ -5,7 +5,7 @@ a reviewer reads it to see what was really done.
 
 ## Current state
 - Milestone: M1
-- Next session: M1-S7
+- Next session: M1-S8
 - Build status: `./gradlew check` green locally after the review pass (2026-11-09); `assembleDebug` and
   `assembleRelease` green after M1-S6, including runs from two empty Gradle homes. The CI result is on the
   review-pass PR.
@@ -20,6 +20,97 @@ a reviewer reads it to see what was really done.
 - Manual checks for the owner:
 - PR:
 -->
+
+### M1-S7 Playback service (2026-11-11)
+- Plan (approved by the owner with changes: 99% counts as played; a longer stream buffer; always prefer the
+  downloaded file without glitches; ignore the Play the owner's car sends on connect):
+  - `:playback`: `PlaybackService` (MediaLibraryService), `PlayerFactory` (SPEC §10 player), a gated media source
+    factory, `PlaybackEngine` (queue projection, positions, speed, skip, sleep timer, file preference, position
+    log), `PodPlayer` (what controllers see), `SessionCallback` (who may do what), `BluetoothPlayGate`,
+    `PlaybackClient` (our screens' controller), `RoomPlaybackStore`.
+  - `:core:data`: position log table (schema v2 with migration and seed), playback settings in `AppSettings`,
+    the current episode in `DeviceSettings`.
+  - `:app`: `PlaybackHost`, the playback client in `AppGraph`, player controls, queue and position log on the
+    Developer screen.
+  - Tests first for every rule; then the phone check from the session's "Done when".
+- Done:
+  - Player (SPEC §10): speech audio attributes with focus handling (pauses, never ducks; resumes after a transient
+    loss), pause on becoming noisy, network wake mode while streaming and local for files, MP3 index seeking for
+    files, constant-bitrate seeking for streams, the stream buffer above.
+  - Network: streams go through `NetGate` with the feed's owner-approved host; a non-http(s) stream URL or an item
+    without our tag gets a source that never opens.
+  - Queue: the player holds the current episode at index 0 plus the next queued one, rebuilt on every queue or
+    download change without touching the playing item. End of an episode: played, out of the queue, next starts.
+    The last episode ending leaves nothing loaded.
+  - Positions saved on pause, stop, seek, focus loss (transient too), becoming noisy, every 10 s while playing and
+    on service destroy (written in a process-wide scope so it isn't cancelled with the service). Resume is exact;
+    the optional rewind-after-pause setting is off by default.
+  - Speed: global, per-show override wins, pitch kept. Skip back/forward 15/30 s, configurable, clamped to the
+    episode; next/previous from cars and headsets skip.
+  - Sleep timer in the service: 5–120 min with a 10 s fade, or end of episode (stops at the boundary with the
+    next episode loaded at 0). The minutes count listening time only: a pause (a call) doesn't use them up.
+  - Position log: every seek, skip, restore, rewind, next episode, file switch, fallback and player adjustment,
+    plus "unexplained" jumps the player didn't report; capped at 2,000 rows, no foreign key.
+  - Playback resumption: `MediaButtonReceiver` and `onPlaybackResumption` (current episode, else queue head).
+  - The car's Play: `PodPlayer.play()` asks `BluetoothPlayGate`, using the controller Media3 reports for the
+    request (every path, including a cold start through the media button receiver, sets it). Our screens connect
+    with a hint from our own uid; the notification and Media3's media-button caller don't count as our screens.
+  - Session security: the service is exported (lock screen, Bluetooth, Auto). Custom commands only for our
+    screens; items from any controller are looked up by episode id and their URIs and start positions ignored.
+  - Notification and lock screen: Media3's default notification with skip back/forward buttons (icons match 5,
+    10, 15 or 30 s; generic otherwise). The session's bitmap loader is `ArtworkBitmapLoader`; item artwork is a
+    sandbox cache URI or nothing.
+  - The engine ticks (250 ms) only while audio plays or a sleep timer runs, so a paused player never wakes the CPU.
+  - Developer screen: Play and Add to queue on episodes; a player strip (play/pause, back, forward, seek slider,
+    speed with "this show only", sleep timer); the queue; the position log. The keyboard now closes on Subscribe.
+- Tests added (63 new test methods; the command matrix alone checks 133 command/state pairs; plus
+  `HostileBackupTest` made version-independent, since it hard-coded schema version 1):
+  - `:playback` (55): `PlaybackEngineTest` 26 (queue projection, end of episode, last episode, 99%, every save
+    rule, process death within 10 s and no auto-start, exact resume, rewind-after-pause decision and a logged
+    rewind, speeds, skips, car next/previous, file preference, file switch at pause, broken-file fallback,
+    resumption, unknown and played episodes), `SleepTimerTest` 6 (fade watched step by step, pausing doesn't use
+    the timer, cancel during the fade, end of episode with and without a next one, range), `CommandMatrixTest` (19 commands × 7 states, each on a fresh engine),
+    `BluetoothPlayGateTest` 7, `JumpDetectorTest` 2, `GatedMediaSourceFactoryTest` 5 (real `NetGate`, local
+    server, real extractors), `SessionCallbackTest` 6, `PlaybackServiceTest` 2 (restored paused with buttons,
+    position saved on destroy; the session's bitmap loader refuses remote URIs and raw bytes).
+  - `:core:data` (8): `AppSettingsTest` +4 (playback defaults, persistence, clamping, wrong types),
+    `DeviceSettingsTest` 2, `LibraryRepositoriesTest` +2 (position log); plus a `MigrationTest` seed for v2.
+  - Test timing: Media3's fake clock advances by itself while a test waits (seconds past a target while
+    playing; up to ten minutes in one step while paused, to the player's next scheduled check). So tests reach
+    exact positions by seeking, check logged jumps rather than live positions, and watch volume changes as they
+    happen. Media3's `play().untilPosition` turned out not to be reliable here and isn't used. All `:playback`
+    tests passed three runs in a row and the full empty-home run.
+  - Debug and release `DeveloperScreen*Test` now cover `DeveloperPlayerKt`.
+- Deviations from the spec, and why:
+  - Schema v2 for the position log (the session's one schema change). A phone on v1 backs up, then migrates.
+  - The read-ahead cache is the player's memory buffer, not a disk cache: simpler, and enough for 15 minutes.
+  - Guava's `Futures`/`SettableFuture` are used directly in `SessionCallback`: Media3's session API returns
+    `ListenableFuture`. Guava already comes with Media3; `kotlinx-coroutines-guava` would have been a new library.
+  - The Android Auto tree is an empty root until S10.
+  - The sleep timer counts listening time, not clock time (SPEC §10 doesn't say). Chosen during the session so a
+    phone call doesn't eat the timer and a paused player never wakes the CPU; the owner can ask for clock time.
+  - The planned forbidden-API rule against building remote `MediaItem`s outside `:playback` was left out: a text
+    rule can't tell remote URIs from others, and the guarantee lives at runtime instead (the media source
+    factory opens only items carrying our tag, which only `:playback` builds; tested).
+  - Media3's test utilities bring Truth, Mockito and Media3's transformer artifacts onto the `:playback` test
+    classpath only.
+- Manual checks for the owner (phone, debug build):
+  1. Developer → open a show's episodes → Play. The notification and lock screen show the episode with back 15,
+     play/pause and forward 30; pause, skip and resume from the lock screen.
+  2. Pause, then `adb shell am kill us.dikarya.podplayer`; press play on the lock screen (or headset): it resumes
+     where it stopped. (While playing, Android may refuse to kill a foreground service; pause first.)
+  3. Unplug headphones or turn off Bluetooth earbuds mid-play: it pauses. Reconnect: it stays paused.
+  4. In the car: connect; the car's automatic Play is ignored. Press play: it plays. (Position log and app log
+     show "Ignored Play from …".)
+  5. A phone call or a navigation prompt pauses and then resumes; a 60-second interruption resumes too.
+  6. Sleep timer 5 min: the last 10 s fade, then pause. End of episode: stops with the next episode ready.
+  7. Stream an episode, then download it from the same screen; after the next pause the position log shows
+     SwitchToFile and playback continues from the file.
+- Confirmed by the owner on the phone (2026-11-11): Play from the Developer screen; pause, skip and resume from
+  the lock screen; after `am crash` the process restarted with the episode loaded at the exact paused position
+  (3:38), not playing, and Play on the lock screen resumed from there. The database upgraded to v2 after a backup.
+  Still open: checks 3 to 7 (headphones, the car, calls and prompts, sleep timer, stream-to-file switch).
+- PR: #11 (`m1-s7-playback-service`).
 
 ### Review pass over M1-S1 to M1-S6 (2026-11-09)
 A separate session reviewed every file on `main` after the S6 merge (the S2 review's findings first, then all
@@ -278,6 +369,9 @@ Result:
      last image it goes away. `adb logcat | grep -i -E "podplayer|imagesandbox|FATAL"` shows no crash.
   5. Optional: subscribe to a feed you control whose `<itunes:image>` points at an SVG or a web page: its row
      shows "No artwork: The server didn't send an image we show (Svg)" (or `Unknown`) and nothing crashes.
+- Confirmed by the owner on the phone (2026-11-11): artwork shows on feed and episode rows, Clear image cache
+  empties and reloads it, and during loading `ps` showed `us.dikarya.podplayer:imagesandbox` under isolated uid
+  `u0_i9184` (app `u0_a30`), with no crash and no StrictMode violation from our code.
 - PR: #8 (`m1-s6-image-sandbox`).
 
 ### M1-S5 Refresh and downloads (2026-11-08)
@@ -477,6 +571,8 @@ Result:
      `http://192.168.1.10/a.mp3`) on a public feed host: the download fails with "...is on a private network
      address...".
   8. Unsubscribe a feed with a download: it disappears, and its files with it.
+- Confirmed by the owner on the phone (2026-11-11): subscribe from the Developer screen, refresh, download with a
+  progress notification, cancel then resume, delete, Refresh all, and unsubscribe removing the files all work.
 - PR: #6 (`m1-s5-refresh-downloads`).
 
 ### M1-S4 Database, repositories, backups and logs (2026-11-08)
@@ -1090,6 +1186,22 @@ Result:
     apart from a damaged file. And it doesn't solve point 2.
   - Two `AudioProbeTest` cases pin both properties, so any future switch would have to keep them.
 
+- Playback (M1-S7, owner answers during planning, 2026-11-11):
+  - 99% of an episode counts as played. It stays loaded until it ends or the owner moves on; at the real end it
+    leaves the queue and the next one starts.
+  - Streams buffer 10 to 15 minutes ahead and 5 minutes behind (byte cap 96 MiB), for driving through dead zones.
+  - A downloaded episode always plays from its file. A download that finishes while its episode streams takes
+    over at the next pause or seek, never mid-play; a file that fails falls back to the stream at the same spot.
+  - The owner's car sends Play whenever it connects. A Play from anything but our own screens is ignored within
+    10 s of Bluetooth audio appearing, or within 5 s of a cold start while Bluetooth audio is connected; a second
+    press plays. No Bluetooth permission is used.
+  - Playing an episode puts it at the top of the queue; the player holds it plus the next queued episode.
+  - A car's or headset's next/previous buttons skip forward/back within the episode.
+- Playback code (M1-S7): only `PlaybackEngine` changes playback state. `PodPlayer` is what the session exposes;
+  route new controller commands through the engine there. `SessionCallback` decides who may do what; items from
+  controllers are resolved by episode id only. The service gets its dependencies from `PlaybackHost`
+  (`PodplayerApp` → `AppGraph.playbackDependencies`). Our screens use `AppGraph.playback` (`PlaybackClient`).
+
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
 - Two S2 design choices to confirm, from the review pass (2026-11-09). Neither blocks a session; the code stays as
@@ -1101,9 +1213,19 @@ Result:
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
-- S7: `MediaSession.Builder.setBitmapLoader(ArtworkBitmapLoader(graph.images, scope))` (wrapped in Media3's
-  caching loader if wanted), with a test that the built session uses it; `MediaItem` artwork from
-  `images.cachedArtworkUri(episode.imageUrl ?: feed.imageUrl)`, never the feed's URL.
+- S8/S9: fetch artwork for the playing episode when it isn't cached yet (`images.artworkUri`), then refresh the
+  session's metadata; S7 uses only cached artwork, so an episode whose image was never shown has none on the lock
+  screen.
+- S8/S9: a mini-player and player screen over `PlaybackClient`; settings for skip intervals, rewind-after-pause
+  and the global speed (the setters exist in `AppSettings`).
+- S9: show the playback log lines ("Ignored Play from …", file fallback) in the log viewer, so the owner can see
+  when the car's Play was ignored.
+- S10: the browse tree (Continue, Queue); `SessionCallback.onGetLibraryRoot`/`onGetChildren` return an empty root
+  until then. Check that a car's or Auto's next/previous buttons (mapped to skip) are what the owner wants there.
+- Map player `IOException`s with `NetError.from` for a plain-language playback error in the log (S7 logs the
+  Media3 error code name only).
+- Rewind-after-pause uses the in-memory pause time, so it doesn't apply after process death; the playback
+  record's `updatedAt` could stand in.
 - S10: grant Android Auto (`com.google.android.projection.gearhead`) read access to each artwork URI it is given
   (`Context.grantUriPermission`); the provider already allows per-URI grants.
 - Embedded artwork in audio files (ID3 `APIC`, MP4 `covr`) through the sandbox, if feed images turn out not to be
@@ -1122,8 +1244,6 @@ Result:
   parser's copy): a 20 MiB feed is ~150 MiB. Lower the cap or clean in place if a real feed gets near it.
 - A live test that an https feed redirecting to http is followed and flagged needs a TLS test server
   (`okhttp-tls` isn't allowlisted); `RedirectChain.downgraded` is unit-tested on a hand-built chain instead.
-- S7: ExoPlayer gets `OkHttpDataSource.Factory(netGate.callFactory(policy))`. Map its `IOException`s with
-  `NetError.from` for the position/playback log.
 - Redaction: some hosts put the token in the path (`/feed/<token>.xml`). The rule only asks to strip query,
   fragment and userinfo. Consider also shortening long path segments in logs.
 - The `[::1]` and `[fc00::1]` tests prove refusal, not that a real IPv6 connection would have worked without the

@@ -20,6 +20,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import us.dikarya.podplayer.core.data.db.PodDatabase
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -136,7 +137,11 @@ class HostileBackupTest {
     @Test
     fun newerThanThisApp() {
         refused(RestoreProblem.NewerThanApp, with(BackupArchive.MANIFEST, manifest { it.replace("\"format\":1", "\"format\":2") }))
-        refused(RestoreProblem.NewerThanApp, with(BackupArchive.MANIFEST, manifest { it.replace("\"schemaVersion\":1", "\"schemaVersion\":99") }))
+        refused(RestoreProblem.NewerThanApp, with(BackupArchive.MANIFEST, manifest {
+            val current = "\"schemaVersion\":${PodDatabase.VERSION}"
+            assertTrue("the manifest names the current schema", current in it)
+            it.replace(current, "\"schemaVersion\":99")
+        }))
         refused(RestoreProblem.NewerThanApp, with(BackupArchive.DATABASE, tamperedDatabase("PRAGMA user_version = 99")))
     }
 

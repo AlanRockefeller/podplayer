@@ -16,7 +16,11 @@ class NetConfig(
     val connectTimeout: Duration = 15.seconds,
     /** How long a single read may wait for bytes. There is no total-time limit on downloads. */
     val readTimeout: Duration = 30.seconds,
-    val maxRedirects: Int = 5,
+    /**
+     * SPEC §3 (owner, 2026-11-12): 20, as in OkHttp and browsers. Podcast audio often passes through stacked
+     * trackers (7 hops seen); every hop is still re-checked, so the limit only stops loops.
+     */
+    val maxRedirects: Int = 20,
 ) {
     /** `Podplayer/<version> (Android)`. No other identifying headers are sent. */
     val userAgent: String = "Podplayer/${sanitizeVersion(appVersion)} (Android)"

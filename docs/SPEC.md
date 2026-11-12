@@ -43,7 +43,7 @@ One OkHttp client for the whole app, built in `:core:net` and passed everywhere 
   192.168/16), link-local (169.254/16, fe80::/10), CGNAT (100.64/10), unique-local (fc00::/7), multicast,
   unspecified, or IPv4-mapped forms of these. Literal IP hosts are checked the same way.
   Exception: a feed whose URL the owner typed may use its own host; record that host as owner-approved.
-- Redirects: handled manually, at most 5 hops, each hop re-checked. A 301 or 308 on a feed URL updates the
+- Redirects: handled manually, at most 20 hops (podcast tracker chains reach 7+), each hop re-checked. A 301 or 308 on a feed URL updates the
   stored feed URL; 302/307 do not.
 - Timeouts: connect 15 s; read stalls 30 s (no total-time limit on downloads).
 - Size limits: feed or OPML 20 MB; chapters or transcript files 5 MB; images 10 MB; episode media 2 GB.

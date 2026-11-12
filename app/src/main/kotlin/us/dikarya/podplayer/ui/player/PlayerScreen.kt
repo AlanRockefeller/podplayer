@@ -29,7 +29,14 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.offset
 import androidx.compose.material3.Text
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -109,10 +116,10 @@ private fun Player(state: PlayerUiState, viewModel: PlayerViewModel, onOpenEpiso
         SeekBar(state, viewModel::seekTo)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = viewModel::skipBack, modifier = Modifier.size(64.dp)) {
-                Icon(
-                    painterResource(R.drawable.ic_replay),
-                    contentDescription = pluralStringResource(R.plurals.player_skip_back, state.skipBackSeconds, state.skipBackSeconds),
-                    modifier = Modifier.size(36.dp),
+                NumberedSkipIcon(
+                    R.drawable.ic_replay,
+                    state.skipBackSeconds,
+                    pluralStringResource(R.plurals.player_skip_back, state.skipBackSeconds, state.skipBackSeconds),
                 )
             }
             FilledIconButton(onClick = viewModel::togglePlay, modifier = Modifier.size(80.dp)) {
@@ -123,10 +130,10 @@ private fun Player(state: PlayerUiState, viewModel: PlayerViewModel, onOpenEpiso
                 )
             }
             IconButton(onClick = viewModel::skipForward, modifier = Modifier.size(64.dp)) {
-                Icon(
-                    painterResource(R.drawable.ic_forward_media),
-                    contentDescription = pluralStringResource(R.plurals.player_skip_forward, state.skipForwardSeconds, state.skipForwardSeconds),
-                    modifier = Modifier.size(36.dp),
+                NumberedSkipIcon(
+                    R.drawable.ic_forward_media,
+                    state.skipForwardSeconds,
+                    pluralStringResource(R.plurals.player_skip_forward, state.skipForwardSeconds, state.skipForwardSeconds),
                 )
             }
         }
@@ -296,6 +303,26 @@ private fun SleepSheet(sleep: SleepUi, viewModel: PlayerViewModel, onDismiss: ()
         }
     }
 }
+
+/**
+ * A skip arrow with its interval inside, like the notification's numbered icons. The number is drawn as text so it
+ * scales with the owner's font size; TalkBack reads [description] only.
+ */
+@Composable
+private fun NumberedSkipIcon(@DrawableRes arrow: Int, seconds: Int, description: String) {
+    Box(Modifier.size(40.dp).semantics { contentDescription = description }, contentAlignment = Alignment.Center) {
+        Icon(painterResource(arrow), contentDescription = null, modifier = Modifier.fillMaxSize())
+        Text(
+            seconds.toString(),
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            // The arrow's ring is centred a little below the icon's centre.
+            modifier = Modifier.offset(y = 2.dp).clearAndSetSemantics {}.testTag(TAG_SKIP_NUMBER),
+        )
+    }
+}
+
+internal const val TAG_SKIP_NUMBER = "skip_number"
 
 @Composable
 private fun SheetTitle(@StringRes text: Int) {

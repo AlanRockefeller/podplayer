@@ -19,6 +19,32 @@ a reviewer reads it to see what was really done.
 - PR:
 -->
 
+### Follow-up after the owner's M1-S8/S9 phone check (2026-11-12)
+- Found on the owner's phone:
+  - An Opening Arguments episode wouldn't play: `TooManyRedirectsException: more than 5 redirects`. Its audio URL
+    goes through 7 hops (Podtrac, pdst.fm, pscrb.fm twice, Magellan, Claritas, Libsyn, Libsyn's CDN).
+  - The show page squeezed "Unsubscribe" to one letter per line on the owner's 360 dp wide screen: the speed
+    button and two icons used the whole row.
+- Done:
+  - Redirect limit 5 → 20 (owner's decision; the same as OkHttp and browsers). Every hop is still re-checked
+    against the address filter and the URL policy, so the limit only stops loops. SPEC §3 updated.
+  - The show page's controls are a flow row: Unsubscribe moves to the next line when it doesn't fit.
+  - Numbered skip icons for every interval Settings offers (owner's request): Media3 has numbered icons only for
+    5, 10, 15 and 30 s, so `playback/src/main/res/drawable/ic_skip_{back,forward}_<n>.xml` add 20, 45, 60 (back)
+    and 20, 45, 60, 90, 120 (forward), set as the buttons' custom icons; the buttons keep Media3's skip-back/forward
+    icon constants for controllers that use them (Android Auto). `SkipIntervals` (`:playback`) is now the one list
+    of choices; Settings reads it. The app's player shows the number inside its arrows as text.
+- Tests: `RedirectTest` (loop stops at 20; a 7-hop tracker chain is followed; 20 hops still work);
+  `ClientConfigTest` default 20; `ShowLayoutUiTest` (Unsubscribe's label keeps its width at 320, 360 and 412 dp);
+  `SessionCallbackTest` (every interval Settings offers gets a numbered icon; 20/45 use ours).
+  The layout test runs in Robolectric's native graphics mode: in the default mode every label measures a few dp
+  wide and the bug is invisible. It fails on the old layout (label 0 dp wide) and passes on the fix.
+- Confirmed by the owner on the phone: browsing (Discover search and subscribe, pasted private feed, Home rows,
+  mini-player, full player with seek, speed and sleep timer) and the episode page (link dialog, timestamps).
+  Skip settings reach the notification (back shows "10"); a 45 s forward uses Media3's plain arrow because it has
+  numbered icons only for 5, 10, 15 and 30 s.
+- PR: see the `m1-followup-redirects-layout` pull request.
+
 ### M1-S9 Player, queue and settings UI (2026-11-12)
 - Plan (written before any code; run unattended, so not approved by the owner):
   - `:playback`: the sleep-timer commands (`sleepAfterMinutes`, `sleepAtEndOfEpisode`, `cancelSleepTimer`) join

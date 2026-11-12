@@ -18,7 +18,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 
-/** SPEC §3: redirects are followed by hand, at most 5 hops, and 301/308 are told apart from 302/307. */
+/** SPEC §3: redirects are followed by hand, at most 20 hops, and 301/308 are told apart from 302/307. */
 class RedirectTest {
     private lateinit var server: MockWebServer
     private val gate = testGate()
@@ -38,20 +38,31 @@ class RedirectTest {
     }
 
     @Test
-    fun redirectLoopStopsAtFiveHops() {
-        repeat(10) { server.enqueue(redirect(302, "/loop")) }
+    fun redirectLoopStopsAtTwentyHops() {
+        repeat(30) { server.enqueue(redirect(302, "/loop")) }
         val result = fetch()
-        assertEquals(NetError.TooManyRedirects(5), (result as FetchResult.Failure).error)
-        assertEquals("the first request plus five followed hops", 6, server.requestCount)
+        assertEquals(NetError.TooManyRedirects(20), (result as FetchResult.Failure).error)
+        assertEquals("the first request plus twenty followed hops", 21, server.requestCount)
     }
 
     @Test
-    fun fiveHopsAreStillFollowed() {
-        repeat(5) { i -> server.enqueue(redirect(302, "/hop$i")) }
+    fun aSevenHopTrackerChainIsFollowed() {
+        // The owner's Opening Arguments episode (2026-11-12): Podtrac, pdst.fm, pscrb.fm (twice), Magellan,
+        // Claritas, Libsyn, Libsyn's CDN. Five hops refused it.
+        repeat(7) { i -> server.enqueue(redirect(302, "/hop$i")) }
         server.enqueue(ok("<rss/>"))
         val result = fetch() as FetchResult.Success
-        assertEquals(5, result.redirects.hops.size)
-        assertEquals("/hop4", result.redirects.finalUrl.encodedPath)
+        assertEquals(7, result.redirects.hops.size)
+        assertEquals("/hop6", result.redirects.finalUrl.encodedPath)
+    }
+
+    @Test
+    fun twentyHopsAreStillFollowed() {
+        repeat(20) { i -> server.enqueue(redirect(302, "/hop$i")) }
+        server.enqueue(ok("<rss/>"))
+        val result = fetch() as FetchResult.Success
+        assertEquals(20, result.redirects.hops.size)
+        assertEquals("/hop19", result.redirects.finalUrl.encodedPath)
     }
 
     @Test

@@ -106,7 +106,7 @@ class ClientConfigTest {
         val config = NetConfig(appVersion = "1")
         assertEquals(15_000, config.connectTimeout.inWholeMilliseconds)
         assertEquals(30_000, config.readTimeout.inWholeMilliseconds)
-        assertEquals(5, config.maxRedirects)
+        assertEquals("owner, 2026-11-12: podcast tracker chains reach 7+ hops", 20, config.maxRedirects)
     }
 
     @Test

@@ -168,11 +168,13 @@ class SessionCallback(
         /** Notification and lock-screen buttons: skip back and forward by the owner's intervals (SPEC §10). */
         fun buttons(context: Context, settings: PlaybackSettings): List<CommandButton> = listOf(
             CommandButton.Builder(backIcon(settings.skipBackSeconds))
+                .apply { SkipIntervals.backIcon(settings.skipBackSeconds)?.let(::setCustomIconResId) }
                 .setPlayerCommand(Player.COMMAND_SEEK_BACK)
                 .setDisplayName(context.resources.getQuantityString(R.plurals.playback_skip_back, settings.skipBackSeconds, settings.skipBackSeconds))
                 .setSlots(CommandButton.SLOT_BACK)
                 .build(),
             CommandButton.Builder(forwardIcon(settings.skipForwardSeconds))
+                .apply { SkipIntervals.forwardIcon(settings.skipForwardSeconds)?.let(::setCustomIconResId) }
                 .setPlayerCommand(Player.COMMAND_SEEK_FORWARD)
                 .setDisplayName(context.resources.getQuantityString(R.plurals.playback_skip_forward, settings.skipForwardSeconds, settings.skipForwardSeconds))
                 .setSlots(CommandButton.SLOT_FORWARD)

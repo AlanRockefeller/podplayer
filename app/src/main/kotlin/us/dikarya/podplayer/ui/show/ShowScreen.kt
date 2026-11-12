@@ -4,11 +4,15 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package us.dikarya.podplayer.ui.show
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -96,7 +100,12 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
                         Text(stringResource(if (expanded) R.string.show_less else R.string.show_more))
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                // A flow row: on a narrow phone, Unsubscribe moves to the next line instead of being squeezed to one
+                // letter wide (seen on the owner's 360 dp phone).
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    itemVerticalAlignment = Alignment.CenterVertically,
+                ) {
                     SpeedPicker(state.showSpeed, state.globalSpeed, viewModel::setShowSpeed)
                     IconButton(onClick = viewModel::refresh) {
                         Icon(painterResource(R.drawable.ic_refresh), contentDescription = stringResource(R.string.action_refresh_show))
@@ -107,8 +116,9 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
                             contentDescription = stringResource(if (state.newestFirst) R.string.show_sort_oldest else R.string.show_sort_newest),
                         )
                     }
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = { confirmUnsubscribe = true }) { Text(stringResource(R.string.action_unsubscribe)) }
+                    TextButton(onClick = { confirmUnsubscribe = true }) {
+                        Text(stringResource(R.string.action_unsubscribe), maxLines = 1, softWrap = false)
+                    }
                 }
             }
             HorizontalDivider()

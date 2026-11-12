@@ -141,6 +141,23 @@ class SessionCallbackTest {
         assertEquals(listOf(CommandButton.ICON_SKIP_BACK_15, CommandButton.ICON_SKIP_FORWARD_30), default.map { it.icon })
         assertEquals(listOf("Back 15 seconds", "Forward 30 seconds"), default.map { it.displayName.toString() })
         val custom = SessionCallback.buttons(appContext(), PlaybackSettings(skipBackSeconds = 20, skipForwardSeconds = 45))
+        // Controllers that know Media3's icons (Android Auto) still get "skip back/forward"; the notification gets
+        // our numbered drawable.
         assertEquals(listOf(CommandButton.ICON_SKIP_BACK, CommandButton.ICON_SKIP_FORWARD), custom.map { it.icon })
+        assertEquals(listOf(R.drawable.ic_skip_back_20, R.drawable.ic_skip_forward_45), custom.map { it.iconResId })
+    }
+
+    @Test
+    fun everySkipIntervalTheOwnerCanChooseHasANumberedIcon() {
+        val plainBack = CommandButton.getIconResIdForIconConstant(CommandButton.ICON_SKIP_BACK)
+        val plainForward = CommandButton.getIconResIdForIconConstant(CommandButton.ICON_SKIP_FORWARD)
+        for (seconds in SkipIntervals.BACK_SECONDS) {
+            val back = SessionCallback.buttons(appContext(), PlaybackSettings(skipBackSeconds = seconds)).first()
+            assertTrue("back $seconds s shows a plain arrow", back.iconResId != 0 && back.iconResId != plainBack)
+        }
+        for (seconds in SkipIntervals.FORWARD_SECONDS) {
+            val forward = SessionCallback.buttons(appContext(), PlaybackSettings(skipForwardSeconds = seconds)).last()
+            assertTrue("forward $seconds s shows a plain arrow", forward.iconResId != 0 && forward.iconResId != plainForward)
+        }
     }
 }

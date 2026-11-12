@@ -26,6 +26,7 @@ import kotlinx.coroutines.sync.withLock
 import us.dikarya.podplayer.core.data.settings.AppSettings
 import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.core.model.PlaybackSettings
+import us.dikarya.podplayer.playback.SkipIntervals
 
 data class SettingsUiState(
     val loading: Boolean = true,
@@ -107,8 +108,9 @@ class SettingsViewModel(private val deps: SettingsDeps) : ViewModel() {
         private const val STOP_AFTER_MS = 5_000L
         private const val TAG = "Settings"
 
-        val SKIP_BACK_CHOICES = listOf(5, 10, 15, 20, 30, 45, 60)
-        val SKIP_FORWARD_CHOICES = listOf(10, 15, 20, 30, 45, 60, 90, 120)
+        /** Exactly the intervals with a numbered lock-screen icon (`SkipIntervals`). */
+        val SKIP_BACK_CHOICES = SkipIntervals.BACK_SECONDS
+        val SKIP_FORWARD_CHOICES = SkipIntervals.FORWARD_SECONDS
         val REWIND_SECONDS_CHOICES = listOf(3, 5, 10, 15, 20, 30, 60)
         val REWIND_AFTER_MINUTES_CHOICES = listOf(1, 5, 10, 15, 30, 60, 120, 240)
         private const val GIB = 1024L * 1024 * 1024

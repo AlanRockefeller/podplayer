@@ -8,6 +8,7 @@ be reused as whole files with their original headers (CLAUDE.md). Never copy GPL
 | File(s) in this repo | Source | License | Changes |
 | --- | --- | --- | --- |
 | `app/src/main/res/drawable/ic_home.xml`, `ic_explore.xml`, `ic_library_music.xml`, `ic_queue_music.xml`, `ic_settings.xml`, `ic_arrow_back.xml`; from M1-S8 `ic_play.xml` (`play_arrow`), `ic_pause.xml`, `ic_queue_add.xml` (`playlist_add`), `ic_queue_added.xml` (`playlist_add_check`), `ic_download.xml`, `ic_download_done.xml`, `ic_refresh.xml`, `ic_grid.xml` (`grid_view`), `ic_list.xml` (`view_list`), `ic_search.xml`, `ic_offline.xml` (`cloud_off`), `ic_sort.xml` (`sort`); from M1-S9 `ic_replay.xml` (`replay`), `ic_forward_media.xml` (`forward_media`), `ic_bedtime.xml` (`bedtime`), `ic_drag_handle.xml` (`drag_handle`), `ic_more_vert.xml` (`more_vert`) | [Material Symbols](https://github.com/google/material-design-icons) (`symbols/android/<name>/materialsymbolsoutlined/<name>_24px.xml`) | Apache-2.0 | Removed the `android:tint` theme attribute (Compose tints icons itself) |
+| `playback/src/main/res/drawable/ic_skip_back_{20,45,60}.xml`, `ic_skip_forward_{20,45,60,90,120}.xml` | The `replay` and `forward_media` arrows from [Material Symbols](https://github.com/google/material-design-icons) | Apache-2.0 | Added stroked digits for the skip interval (drawn in this project) |
 
 ## Notable dependencies
 

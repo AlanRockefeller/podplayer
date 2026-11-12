@@ -9,6 +9,9 @@ package us.dikarya.podplayer.ui.browse
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -33,6 +36,7 @@ import us.dikarya.podplayer.core.net.FetchResult
 import us.dikarya.podplayer.core.net.NetError
 import us.dikarya.podplayer.playback.PlaybackControls
 import us.dikarya.podplayer.playback.PlaybackUiState
+import us.dikarya.podplayer.playback.SleepUi
 import us.dikarya.podplayer.ui.discover.AppleSearch
 import us.dikarya.podplayer.ui.discover.FeedPreviewer
 import us.dikarya.podplayer.ui.discover.GateFetch
@@ -76,6 +80,21 @@ class FakePlayback : PlaybackControls {
 
     override fun setSpeed(speed: Float?, forShow: Boolean) {
         commands += "speed $speed forShow=$forShow"
+    }
+
+    override fun sleepAfterMinutes(minutes: Int) {
+        commands += "sleep $minutes"
+        state.value = state.value.copy(sleep = SleepUi.Minutes(minutes * 60_000L))
+    }
+
+    override fun sleepAtEndOfEpisode() {
+        commands += "sleep end"
+        state.value = state.value.copy(sleep = SleepUi.EndOfEpisode)
+    }
+
+    override fun cancelSleepTimer() {
+        commands += "sleep off"
+        state.value = state.value.copy(sleep = SleepUi.Off)
     }
 }
 
@@ -152,9 +171,21 @@ class BrowseTestEnv(root: File) {
 
     fun episodeIds(feedId: Long): List<Long> = runBlocking { repos.episodes.forFeed(feedId).first().map { it.id } }
 
-    fun close() = runBlocking {
-        data.close()
-        scope.cancel()
+    /**
+     * Closes on another thread while the main looper keeps running: a view model's write that is still finishing
+     * resumes on the main thread, and blocking that thread here would wait for it forever.
+     */
+    fun close() {
+        val done = CountDownLatch(1)
+        thread(name = "close-test-env") {
+            try {
+                runBlocking { data.close() }
+                scope.cancel()
+            } finally {
+                done.countDown()
+            }
+        }
+        while (!done.await(10, TimeUnit.MILLISECONDS)) shadowOf(Looper.getMainLooper()).idle()
     }
 
     companion object {

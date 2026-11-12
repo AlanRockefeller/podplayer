@@ -97,6 +97,39 @@ class LibraryRepositoriesTest {
     }
 
     @Test
+    fun shiftMovesOneStepFromWhereTheEpisodeIsNowAndStopsAtTheEnds() = runBlocking {
+        val (a, b, c) = ids
+        listOf(a, b, c).forEach { repos.queue.add(it) }
+        repos.queue.shift(a, 1)
+        assertEquals(listOf(b, a, c), queueIds())
+        // Two quick taps: each starts from the database order, not from what a screen last saw.
+        repos.queue.shift(a, 1)
+        repos.queue.shift(a, 1)
+        assertEquals(listOf(b, c, a), queueIds())
+        repos.queue.shift(b, -1)
+        assertEquals(listOf(b, c, a), queueIds())
+        repos.queue.shift(123_456L, 1)
+        assertEquals(listOf(b, c, a), queueIds())
+    }
+
+    @Test
+    fun playNextGoesAfterThePlayingHeadOrToTheTop() = runBlocking {
+        val (a, b, c, d) = ids
+        listOf(a, b, c).forEach { repos.queue.add(it) }
+        repos.queue.playNext(c, playingId = null)
+        assertEquals(listOf(c, a, b), queueIds())
+        repos.queue.playNext(b, playingId = c)
+        assertEquals(listOf(c, b, a), queueIds())
+        // Playing something that isn't the head (not the engine's order): next is the top.
+        repos.queue.playNext(a, playingId = d)
+        assertEquals(listOf(a, c, b), queueIds())
+        // An episode not yet queued is added; the playing one itself stays where it is.
+        repos.queue.playNext(d, playingId = a)
+        repos.queue.playNext(a, playingId = a)
+        assertEquals(listOf(a, d, c, b), queueIds())
+    }
+
+    @Test
     fun queueEpisodesFlowFollowsChanges() = runBlocking {
         repos.queue.episodes().test {
             assertEquals(emptyList<Long>(), awaitItem().map { it.id })

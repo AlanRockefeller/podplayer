@@ -81,6 +81,12 @@ class Jobs(
         RefreshWorker.schedulePeriodic(workManager)
     }
 
+    /** Settings › Downloads: stores the Wi-Fi-only choice and moves downloads still waiting to it (SPEC §9). */
+    suspend fun setDownloadsWifiOnly(wifiOnly: Boolean) {
+        data.settings.setDownloadsWifiOnly(wifiOnly)
+        downloads.applyNetworkSetting()
+    }
+
     /** The owner asked: refresh [feedId], or every feed when null, as soon as there is a network. */
     fun refreshNow(feedId: Long?) = RefreshWorker.refreshNow(workManager, feedId)
 }

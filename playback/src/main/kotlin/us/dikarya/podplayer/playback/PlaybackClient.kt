@@ -72,6 +72,13 @@ interface PlaybackControls {
 
     /** [speed] null clears the show's own speed; [forShow] false sets the global default. */
     fun setSpeed(speed: Float?, forShow: Boolean)
+
+    /** SPEC §10: pauses after [minutes] of listening (5–120), with a 10 s fade. Runs in the service. */
+    fun sleepAfterMinutes(minutes: Int)
+
+    fun sleepAtEndOfEpisode()
+
+    fun cancelSleepTimer()
 }
 
 /**
@@ -170,11 +177,11 @@ class PlaybackClient(context: Context) : PlaybackControls {
         putBoolean(SessionCallback.Commands.ARG_FOR_SHOW, forShow)
     }
 
-    fun sleepAfterMinutes(minutes: Int) = custom(SessionCallback.Commands.SLEEP_MINUTES) { putInt(SessionCallback.Commands.ARG_MINUTES, minutes) }
+    override fun sleepAfterMinutes(minutes: Int) = custom(SessionCallback.Commands.SLEEP_MINUTES) { putInt(SessionCallback.Commands.ARG_MINUTES, minutes) }
 
-    fun sleepAtEndOfEpisode() = custom(SessionCallback.Commands.SLEEP_END_OF_EPISODE) {}
+    override fun sleepAtEndOfEpisode() = custom(SessionCallback.Commands.SLEEP_END_OF_EPISODE) {}
 
-    fun cancelSleepTimer() = custom(SessionCallback.Commands.SLEEP_CANCEL) {}
+    override fun cancelSleepTimer() = custom(SessionCallback.Commands.SLEEP_CANCEL) {}
 
     private fun custom(action: String, args: Bundle.() -> Unit) {
         controller?.sendCustomCommand(SessionCommand(action, Bundle.EMPTY), Bundle().apply(args))

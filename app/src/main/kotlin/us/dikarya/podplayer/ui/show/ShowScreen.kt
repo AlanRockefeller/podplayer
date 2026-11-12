@@ -43,8 +43,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import java.util.Locale
-import kotlin.math.roundToInt
+import us.dikarya.podplayer.ui.player.SPEED_CHOICES
+import us.dikarya.podplayer.ui.player.speedText
 import us.dikarya.podplayer.R
 import us.dikarya.podplayer.core.feed.notes.RichStyle
 import us.dikarya.podplayer.ui.artwork.Artwork
@@ -161,7 +161,7 @@ private fun SpeedPicker(showSpeed: Float?, globalSpeed: Float, onChange: (Float?
                     onChange(null)
                 },
             )
-            SPEEDS.forEach { speed ->
+            SPEED_CHOICES.forEach { speed ->
                 DropdownMenuItem(
                     text = { Text(speedText(speed)) },
                     leadingIcon = { RadioButton(selected = showSpeed == speed, onClick = null) },
@@ -175,11 +175,4 @@ private fun SpeedPicker(showSpeed: Float?, globalSpeed: Float, onChange: (Float?
     }
 }
 
-/** "1.0×", "1.25×". */
-internal fun speedText(speed: Float): String {
-    val hundredths = (speed * 100).roundToInt()
-    return String.format(Locale.getDefault(), if (hundredths % 10 == 0) "%.1f×" else "%.2f×", speed)
-}
-
-private val SPEEDS = listOf(0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f)
 private const val DESCRIPTION_LINES = 3

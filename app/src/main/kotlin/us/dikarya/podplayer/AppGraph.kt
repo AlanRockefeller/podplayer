@@ -8,6 +8,8 @@ package us.dikarya.podplayer
 
 import android.app.PendingIntent
 import android.content.Context
+import android.os.storage.StorageManager
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
@@ -21,6 +23,7 @@ import us.dikarya.podplayer.core.data.DataFiles
 import us.dikarya.podplayer.core.data.DataLayer
 import us.dikarya.podplayer.core.data.logs.AppLog
 import us.dikarya.podplayer.core.data.logs.ExitReasons
+import us.dikarya.podplayer.core.data.logs.LogExport
 import us.dikarya.podplayer.core.data.settings.AppSettings
 import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.core.imagesandbox.ImageSandbox
@@ -41,6 +44,7 @@ import us.dikarya.podplayer.ui.browse.Subscriptions
 import us.dikarya.podplayer.ui.discover.AppleSearch
 import us.dikarya.podplayer.ui.discover.FeedPreviewer
 import us.dikarya.podplayer.ui.discover.GateFetch
+import us.dikarya.podplayer.ui.settings.SettingsDeps
 
 /**
  * Manual dependency injection: the app's long-lived objects, built once in [PodplayerApp].
@@ -146,6 +150,27 @@ class AppGraph(context: Context) {
         )
     }
 
+    /** What the settings and logs screens need (M1-S9). Built on first use. */
+    val settingsDeps: SettingsDeps by lazy {
+        SettingsDeps(
+            settings = settings,
+            repositories = { data.awaitRepositories() },
+            // Not cancelled with the screen: the setting and the waiting downloads must not disagree.
+            setWifiOnly = { wifiOnly -> withContext(NonCancellable + Dispatchers.IO) { jobs.setDownloadsWifiOnly(wifiOnly) } },
+            // What the system can make room for, counting cache it would clear (lint: UsableSpace).
+            freeBytes = {
+                runCatching {
+                    val storage = appContext.getSystemService(StorageManager::class.java)
+                    storage.getAllocatableBytes(storage.getUuidForPath(files.filesDir))
+                }.getOrNull()?.takeIf { it > 0 }
+            },
+            logs = LogExport(log, { files.crashDir }, { data.awaitRepositories() }, BuildConfig.VERSION_NAME),
+            exportDir = { File(files.cacheDir, "exports") },
+            log = log,
+            appVersion = BuildConfig.VERSION_NAME,
+        )
+    }
+
     fun start() {
         playGate
         data.start()
@@ -153,6 +178,8 @@ class AppGraph(context: Context) {
             log.i("App", "Started version ${BuildConfig.VERSION_NAME}")
             data.device.setLastExitSeenAt(ExitReasons.record(appContext, log, data.device.lastExitSeenAt()))
             jobs.schedule()
+            // A restored backup can carry a different Wi-Fi-only choice than the downloads waiting on this phone.
+            jobs.downloads.applyNetworkSetting()
         }
     }
 }

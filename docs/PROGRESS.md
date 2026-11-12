@@ -5,9 +5,8 @@ a reviewer reads it to see what was really done.
 
 ## Current state
 - Milestone: M1
-- Next session: M1-S9
-- Build status: `./gradlew check` green locally after M1-S8 (2026-11-12); `assembleDebug` and `assembleRelease`
-  green in the M1-S8 run from an empty Gradle home. The CI result is on the M1-S8 PR.
+- Next session: M1-S10
+- Build status: `./gradlew check` green locally after M1-S9 (2026-11-12). The CI result is on the M1-S9 PR.
 
 ## Session log
 <!-- Newest first. Copy this block for each session. -->
@@ -19,6 +18,103 @@ a reviewer reads it to see what was really done.
 - Manual checks for the owner:
 - PR:
 -->
+
+### M1-S9 Player, queue and settings UI (2026-11-12)
+- Plan (written before any code; run unattended, so not approved by the owner):
+  - `:playback`: the sleep-timer commands (`sleepAfterMinutes`, `sleepAtEndOfEpisode`, `cancelSleepTimer`) join
+    `PlaybackControls`, so screens and `FakePlayback` use them like the other commands. No engine change.
+  - `:core:jobs` (tests first): `Downloads.applyNetworkSetting()` moves downloads still waiting to the current
+    Wi-Fi-only setting (WorkManager `updateWork`, same id, so a waiting download keeps its place and record); it runs
+    when the owner changes the setting and on every start (a restored backup can change it).
+  - `:core:data` (tests first): `LogExport` writes one text file from the app log files, the crash files and the
+    refresh, download and position logs, every line passed through `scrubUrls` again and the total capped.
+  - `:app` (view-model tests first, then Compose UI tests):
+    - Full player (`PlayerRoute`; the mini-player opens it): artwork, title, show, seek bar with elapsed/remaining,
+      back/play/forward, speed sheet (global or this show), sleep-timer sheet (5–120 min, end of episode, cancel,
+      remaining time), queue, download, and a link to the episode page. All playback state from the session.
+    - Queue screen: the database queue, a drag handle per row (reorder by dragging, committed to the database on
+      release), and Move up / Move down / Play next / Remove as menu items and as accessibility custom actions.
+    - Settings: Appearance; Playback (global speed, skip back/forward, rewind after pause); Downloads and storage
+      (usage, cap, Wi-Fi only); Backup and restore (as built in S4); Logs (viewer with App, Playback, Downloads,
+      Refresh and Crashes tabs; Playback shows the app log's playback lines such as "Ignored Play from …" next to the
+      position log; Export writes the file only when tapped and shares it through a non-exported `FileProvider`);
+      About (version, MPL-2.0, open-source licenses list).
+  - Tests: queue reorder by drag and by the accessible actions, settings persist (read back through a new
+    `AppSettings` over the same file), the Wi-Fi-only change reaching waiting downloads, log export redacted and not
+    written before Export is tapped, player and sheet commands, the playback lines in the log viewer.
+  - Not planned: the reason code for refresh/download log rows (PROGRESS "Later"). It needs a schema bump and
+    migration in a UI session; the rows stay English text, which the log viewer shows as is.
+  - New icons: Material Symbols `replay`, `forward_media`, `bedtime`, `drag_handle`, `more_vert` (Apache-2.0,
+    THIRD_PARTY.md). No new library.
+- Done:
+  - Player (`PlayerRoute`, opened from the mini-player): artwork, title, show, seek bar (the drag shows the finger's
+    spot and seeks once on release, held to the episode), elapsed and remaining, back / play / forward with the
+    configured seconds in their descriptions, speed sheet (every show or this show only, "use the default for this
+    show"), sleep-timer sheet (5–120 min, end of episode, turn off, time left), queue toggle, download, open the
+    queue, episode details. Length falls back to the download's or the feed's while the session doesn't know it.
+  - Queue tab: the database queue with the playing episode marked; a drag handle per row (the row follows the
+    finger, swaps past half a neighbour, and one `move` is written on release); a row menu and accessibility custom
+    actions for Move up, Move down, Play next and Remove. `QueueRepository.shift` and `playNext` work from the
+    database order inside a transaction, so quick taps don't act on a stale screen.
+  - Settings, one scrolling page: Appearance; Playback (default speed, skip back, skip forward, rewind after a long
+    pause with its seconds and minutes); Downloads and storage (Wi-Fi only, storage limit 1–200 GiB, usage of
+    finished and partial downloads, free space); Backup and restore (as before); Logs; About (version, MPL-2.0 with
+    a link to its text, open-source licenses page).
+  - Wi-Fi only: `Jobs.setDownloadsWifiOnly` stores it and `Downloads.applyNetworkSetting` moves every waiting
+    download to the new network rule with WorkManager `updateWork` (same id, same record). It also runs on every
+    start, since a restore can change the setting.
+  - Logs: tabs App, Playback (the app log's `Playback` lines, such as "Ignored Play from …", merged by time with the
+    position log, causes from `strings.xml`), Downloads and Refresh (events and outcomes from `strings.xml`, with
+    episode and show titles), Crashes. Export (`LogExport` in `:core:data`): one UTF-8 file of the app log, crash
+    files, refresh, download and position logs, every line through `scrubUrls` again, capped at 12 MiB; written to
+    `cache/exports/` (older export removed) only when Export is tapped, then shared with `ACTION_SEND` through a
+    non-exported `FileProvider` limited to that folder, with a read grant.
+  - `PlaybackControls` gained the sleep-timer commands. The Queue placeholder is gone.
+- Tests added (37 test methods):
+  - `:core:jobs` (2): `WorkersTest` a Wi-Fi-only change moves a waiting download both ways keeping its id and
+    record; finished work is left alone.
+  - `:core:data` (6): `LogExportTest` 4 (every log in the export with every URL redacted, including rows written
+    unredacted; headings on an empty phone; the size cap; viewer reads newest app lines and crashes newest first,
+    redacted); `LibraryRepositoriesTest` +2 (`shift` from the database order and at the ends; `playNext`).
+  - `:app` (29): `PlayerViewModelTest` 7, `QueueViewModelTest` 7, `SettingsViewModelTest` 5 (defaults; every
+    playback and download setting written from the screen and read back after a restart over the same files;
+    rewind values kept; usage; one Wi-Fi change per tap), `LogsViewModelTest` 4 (app tab redacted; playback tab with
+    "Ignored Play from" and the position log; download, refresh and crash tabs; nothing written for export until
+    `export()`, then redacted, and a second export replaces the first), `QueueUiTest` 3 (accessible Move up/down,
+    the row menu's Play next and Remove, dragging the handle down two rows and up three), `SettingsUiTest` 3 (every
+    section and setting reachable, the Wi-Fi switch goes through the jobs, logs are shared only after Export with a
+    `content://…logexport` URI, a read grant and a redacted file).
+  - Test support: `HostActivity`, `waitInRealTime` and `CloseAfter` are shared test helpers; `BrowseTestEnv.close`
+    now closes on another thread while the main looper runs (a view model's write finishing on the main thread
+    deadlocked a blocking close).
+- Deviations from the spec or the plan, and why:
+  - A download already running when Wi-Fi only is turned on keeps going on the network it has; the new rule applies
+    if it has to run again. Stopping it would mark it Paused ("You stopped the download") while it waits, which is
+    misleading; the owner can stop it on the episode page.
+  - The reason code for refresh/download log rows was not done (see Plan); the viewer shows the stored English text
+    under a translated event or outcome.
+  - The player is a full screen without the bottom navigation (a back arrow returns), and the mini-player now opens
+    it instead of the episode page; the episode page is one tap away from the player.
+  - The licenses page is a hand-kept list in `LicensesScreen.kt` (no licenses plugin: the usual one is Google Play
+    services). It names each library and its license, not the full license texts.
+- Manual checks for the owner (phone, debug build):
+  1. Play an episode, tap the mini-player: the player opens with artwork, times and controls. Drag the seek bar:
+     it jumps once when you let go. Back / forward skip by your settings.
+  2. Tap the speed (e.g. "1.0×"): pick "This show only" then 1.5×; another show still plays at the default. Open the
+     sheet again: "Use the default for this show".
+  3. Tap the moon: 5 minutes; the time left shows under the controls and counts only while playing. Open it again:
+     "Turn off the timer". Try "End of this episode".
+  4. Queue tab: add four episodes; drag one by its handle (≡) two places down; it stays there after leaving the tab.
+     Use ⋮ › Play next and Remove. With TalkBack, swipe up/down on a row for Move up / Move down.
+  5. Settings › Playback: set skip back 10 s and forward 45 s: the notification's buttons change. Turn on rewind
+     after a long pause.
+  6. Settings › Downloads: start a download on mobile data with Wi-Fi only on (it waits), turn Wi-Fi only off: it
+     starts. Change the storage limit; check the usage line.
+  7. Settings › Logs: each tab shows entries (after the car connects, Playback shows "Ignored Play from …"). Tap
+     Export logs: the share sheet opens; share to a notes or mail app and check that feed addresses have no `?token`.
+  8. Settings › About: the license link opens mozilla.org in the browser; Open-source licenses lists the libraries.
+  - No phone was connected during this session, so the app was not installed or launched here.
+- PR: #13 (`m1-s9-player-queue-settings`).
 
 ### M1-S8 Browsing UI (2026-11-12)
 - Plan (written before any code; run unattended, so not approved by the owner):
@@ -1322,6 +1418,12 @@ Result:
   placeholders only). Compose UI tests register their host activity with Robolectric (`BrowseUiTest`) and wait in
   real time, since Compose's `waitUntil` runs on virtual time under Robolectric. In composables, read strings through
   `LocalResources`/`stringResource`, not `LocalContext.current.resources` (lint fails the build).
+- Player, queue and settings (M1-S9): the player, queue, settings and logs screens follow the S8 pattern
+  (`PlayerViewModel`/`QueueViewModel` over `BrowseDeps`; `SettingsViewModel`/`LogsViewModel` over `SettingsDeps`,
+  `AppGraph.settingsDeps`). Queue edits go through `QueueRepository` only (`move`, `shift`, `playNext`, `remove`).
+  Change Wi-Fi only through `Jobs.setDownloadsWifiOnly`, never the setter alone. Logs leave the phone only through
+  `LogExport.writeTo`, called from the Export button, into `cache/exports/`, shared by the `…logexport`
+  FileProvider. Compose UI tests close their env with `CloseAfter` outside the Compose rule.
 - 2026-11-12, owner: artwork for Discover search results may be fetched from Apple's image servers
   (`*.mzstatic.com`); it counts as part of "Apple's podcast search when the owner searches" (CLAUDE.md). It goes
   through the gate and the image sandbox like all artwork, and only for results the owner is looking at.
@@ -1337,14 +1439,10 @@ Result:
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
-- S9: the full player screen (the mini-player opens the episode page until then) and the Queue screen; settings for
-  skip intervals, rewind-after-pause and the global speed (the setters exist in `AppSettings`).
 - A pull-to-refresh gesture on Home, Library and the show page (today a refresh button).
 - `feed://` / `pcast://` addresses typed in Discover are refused with "Only http and https addresses work";
   converting them to https could come with the OPML item below.
 - Episode search within the library, and a Downloads list (Home shows download state on rows only).
-- S9: show the playback log lines ("Ignored Play from …", file fallback) in the log viewer, so the owner can see
-  when the car's Play was ignored.
 - S10: the browse tree (Continue, Queue); `SessionCallback.onGetLibraryRoot`/`onGetChildren` return an empty root
   until then. Check that a car's or Auto's next/previous buttons (mapped to skip) are what the owner wants there.
 - Map player `IOException`s with `NetError.from` for a plain-language playback error in the log (S7 logs the
@@ -1357,11 +1455,10 @@ Result:
   enough; today those bytes are never decoded.
 - An on-device check that the sandbox process really has no network and no file access (an instrumented test
   with a debug-only probe in the service), beyond what `isolatedProcess` promises.
-- S9: store a reason code with refresh and download log rows and map it to `strings.xml`; today the rows hold
-  English text.
-- S9: the full Downloads settings (cap, Wi-Fi only); applying a Wi-Fi-only change to downloads already queued.
+- Store a reason code with refresh and download log rows and map it to `strings.xml` (needs a schema bump and
+  migration; left out of S9); today the rows hold English text under a translated event or outcome.
+- A "Play next" action on episode rows and the episode page (S9 has it on the Queue screen only).
 - An instrumented test of `AudioProbe` on real podcast files (MP3 with ID3 art, M4A/AAC, Opus) on a device.
-- S9: log export (concatenate `AppLog.files()`, crash files, and the DB logs) and the full Backup settings.
 - NAT64 with a carrier-specific prefix (RFC 7050): on an IPv6-only network, a hostname resolving to a private
   IPv4 address behind such a prefix passes `AddressClassifier`, which knows only the well-known 64:ff9b::/96. The
   Android layer could feed it `LinkProperties.getNat64Prefix()` (API 30+).

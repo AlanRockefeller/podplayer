@@ -59,6 +59,7 @@ class MainActivity : ComponentActivity() {
                         themeMode = mode,
                         onThemeModeChange = { lifecycleScope.launch { graph.settings.setThemeMode(it) } },
                         browse = graph.browse,
+                        settings = graph.settingsDeps,
                     )
                 }
             }

@@ -86,6 +86,31 @@ class QueueRepository internal constructor(private val db: PodDatabase, private 
         write(order)
     }
 
+    /** One step up ([by] -1) or down (+1) from where it is now in the database; no change at either end. */
+    suspend fun shift(episodeId: Long, by: Int) = db.withTransaction {
+        val order = db.queue().all().map { it.episodeId }.toMutableList()
+        val from = order.indexOf(episodeId)
+        if (from < 0) return@withTransaction
+        val to = (from + by).coerceIn(0, order.size - 1)
+        if (to == from) return@withTransaction
+        order.removeAt(from)
+        order.add(to, episodeId)
+        write(order)
+    }
+
+    /**
+     * "Play next": right after [playingId] when it is the head of the queue (where playing puts it), else at the
+     * top. Adds the episode if it isn't queued; the playing episode itself stays where it is.
+     */
+    suspend fun playNext(episodeId: Long, playingId: Long?) = db.withTransaction {
+        if (!db.episodes().exists(episodeId) || episodeId == playingId) return@withTransaction
+        val order = db.queue().all().map { it.episodeId }.toMutableList()
+        order.remove(episodeId)
+        val index = if (playingId != null && order.firstOrNull() == playingId) 1 else 0
+        order.add(index, episodeId)
+        write(order)
+    }
+
     suspend fun remove(episodeId: Long) = db.withTransaction {
         if (db.queue().delete(episodeId) > 0) write(db.queue().all().map { it.episodeId })
     }

@@ -7,8 +7,6 @@
 package us.dikarya.podplayer.ui
 
 import android.app.Application
-import android.content.pm.ActivityInfo
-import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
@@ -28,15 +26,10 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
 import org.junit.rules.TemporaryFolder
-import org.junit.rules.TestRule
-import org.junit.runner.Description
 import org.junit.runner.RunWith
-import org.junit.runners.model.Statement
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import us.dikarya.podplayer.R
 import us.dikarya.podplayer.ui.browse.BrowseTestEnv
-import us.dikarya.podplayer.ui.browse.eventually
 import us.dikarya.podplayer.ui.discover.DiscoverScreen
 import us.dikarya.podplayer.ui.discover.DiscoverViewModel
 import us.dikarya.podplayer.ui.discover.TAG_FIELD
@@ -48,26 +41,6 @@ import us.dikarya.podplayer.ui.player.MiniPlayerViewModel
 import us.dikarya.podplayer.ui.player.TAG_MINI_PLAYER
 import us.dikarya.podplayer.ui.theme.DarkTokens
 import us.dikarya.podplayer.ui.theme.PodplayerTheme
-
-/**
- * Lets the Compose test rule start its empty host activity. The usual way is the ui-test-manifest library, which
- * would put an exported activity into the debug build the owner uses every day; this registers it with
- * Robolectric for the test only.
- */
-private class HostActivity : TestRule {
-    override fun apply(base: Statement, description: Description) = object : Statement() {
-        override fun evaluate() {
-            val app = ApplicationProvider.getApplicationContext<Application>()
-            shadowOf(app.packageManager).addOrUpdateActivity(
-                ActivityInfo().apply {
-                    name = ComponentActivity::class.java.name
-                    packageName = app.packageName
-                },
-            )
-            base.evaluate()
-        }
-    }
-}
 
 /** M1-S8 "Tests": subscribe by URL, and the mini-player appearing when playback starts. */
 @RunWith(AndroidJUnit4::class)
@@ -100,7 +73,7 @@ class BrowseUiTest {
         assertTrue("nothing is subscribed by a preview", runBlocking { env.repos.feeds.allFeedIds() }.isEmpty())
 
         compose.onNodeWithText(context.getString(R.string.action_subscribe)).performScrollTo().performClick()
-        waitInRealTime { opened != null }
+        compose.waitInRealTime(TIMEOUT) { opened != null }
         val feed = runBlocking { env.repos.feeds.get(opened!!) }!!
         assertEquals("http://192.168.1.20:8000/feed.xml", feed.url)
         assertEquals("the owner typed it, so its host is approved (SPEC §3)", "192.168.1.20", feed.ownerApprovedHost)
@@ -127,17 +100,6 @@ class BrowseUiTest {
 
         compose.onNodeWithText("Episode $episode").performClick()
         assertEquals(episode, opened)
-    }
-
-    /**
-     * Compose's `waitUntil` counts its own virtual time under Robolectric, which runs out at once while Room works on
-     * real threads. This waits in real time, letting the main looper and Compose catch up between checks.
-     */
-    private fun waitInRealTime(condition: () -> Boolean) {
-        eventually(TIMEOUT) {
-            compose.waitForIdle()
-            condition()
-        }
     }
 
     private companion object {

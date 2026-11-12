@@ -37,7 +37,7 @@ private fun ThemeMode.label(): Int = when (this) {
     ThemeMode.SYSTEM -> R.string.theme_system
 }
 
-/** Settings › Appearance. The other settings sections arrive in M1-S9. */
+/** Settings › Appearance, the first section of [SettingsScreen]. */
 @Composable
 fun AppearanceScreen(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit) {
     Column(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {

@@ -10,12 +10,18 @@ import androidx.work.BackoffPolicy
 import androidx.work.Constraints
 import androidx.work.ExistingWorkPolicy
 import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequest
 import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.WorkInfo
 import androidx.work.WorkManager
 import androidx.work.workDataOf
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
+import us.dikarya.podplayer.core.model.DownloadState
+import us.dikarya.podplayer.core.model.Episode
 import us.dikarya.podplayer.core.data.logs.AppLog
 import us.dikarya.podplayer.core.data.media.MediaPaths
 import us.dikarya.podplayer.core.data.repo.Repositories
@@ -40,11 +46,39 @@ class Downloads(
     suspend fun enqueue(episodeId: Long): Boolean {
         val episode = repositories()?.episodes?.get(episodeId) ?: return false
         if (!runner.queue(episodeId)) return false
-        val network = if (wifiOnly()) NetworkType.UNMETERED else NetworkType.CONNECTED
-        val request = OneTimeWorkRequestBuilder<DownloadWorker>()
+        workManager().enqueueUniqueWork(workName(episodeId), ExistingWorkPolicy.KEEP, request(episode, wifiOnly(), id = null))
+        return true
+    }
+
+    /**
+     * Moves every download that is still waiting to the current Wi-Fi-only setting (the owner changed it, or a
+     * restore did). Each keeps its WorkManager id and its record, so nothing restarts or loses its place. A
+     * download already running finishes on the network it has; the new rule applies if it has to run again.
+     * Returns how many waiting downloads were updated.
+     */
+    suspend fun applyNetworkSetting(): Int {
+        val repos = repositories() ?: return 0
+        val wifiOnly = wifiOnly()
+        val waiting = repos.media.observeAll().first().filter { it.state == DownloadState.Queued || it.state == DownloadState.Downloading }
+        var updated = 0
+        for (file in waiting) {
+            val episode = repos.episodes.get(file.episodeId) ?: continue
+            val info = withContext(Dispatchers.IO) { workManager().getWorkInfosForUniqueWork(workName(file.episodeId)).get() }
+                .firstOrNull { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED } ?: continue
+            val result = withContext(Dispatchers.IO) { workManager().updateWork(request(episode, wifiOnly, info.id)).get() }
+            if (result != WorkManager.UpdateResult.NOT_APPLIED) updated++
+        }
+        if (updated > 0) log.i(TAG, "$updated waiting downloads now ${if (wifiOnly) "wait for Wi-Fi" else "use any network"}")
+        return updated
+    }
+
+    private fun request(episode: Episode, wifiOnly: Boolean, id: UUID?): OneTimeWorkRequest {
+        val network = if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
+        return OneTimeWorkRequestBuilder<DownloadWorker>()
+            .apply { if (id != null) setId(id) }
             .setInputData(
                 workDataOf(
-                    DownloadWorker.KEY_EPISODE to episodeId,
+                    DownloadWorker.KEY_EPISODE to episode.id,
                     DownloadWorker.KEY_TITLE to DownloadNotifications.clean(episode.title),
                 ),
             )
@@ -53,8 +87,6 @@ class Downloads(
             .addTag(TAG_ALL)
             .addTag(feedTag(episode.feedId))
             .build()
-        workManager().enqueueUniqueWork(workName(episodeId), ExistingWorkPolicy.KEEP, request)
-        return true
     }
 
     /** Stops a download; the bytes so far are kept, and downloading again resumes. */

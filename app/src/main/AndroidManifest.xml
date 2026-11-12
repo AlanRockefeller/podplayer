@@ -56,5 +56,19 @@
                 tools:node="remove" />
         </provider>
 
+        <!--
+          Settings › Logs › Export (M1-S9): shares the one redacted export file, and only it, with the app the
+          owner picks in the share sheet. Not exported; that app gets a one-time read grant for the file.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.logexport"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/log_export_paths" />
+        </provider>
+
     </application>
 </manifest>

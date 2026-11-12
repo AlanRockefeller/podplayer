@@ -10,8 +10,6 @@ import androidx.annotation.DrawableRes
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -54,8 +52,16 @@ import us.dikarya.podplayer.ui.library.LibraryScreen
 import us.dikarya.podplayer.ui.library.LibraryViewModel
 import us.dikarya.podplayer.ui.player.MiniPlayerBar
 import us.dikarya.podplayer.ui.player.MiniPlayerViewModel
-import us.dikarya.podplayer.ui.settings.AppearanceScreen
-import us.dikarya.podplayer.ui.settings.BackupSection
+import us.dikarya.podplayer.ui.player.PlayerScreen
+import us.dikarya.podplayer.ui.player.PlayerViewModel
+import us.dikarya.podplayer.ui.queue.QueueScreen
+import us.dikarya.podplayer.ui.queue.QueueViewModel
+import us.dikarya.podplayer.ui.settings.LicensesScreen
+import us.dikarya.podplayer.ui.settings.LogsScreen
+import us.dikarya.podplayer.ui.settings.LogsViewModel
+import us.dikarya.podplayer.ui.settings.SettingsDeps
+import us.dikarya.podplayer.ui.settings.SettingsScreen
+import us.dikarya.podplayer.ui.settings.SettingsViewModel
 import us.dikarya.podplayer.ui.show.ShowScreen
 import us.dikarya.podplayer.ui.show.ShowViewModel
 
@@ -81,6 +87,18 @@ data class ShowRoute(val feedId: Long)
 /** An episode's page. */
 @Serializable
 data class EpisodeRoute(val episodeId: Long)
+
+/** The full player. */
+@Serializable
+data object PlayerRoute
+
+/** Settings › Logs. */
+@Serializable
+data object LogsRoute
+
+/** Settings › About › Open-source licenses. */
+@Serializable
+data object LicensesRoute
 
 /** Only registered when the build has a [DebugScreen] (debug builds). */
 @Serializable
@@ -108,16 +126,19 @@ private fun NavDestination?.isOn(routeClass: KClass<*>): Boolean =
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, browse: BrowseDeps) {
+fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, browse: BrowseDeps, settings: SettingsDeps) {
     val navController = rememberNavController()
     val entry by navController.currentBackStackEntryAsState()
     val destination = entry?.destination
     val debugScreen = BuildTypeSetup.debugScreen
     val onSettings = destination.isOn(SettingsRoute::class)
+    val onLogs = destination.isOn(LogsRoute::class)
+    val onLicenses = destination.isOn(LicensesRoute::class)
+    val onPlayer = destination.isOn(PlayerRoute::class)
     val onDebug = debugScreen != null && destination.isOn(DebugRoute::class)
     val onShow = destination.isOn(ShowRoute::class)
     val onEpisode = destination.isOn(EpisodeRoute::class)
-    val onSubScreen = onSettings || onDebug
+    val onSubScreen = onSettings || onLogs || onLicenses || onPlayer || onDebug
     val canGoBack = onSubScreen || onShow || onEpisode
     val current = TopLevelDestination.entries.firstOrNull { destination.isOn(it.routeClass) }
     val miniPlayer = viewModel { MiniPlayerViewModel(browse) }
@@ -126,6 +147,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
     val openShow: (Long) -> Unit = { navController.navigate(ShowRoute(it)) { launchSingleTop = true } }
     val openEpisode: (Long) -> Unit = { navController.navigate(EpisodeRoute(it)) { launchSingleTop = true } }
     val openDiscover: () -> Unit = { navController.navigateToTab(TopLevelDestination.DISCOVER) }
+    val openPlayer: () -> Unit = { navController.navigate(PlayerRoute) { launchSingleTop = true } }
+    val openQueue: () -> Unit = { navController.navigateToTab(TopLevelDestination.QUEUE) }
 
     Scaffold(
         topBar = {
@@ -133,6 +156,9 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
                 title = {
                     val title = when {
                         onSettings -> R.string.settings_title
+                        onLogs -> R.string.logs_title
+                        onLicenses -> R.string.settings_licenses
+                        onPlayer -> R.string.player_title
                         onDebug && debugScreen != null -> debugScreen.title
                         onShow -> R.string.show_title
                         onEpisode -> R.string.episode_title
@@ -170,7 +196,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
         },
         bottomBar = {
             Column {
-                if (!onSubScreen) MiniPlayerBar(miniPlayer, onOpen = openEpisode)
+                if (!onSubScreen) MiniPlayerBar(miniPlayer, onOpen = { openPlayer() })
                 if (!onSubScreen) BottomNavigation(navController, current)
             }
         },
@@ -185,7 +211,10 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
             }
             composable<DiscoverRoute> { DiscoverScreen(viewModel { DiscoverViewModel(browse) }, onOpenShow = openShow) }
             composable<LibraryRoute> { LibraryScreen(viewModel { LibraryViewModel(browse) }, onOpenShow = openShow, onDiscover = openDiscover) }
-            composable<QueueRoute> { PlaceholderScreen(R.string.placeholder_queue) }
+            composable<QueueRoute> { QueueScreen(viewModel { QueueViewModel(browse) }, onOpenEpisode = openEpisode) }
+            composable<PlayerRoute> {
+                PlayerScreen(viewModel { PlayerViewModel(browse) }, onOpenEpisode = openEpisode, onOpenQueue = openQueue)
+            }
             composable<ShowRoute> { backStack ->
                 val route = backStack.toRoute<ShowRoute>()
                 ShowScreen(viewModel { ShowViewModel(browse, route.feedId) }, onOpenEpisode = openEpisode, onGone = { navController.popBackStack() })
@@ -195,11 +224,17 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
                 EpisodeScreen(viewModel { EpisodeViewModel(browse, route.episodeId) }, onOpenShow = openShow)
             }
             composable<SettingsRoute> {
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    AppearanceScreen(themeMode, onThemeModeChange)
-                    BackupSection()
-                }
+                SettingsScreen(
+                    viewModel { SettingsViewModel(settings) },
+                    themeMode,
+                    onThemeModeChange,
+                    onOpenLogs = { navController.navigate(LogsRoute) { launchSingleTop = true } },
+                    onOpenLicenses = { navController.navigate(LicensesRoute) { launchSingleTop = true } },
+                    appVersion = settings.appVersion,
+                )
             }
+            composable<LogsRoute> { LogsScreen(viewModel { LogsViewModel(settings) }) }
+            composable<LicensesRoute> { LicensesScreen() }
             if (debugScreen != null) {
                 composable<DebugRoute> { debugScreen.content() }
             }

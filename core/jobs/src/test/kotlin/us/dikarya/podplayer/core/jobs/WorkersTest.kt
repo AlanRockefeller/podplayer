@@ -205,6 +205,44 @@ class WorkersTest {
     }
 
     @Test
+    fun changingWifiOnlyMovesWaitingDownloadsToTheNewNetworkRule() = withEnv { env, downloads ->
+        val (_, episode) = env.oneEpisode()
+        runBlocking { downloads.enqueue(episode) }
+        val before = infos(Downloads.workName(episode)).single()
+        assertEquals(NetworkType.UNMETERED, before.constraints.requiredNetworkType)
+
+        runBlocking {
+            env.data.settings.setDownloadsWifiOnly(false)
+            assertEquals(1, downloads.applyNetworkSetting())
+        }
+        val after = infos(Downloads.workName(episode)).single()
+        assertEquals("the same waiting download, not a new one", before.id, after.id)
+        assertEquals(NetworkType.CONNECTED, after.constraints.requiredNetworkType)
+        assertEquals(WorkInfo.State.ENQUEUED, after.state)
+        assertEquals(DownloadState.Queued, runBlocking { env.repos().media.get(episode)!!.state })
+
+        runBlocking {
+            env.data.settings.setDownloadsWifiOnly(true)
+            downloads.applyNetworkSetting()
+        }
+        assertEquals(NetworkType.UNMETERED, infos(Downloads.workName(episode)).single().constraints.requiredNetworkType)
+    }
+
+    @Test
+    fun applyingTheNetworkSettingLeavesFinishedWorkAlone() = withEnv { env, downloads ->
+        val (_, episode) = env.oneEpisode()
+        runBlocking {
+            downloads.enqueue(episode)
+            downloads.cancel(episode)
+            env.data.settings.setDownloadsWifiOnly(false)
+            assertEquals(0, downloads.applyNetworkSetting())
+        }
+        val info = infos(Downloads.workName(episode)).single()
+        assertEquals(WorkInfo.State.CANCELLED, info.state)
+        assertEquals(NetworkType.UNMETERED, info.constraints.requiredNetworkType)
+    }
+
+    @Test
     fun anUnknownEpisodeIsNotEnqueued() = withEnv { _, downloads ->
         assertFalse(runBlocking { downloads.enqueue(12_345) })
         assertTrue(infos(Downloads.workName(12_345)).isEmpty())

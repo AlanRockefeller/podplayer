@@ -81,7 +81,7 @@ fun EpisodeScreen(viewModel: EpisodeViewModel, onOpenShow: (Long) -> Unit) {
                 }
             }
             item.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth()) }
-            Actions(item, viewModel)
+            Actions(item, viewModel, state.downloadsWifiOnly)
             if (!state.online && !item.downloaded) {
                 Text(stringResource(R.string.episode_offline_stream), style = MaterialTheme.typography.bodySmall, color = colors.warning)
             }
@@ -104,7 +104,7 @@ fun EpisodeScreen(viewModel: EpisodeViewModel, onOpenShow: (Long) -> Unit) {
 }
 
 @Composable
-private fun Actions(item: EpisodeItem, viewModel: EpisodeViewModel) {
+private fun Actions(item: EpisodeItem, viewModel: EpisodeViewModel, downloadsWifiOnly: Boolean) {
     val actions = viewModel.actions
     val download = rememberDownloadStarter(actions)
     FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -128,5 +128,14 @@ private fun Actions(item: EpisodeItem, viewModel: EpisodeViewModel) {
         OutlinedButton(onClick = { actions.setPlayed(item.id, !item.played) }) {
             Text(stringResource(if (item.played) R.string.action_mark_unplayed else R.string.action_mark_played))
         }
+    }
+    // A queued download hasn't started: say why, rather than showing only "Stop download".
+    if (item.downloadState == DownloadState.Queued) {
+        Text(
+            stringResource(if (downloadsWifiOnly) R.string.download_waiting_for_wifi else R.string.download_waiting),
+            style = MaterialTheme.typography.bodyMedium,
+            color = PodplayerTheme.colors.textSecondary,
+            modifier = Modifier.padding(top = 4.dp),
+        )
     }
 }

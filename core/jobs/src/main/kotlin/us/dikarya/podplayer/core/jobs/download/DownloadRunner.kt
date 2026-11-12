@@ -142,6 +142,25 @@ class DownloadRunner(
     }
 
     /** Removes the file and the record (SPEC §9 "delete"). Waits for a running download of it to stop first. */
+    /**
+     * The owner stopped a download whose worker never ran (it was waiting for Wi-Fi or its turn), so no worker is
+     * there to record it. With nothing downloaded the episode goes back to "not downloaded"; with part of the file
+     * it becomes Paused and can be resumed. A download that is running is left to its worker, which records the
+     * stop itself. Same lock as the worker, so the two can't both write.
+     */
+    suspend fun stoppedBeforeStart(episodeId: Long) = locks.withLock(episodeId) {
+        val repos = repositories() ?: return@withLock
+        val record = repos.media.get(episodeId) ?: return@withLock
+        if (record.state != DownloadState.Queued) return@withLock
+        if (record.bytesDownloaded == 0L) {
+            withContext(Dispatchers.IO) { paths.resolve(record.relativePath)?.delete() }
+            repos.media.delete(episodeId)
+        } else {
+            repos.media.upsert(record.copy(state = DownloadState.Paused))
+        }
+        repos.logs.addDownload(episodeId, DownloadEvent.Cancelled, null)
+    }
+
     suspend fun delete(episodeId: Long) = locks.withLock(episodeId) {
         val repos = repositories() ?: return@withLock
         val record = repos.media.get(episodeId) ?: return@withLock

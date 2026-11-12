@@ -105,4 +105,16 @@ class EpisodeViewModelTest {
         val vm = EpisodeViewModel(env.deps, 9_999)
         awaitState(vm.state) { it.gone }
     }
+
+    @Test
+    fun theScreenKnowsWhetherAWaitingDownloadWaitsForWifi() = runBlocking {
+        // The owner's phone showed only "Stop download" for a download waiting for Wi-Fi (2026-11-12).
+        val feed = env.show("Alpha", episodes = 1)
+        val id = env.episodeIds(feed).single()
+        val vm = EpisodeViewModel(env.deps, id)
+        awaitState(vm.state) { it.item != null && it.downloadsWifiOnly }
+        env.deps.settings.setDownloadsWifiOnly(false)
+        awaitState(vm.state) { it.item != null && !it.downloadsWifiOnly }
+        Unit
+    }
 }

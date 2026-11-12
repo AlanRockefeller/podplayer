@@ -45,6 +45,8 @@
     <string name="action_remove_from_queue">Remove from queue</string>
     <string name="action_download">Download</string>
     <string name="action_cancel_download_short">Stop download</string>
+    <string name="download_waiting_for_wifi">Waiting for Wi-Fi. Turn off \"Download on Wi-Fi only\" in Settings to use mobile data.</string>
+    <string name="download_waiting">Waiting to download.</string>
     <string name="action_retry_download">Try download again</string>
     <string name="action_resume_download">Resume download</string>
     <string name="action_delete_download">Delete download</string>
@@ -269,6 +271,9 @@
     </plurals>
     <string name="settings_storage_free">%1$s free on this phone.</string>
     <string name="settings_logs">Logs</string>
+    <string name="settings_view_logs">View logs</string>
+    <!-- A storage limit in whole gigabytes, e.g. "10 GB". -->
+    <string name="settings_storage_gb">%1$d GB</string>
     <string name="settings_logs_body">The app, playback, download, refresh and crash logs. They stay on this phone unless you export them.</string>
     <string name="settings_about">About</string>
     <string name="settings_version">Podplayer %1$s</string>

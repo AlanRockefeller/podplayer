@@ -186,10 +186,14 @@ class AppSettings(private val store: DataStore<Preferences>) {
         private val REWIND_SECONDS = intPreferencesKey("rewind_seconds")
         private val REWIND_AFTER_PAUSE_MINUTES = intPreferencesKey("rewind_after_pause_minutes")
 
-        private const val GIB = 1024L * 1024 * 1024
-        const val DEFAULT_STORAGE_CAP_BYTES = 10 * GIB
-        const val MIN_STORAGE_CAP_BYTES = GIB / 4
-        const val MAX_STORAGE_CAP_BYTES = 1024 * GIB
+        /**
+         * Decimal gigabytes, the unit Android shows sizes in ("35 GB free"): a 10 GB limit reads "10 GB", not the
+         * "11 GB" a binary 10 GiB showed on the owner's phone.
+         */
+        const val GB = 1_000_000_000L
+        const val DEFAULT_STORAGE_CAP_BYTES = 10 * GB
+        const val MIN_STORAGE_CAP_BYTES = GB / 4
+        const val MAX_STORAGE_CAP_BYTES = 1000 * GB
 
         /** [produceFile] runs on the store's own dispatcher, never on the main thread. */
         fun create(scope: CoroutineScope, produceFile: () -> File): AppSettings = AppSettings(

@@ -44,6 +44,8 @@ data class EpisodeUiState(
     val item: EpisodeItem? = null,
     val notes: NotesState = NotesState.Loading,
     val online: Boolean = true,
+    /** So a waiting download can say it waits for Wi-Fi rather than just showing "Stop". */
+    val downloadsWifiOnly: Boolean = true,
 )
 
 /** An episode's page (SPEC §12). Notes are sanitized off the main thread, with the episode's length for timestamps. */
@@ -65,7 +67,9 @@ class EpisodeViewModel(private val deps: BrowseDeps, private val episodeId: Long
                 repos.queue.entries().map { q -> q.any { it.episodeId == episodeId } }.distinctUntilChanged(),
                 deps.playback.state,
             ) { feed, record, media, queued, playback -> EpisodeItem.of(episode, feed, record, media, queued, playback) }
-            combine(item, notes, deps.online) { i, n, online -> EpisodeUiState(loading = false, item = i, notes = n, online = online) }
+            combine(item, notes, deps.online, deps.settings.downloadsWifiOnly) { i, n, online, wifiOnly ->
+                EpisodeUiState(loading = false, item = i, notes = n, online = online, downloadsWifiOnly = wifiOnly)
+            }
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_AFTER_MS), EpisodeUiState())
 

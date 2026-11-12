@@ -113,7 +113,6 @@ class SettingsViewModel(private val deps: SettingsDeps) : ViewModel() {
         val SKIP_FORWARD_CHOICES = SkipIntervals.FORWARD_SECONDS
         val REWIND_SECONDS_CHOICES = listOf(3, 5, 10, 15, 20, 30, 60)
         val REWIND_AFTER_MINUTES_CHOICES = listOf(1, 5, 10, 15, 30, 60, 120, 240)
-        private const val GIB = 1024L * 1024 * 1024
-        val STORAGE_CAP_CHOICES = listOf(1, 2, 5, 10, 20, 50, 100, 200).map { it * GIB }
+        val STORAGE_CAP_CHOICES = listOf(1, 2, 5, 10, 20, 50, 100, 200).map { it * AppSettings.GB }
     }
 }

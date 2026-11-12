@@ -19,6 +19,36 @@ a reviewer reads it to see what was really done.
 - PR:
 -->
 
+### Second follow-up: the M1-S9 checks run on the phone over adb (2026-11-12)
+- Done on the owner's phone by driving it over adb (taps from the UI dump, screenshots, the app's debug database):
+  - Queue: drag by the handle (order kept after leaving the tab), Play next, Move up, Move down, Remove; the
+    owner's queue was restored afterwards. TalkBack's custom actions call the same code (tested; adb can't drive
+    TalkBack).
+  - Wi-Fi only: with Wi-Fi off, a download waited (JobScheduler showed a NOT_METERED requirement); turning the
+    setting off moved it to any network and it ran. It finished (66 MB over mobile data) before it could be
+    stopped; the owner was told.
+  - Logs: all five tabs; the Playback tab showed the skips, a restore and a live stream-to-file switch. Export
+    wrote one file whose only hosts are bare source servers (no paths, queries or tokens).
+- Bugs found and fixed:
+  1. Export crashed the debug app: `FileProvider.getUriForFile` read the disk on the main thread (StrictMode).
+     The link is now built on `Dispatchers.IO`. Robolectric doesn't enforce StrictMode on file access, so this is
+     checked on the phone.
+  2. Storage limits showed as "11 GB" and "1.1, 2.1, 5.4 … 215 GB": binary GiB in Android's decimal units. The
+     limits are decimal GB now (SPEC §9 says "default 10 GB") and read "1 GB … 200 GB" (`storageCapLabel`). An
+     owner who never changed the limit goes from 10 GiB to 10 GB.
+  3. A download waiting for Wi-Fi showed only "Stop download"; the episode page now says it waits for Wi-Fi (or
+     just "Waiting to download").
+  4. "1 waiting downloads now use any network" in the app log: singular and plural now.
+  5. Settings › Logs had no button (only its text was tappable): a "View logs" button.
+  6. Found while checking 3: "Stop download" on a download that hadn't started only cancelled its work, so the
+     record stayed "Queued" forever. `DownloadRunner.stoppedBeforeStart` (same per-episode lock as the worker)
+     now removes the record when nothing was downloaded, or marks it Paused when part of the file exists, and logs
+     Cancelled. A running download still records its own stop.
+- Tests: `NetworkSettingMessageTest` (2), `SettingsViewModelTest.storageLimitsReadAsWholeGigabytes`,
+  `EpisodeViewModelTest` (+1), `SettingsUiTest.aViewLogsButtonOpensTheLogs`, `WorkersTest` (+2: stopping a
+  waiting download with and without part of the file); `AppSettingsTest` now pins 10 GB.
+- PR: see the `m1-followup-phone-check-fixes` pull request.
+
 ### Follow-up after the owner's M1-S8/S9 phone check (2026-11-12)
 - Found on the owner's phone:
   - An Opening Arguments episode wouldn't play: `TooManyRedirectsException: more than 5 redirects`. Its audio URL

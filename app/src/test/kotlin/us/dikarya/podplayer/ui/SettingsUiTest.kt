@@ -9,6 +9,7 @@ package us.dikarya.podplayer.ui
 import android.app.Application
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.ui.test.assertHasClickAction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
@@ -57,6 +58,23 @@ class SettingsUiTest {
 
     private val env by lazy { SettingsTestEnv(tmp.root).also { opened = it } }
     private val app get() = ApplicationProvider.getApplicationContext<Application>()
+
+    @Test
+    fun aViewLogsButtonOpensTheLogs() {
+        // On the owner's phone the Logs section had no button; only tapping its description opened it (2026-11-12).
+        val vm = SettingsViewModel(env.deps)
+        var opened = false
+        compose.setContent {
+            PodplayerTheme(DarkTokens) {
+                SettingsScreen(vm, ThemeMode.DARK, onThemeModeChange = {}, onOpenLogs = { opened = true }, onOpenLicenses = {}, backup = {})
+            }
+        }
+        compose.waitInRealTime { !vm.state.value.loading }
+        val button = app.getString(R.string.settings_view_logs)
+        compose.onNodeWithTag(TAG_SETTINGS_LIST).performScrollToNode(hasText(button))
+        compose.onNodeWithText(button).assertHasClickAction().performClick()
+        assertTrue(opened)
+    }
 
     @Test
     fun everySectionAndSettingIsReachable() {

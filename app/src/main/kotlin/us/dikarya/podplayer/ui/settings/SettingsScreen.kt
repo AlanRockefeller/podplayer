@@ -6,7 +6,9 @@
 
 package us.dikarya.podplayer.ui.settings
 
+import android.content.Context
 import android.text.format.Formatter
+import us.dikarya.podplayer.core.data.settings.AppSettings
 import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +24,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -76,7 +79,16 @@ fun SettingsScreen(
         HorizontalDivider(color = PodplayerTheme.colors.divider)
         backup()
         HorizontalDivider(color = PodplayerTheme.colors.divider)
-        LinkRow(R.string.settings_logs, stringResource(R.string.settings_logs_body), onOpenLogs)
+        Heading(R.string.settings_logs)
+        Text(
+            stringResource(R.string.settings_logs_body),
+            style = MaterialTheme.typography.bodyMedium,
+            color = PodplayerTheme.colors.textSecondary,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+        )
+        OutlinedButton(onClick = onOpenLogs, modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)) {
+            Text(stringResource(R.string.settings_view_logs))
+        }
         HorizontalDivider(color = PodplayerTheme.colors.divider)
         AboutSection(appVersion, onOpenLicenses)
     }
@@ -156,14 +168,14 @@ private fun DownloadsSection(state: SettingsUiState, viewModel: SettingsViewMode
     )
     ChoiceSetting(
         title = R.string.settings_storage_cap,
-        value = bytes(state.capBytes),
+        value = storageCapLabel(context, state.capBytes),
         choices = SettingsViewModel.STORAGE_CAP_CHOICES,
         selected = state.capBytes,
-        label = { bytes(it) },
+        label = { storageCapLabel(context, it) },
         onPick = viewModel::setStorageCap,
     )
     Text(
-        stringResource(R.string.settings_storage_used, bytes(state.usedBytes), bytes(state.capBytes)) + " " +
+        stringResource(R.string.settings_storage_used, bytes(state.usedBytes), storageCapLabel(context, state.capBytes)) + " " +
             pluralStringResource(R.plurals.settings_storage_episodes, state.downloads, state.downloads),
         style = MaterialTheme.typography.bodyMedium,
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
@@ -204,6 +216,14 @@ internal fun Heading(@StringRes text: Int) {
         modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp).semantics { heading() },
     )
 }
+
+/** A storage limit as a whole number of GB ("5 GB", not Android's "5.0 GB"); any other value as Android shows it. */
+internal fun storageCapLabel(context: Context, bytes: Long): String =
+    if (bytes > 0 && bytes % AppSettings.GB == 0L) {
+        context.getString(R.string.settings_storage_gb, bytes / AppSettings.GB)
+    } else {
+        Formatter.formatShortFileSize(context, bytes)
+    }
 
 @Composable
 private fun LinkRow(@StringRes title: Int, body: String?, onClick: () -> Unit) {

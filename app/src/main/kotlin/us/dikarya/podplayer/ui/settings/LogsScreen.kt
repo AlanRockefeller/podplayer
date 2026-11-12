@@ -41,7 +41,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import java.io.File
+import android.net.Uri
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import us.dikarya.podplayer.R
 import us.dikarya.podplayer.core.data.db.DownloadEvent
 import us.dikarya.podplayer.core.data.db.RefreshOutcome
@@ -109,7 +111,10 @@ fun LogsScreen(viewModel: LogsViewModel) {
     val export = state.export
     LaunchedEffect(export) {
         if (export is ExportState.Ready) {
-            noShareApp = !share(context, export.file)
+            // FileProvider reads the disk (it resolves the cache folder): off the main thread, or debug builds'
+            // StrictMode stops the app, as it did on the owner's phone (2026-11-12).
+            val uri = withContext(Dispatchers.IO) { FileProvider.getUriForFile(context, logExportAuthority(context), export.file) }
+            noShareApp = !share(context, uri)
             viewModel.exportShared()
         }
     }
@@ -196,8 +201,7 @@ private fun Entry(entry: LogEntry, tab: LogTab) {
 }
 
 /** The share sheet for the export file, readable only by the app the owner picks. False if nothing can take it. */
-private fun share(context: Context, file: File): Boolean {
-    val uri = FileProvider.getUriForFile(context, logExportAuthority(context), file)
+private fun share(context: Context, uri: Uri): Boolean {
     val send = Intent(Intent.ACTION_SEND)
         .setType("text/plain")
         .putExtra(Intent.EXTRA_STREAM, uri)

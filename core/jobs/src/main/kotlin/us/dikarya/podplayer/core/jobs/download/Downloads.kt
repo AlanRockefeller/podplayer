@@ -68,7 +68,7 @@ class Downloads(
             val result = withContext(Dispatchers.IO) { workManager().updateWork(request(episode, wifiOnly, info.id)).get() }
             if (result != WorkManager.UpdateResult.NOT_APPLIED) updated++
         }
-        if (updated > 0) log.i(TAG, "$updated waiting downloads now ${if (wifiOnly) "wait for Wi-Fi" else "use any network"}")
+        if (updated > 0) log.i(TAG, networkSettingMessage(updated, wifiOnly))
         return updated
     }
 
@@ -90,13 +90,18 @@ class Downloads(
     }
 
     /** Stops a download; the bytes so far are kept, and downloading again resumes. */
-    fun cancel(episodeId: Long) {
+    /**
+     * Stops a download. A running one records the stop through its worker; one that hadn't started yet is
+     * cleared here, or its record would stay "Queued" with nothing to run it.
+     */
+    suspend fun cancel(episodeId: Long) {
         workManager().cancelUniqueWork(workName(episodeId))
+        runner.stoppedBeforeStart(episodeId)
     }
 
     /** Stops the download if it runs, then removes the file and its record. */
     suspend fun delete(episodeId: Long) {
-        cancel(episodeId)
+        workManager().cancelUniqueWork(workName(episodeId))
         runner.delete(episodeId)
     }
 
@@ -116,6 +121,13 @@ class Downloads(
     }
 
     companion object {
+        /** The app-log line after a Wi-Fi-only change moved [count] waiting downloads. */
+        fun networkSettingMessage(count: Int, wifiOnly: Boolean): String = if (count == 1) {
+            "1 waiting download now ${if (wifiOnly) "waits for Wi-Fi" else "uses any network"}"
+        } else {
+            "$count waiting downloads now ${if (wifiOnly) "wait for Wi-Fi" else "use any network"}"
+        }
+
         const val TAG = "Downloads"
         const val TAG_ALL = "download"
         const val BACKOFF_SECONDS = 60L

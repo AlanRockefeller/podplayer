@@ -38,6 +38,7 @@ import us.dikarya.podplayer.core.jobs.refresh.RefreshRequest
 import us.dikarya.podplayer.core.jobs.refresh.RefreshSummary
 import us.dikarya.podplayer.core.jobs.refresh.RefreshWorker
 import us.dikarya.podplayer.core.jobs.refresh.Refresher
+import us.dikarya.podplayer.core.data.db.DownloadEvent
 import us.dikarya.podplayer.core.model.DownloadState
 
 /** The WorkManager side of SPEC §8 and §9: unique work, constraints, and how outcomes map to results. */
@@ -240,6 +241,33 @@ class WorkersTest {
         val info = infos(Downloads.workName(episode)).single()
         assertEquals(WorkInfo.State.CANCELLED, info.state)
         assertEquals(NetworkType.UNMETERED, info.constraints.requiredNetworkType)
+    }
+
+    @Test
+    fun stoppingADownloadThatHasNotStartedClearsItsRecord() = withEnv { env, downloads ->
+        // On the owner's phone, "Stop download" on a download waiting for Wi-Fi cancelled the work but left the
+        // record "Queued" forever, so the page kept showing "Stop download" (2026-11-12).
+        val (_, episode) = env.oneEpisode()
+        runBlocking {
+            downloads.enqueue(episode)
+            downloads.cancel(episode)
+        }
+        assertTrue(infos(Downloads.workName(episode)).all { it.state == WorkInfo.State.CANCELLED })
+        assertNull("nothing was downloaded, so the episode is back to not downloaded", runBlocking { env.repos().media.get(episode) })
+        val log = runBlocking { env.repos().logs.downloadLog(episode, 5).first() }
+        assertEquals(DownloadEvent.Cancelled, log.first().event)
+    }
+
+    @Test
+    fun stoppingAWaitingDownloadWithPartOfTheFileKeepsItResumable() = withEnv { env, downloads ->
+        val (_, episode) = env.oneEpisode()
+        runBlocking {
+            downloads.enqueue(episode)
+            val record = env.repos().media.get(episode)!!
+            env.repos().media.upsert(record.copy(bytesDownloaded = 1_000))
+            downloads.cancel(episode)
+        }
+        assertEquals(DownloadState.Paused, runBlocking { env.repos().media.get(episode)!!.state })
     }
 
     @Test

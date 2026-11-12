@@ -122,6 +122,18 @@ class SettingsViewModelTest {
         assertEquals(listOf(false, true), e.wifiOnlyChanges)
     }
 
+    @Test
+    fun storageLimitsReadAsWholeGigabytes() {
+        // The owner's phone showed "11 GB" and choices like "5.4 GB" (2026-11-12): the limits were binary
+        // gigabytes shown in Android's decimal units. They are decimal now, like "35 GB free on this phone".
+        val context = androidx.test.core.app.ApplicationProvider.getApplicationContext<Application>()
+        val labels = SettingsViewModel.STORAGE_CAP_CHOICES.map { storageCapLabel(context, it) }
+        assertEquals(listOf("1 GB", "2 GB", "5 GB", "10 GB", "20 GB", "50 GB", "100 GB", "200 GB"), labels)
+        assertEquals("10 GB", storageCapLabel(context, AppSettings.DEFAULT_STORAGE_CAP_BYTES))
+        assertEquals("an odd value from an old backup still reads sensibly", "1.5 GB", storageCapLabel(context, 1_500_000_000L))
+        assertEquals("the default is one of the choices", true, AppSettings.DEFAULT_STORAGE_CAP_BYTES in SettingsViewModel.STORAGE_CAP_CHOICES)
+    }
+
     private companion object {
         const val MIB = 1024L * 1024
         const val GIB = 1024L * MIB

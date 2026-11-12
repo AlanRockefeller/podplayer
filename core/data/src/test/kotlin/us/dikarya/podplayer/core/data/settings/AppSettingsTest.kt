@@ -93,9 +93,10 @@ class AppSettingsTest {
     }
 
     @Test
-    fun downloadSettingsDefaultToWifiOnlyAndTenGib() {
+    fun downloadSettingsDefaultToWifiOnlyAndTenGb() {
         assertEquals(true, withSettings { it.downloadsWifiOnly.first() })
-        assertEquals(10L * 1024 * 1024 * 1024, withSettings { it.storageCapBytes.first() })
+        // SPEC §9 "default 10 GB": decimal, as Android shows sizes (it read "11 GB" as binary 10 GiB).
+        assertEquals(10_000_000_000L, withSettings { it.storageCapBytes.first() })
     }
 
     @Test

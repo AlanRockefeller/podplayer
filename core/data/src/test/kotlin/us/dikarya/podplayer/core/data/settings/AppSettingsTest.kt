@@ -116,6 +116,29 @@ class AppSettingsTest {
     }
 
     @Test
+    fun libraryLayoutAndSortDefaultToAGridByTitleAndPersist() {
+        assertEquals(LibraryLayout.Grid, withSettings { it.libraryLayout.first() })
+        assertEquals(LibrarySort.Title, withSettings { it.librarySort.first() })
+        withSettings {
+            it.setLibraryLayout(LibraryLayout.List)
+            it.setLibrarySort(LibrarySort.NewestEpisode)
+        }
+        assertEquals(LibraryLayout.List, withSettings { it.libraryLayout.first() })
+        assertEquals(LibrarySort.NewestEpisode, withSettings { it.librarySort.first() })
+    }
+
+    @Test
+    fun anUnknownLibraryLayoutOrSortFallsBackToTheDefault() {
+        // A backup from a newer version, or a hand-edited one, can hold anything.
+        val snapshot = withSettings {
+            it.setLibrarySort(LibrarySort.Subscribed)
+            it.snapshot()
+        }
+        assertTrue(withSettings { it.restore(snapshot.replace("\"Subscribed\"", "\"Sideways\"")) })
+        assertEquals(LibrarySort.Title, withSettings { it.librarySort.first() })
+    }
+
+    @Test
     fun theStorageCapIsKeptWithinSaneBounds() {
         assertEquals(AppSettings.MIN_STORAGE_CAP_BYTES, withSettings {
             it.setStorageCapBytes(-5)

@@ -132,8 +132,12 @@ class PlaybackEngine(
 
     // --- Commands ---
 
-    /** Plays [id] from its saved position, putting it at the top of the queue. Unknown ids change nothing. */
-    fun playEpisode(id: Long) {
+    /**
+     * Plays [id], putting it at the top of the queue: from [startAtMs] when given (a timestamp in its show notes),
+     * else from its saved position. The episode already loaded isn't reloaded, so it never jumps back to its
+     * last save. Unknown ids change nothing.
+     */
+    fun playEpisode(id: Long, startAtMs: Long? = null) {
         scope.launch {
             playlist.withLock {
                 if (store.episode(id) == null) {
@@ -141,9 +145,21 @@ class PlaybackEngine(
                     return@withLock
                 }
                 store.putAtQueueHead(id)
-                load(id, play = true)
+                val start = startAtMs?.coerceAtLeast(0)
+                if (id == currentId && player.mediaItemCount > 0) {
+                    if (start != null) seekWithCause(clampToDuration(start), PositionCause.Seek) else maybeRewindAfterPause()
+                    if (player.playbackState == Player.STATE_IDLE) player.prepare()
+                    player.playWhenReady = true
+                } else {
+                    load(id, play = true, startAtMs = start)
+                }
             }
         }
+    }
+
+    private fun clampToDuration(positionMs: Long): Long {
+        val duration = player.duration
+        return if (duration != C.TIME_UNSET && duration > 0) positionMs.coerceAtMost(duration) else positionMs
     }
 
     fun skipBack() {
@@ -255,10 +271,15 @@ class PlaybackEngine(
         load(id, play = false)
     }
 
-    /** Replaces the playlist with [id] and the next queued episode. Call with [playlist] held. */
-    private suspend fun load(id: Long, play: Boolean): Boolean {
+    /**
+     * Replaces the playlist with [id] and the next queued episode, at [startAtMs] or else the saved position. Call
+     * with [playlist] held.
+     */
+    private suspend fun load(id: Long, play: Boolean, startAtMs: Long? = null): Boolean {
         val episode = store.episode(id) ?: return false
-        val start = store.startPosition(id)
+        val saved = store.startPosition(id)
+        val known = episode.durationMs?.takeIf { it > 0 }
+        val start = startAtMs?.let { if (known != null) it.coerceAtMost(known) else it } ?: saved
         val next = store.queue().first().firstOrNull { it != id }?.let { store.episode(it) }
         if (released) return false
         if (currentId != null && currentId != id) persist()
@@ -276,10 +297,41 @@ class PlaybackEngine(
         }
         lastSaveAt = clock.elapsedRealtime()
         resample()
-        if (start > 0) logPosition(id, 0, start, PositionCause.Restore)
+        if (startAtMs != null) {
+            logPosition(id, saved, start, PositionCause.Seek)
+            persistScope.launch { store.savePosition(id, start, null) }
+        } else if (start > 0) {
+            logPosition(id, 0, start, PositionCause.Restore)
+        }
         applySpeed()
         updateWakeMode()
+        fetchMissingArtwork(episode)
         return true
+    }
+
+    /**
+     * The lock screen and notification show artwork from sandbox cache files only (SPEC §6). An episode whose
+     * image was never shown in the app has none cached, so fetch it now and add it to the playing item's
+     * metadata. The source accepts the new item in place, so the audio isn't touched.
+     */
+    private fun fetchMissingArtwork(episode: PlayableEpisode) {
+        if (episode.artworkUri != null) return
+        val id = episode.id
+        scope.launch {
+            val uri = store.fetchArtwork(id) ?: return@launch
+            playlist.withLock {
+                if (released || currentId != id || player.mediaItemCount == 0) return@withLock
+                val item = player.getMediaItemAt(0)
+                if (item.mediaId != id.toString() || item.mediaMetadata.artworkUri != null) return@withLock
+                val updated = item.buildUpon().setMediaMetadata(item.mediaMetadata.buildUpon().setArtworkUri(uri).build()).build()
+                rebuilding = true
+                try {
+                    player.replaceMediaItem(0, updated)
+                } finally {
+                    rebuilding = false
+                }
+            }
+        }
     }
 
     /** Keeps index 1 equal to the first queued episode that isn't playing, from its file when it has one. */
@@ -408,8 +460,13 @@ class PlaybackEngine(
             store.setCurrentEpisodeId(newId)
             // An episode a controller chose goes to the top of the queue, like one chosen in the app.
             if (chosenByController) store.putAtQueueHead(newId)
-            currentFeedId = store.episode(newId)?.feedId
+            val episode = store.episode(newId)
+            currentFeedId = episode?.feedId
             applySpeed()
+            // The next item was built with whatever artwork was cached then; fetch it if there was none.
+            if (episode != null && player.currentMediaItem?.mediaMetadata?.artworkUri == null) {
+                fetchMissingArtwork(episode.copy(artworkUri = null))
+            }
         }
         lastSaveAt = clock.elapsedRealtime()
         updateWakeMode()

@@ -68,7 +68,10 @@ class SessionCallback(
     ): ListenableFuture<SessionResult> {
         if (!isOwnUi(controller)) return Futures.immediateFuture(SessionResult(SessionError.ERROR_PERMISSION_DENIED))
         when (customCommand.customAction) {
-            Commands.PLAY_EPISODE -> engine.playEpisode(args.getLong(Commands.ARG_EPISODE_ID, -1))
+            Commands.PLAY_EPISODE -> engine.playEpisode(
+                args.getLong(Commands.ARG_EPISODE_ID, -1),
+                startAtMs = if (args.containsKey(Commands.ARG_START_MS)) args.getLong(Commands.ARG_START_MS) else null,
+            )
             Commands.SET_SPEED -> engine.setSpeed(
                 if (args.containsKey(Commands.ARG_SPEED)) args.getFloat(Commands.ARG_SPEED) else null,
                 forShow = args.getBoolean(Commands.ARG_FOR_SHOW, false),
@@ -148,6 +151,9 @@ class SessionCallback(
         val ALL = listOf(PLAY_EPISODE, SET_SPEED, SLEEP_MINUTES, SLEEP_END_OF_EPISODE, SLEEP_CANCEL)
 
         const val ARG_EPISODE_ID = "episode_id"
+
+        /** Optional with [PLAY_EPISODE]: start there instead of at the saved position. */
+        const val ARG_START_MS = "start_ms"
         const val ARG_SPEED = "speed"
         const val ARG_FOR_SHOW = "for_show"
         const val ARG_MINUTES = "minutes"

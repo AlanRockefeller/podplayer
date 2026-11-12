@@ -9,6 +9,8 @@
 
     <!-- Feeds and episodes (M1-S5). Every request goes through the gated client in :core:net. -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Only to tell whether there is a network, for the screens' offline messages (M1-S8). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!--
       The download progress notification. Downloads run without it too (as a dataSync foreground
       service, declared in :core:jobs); Android just doesn't show the notification in the shade.

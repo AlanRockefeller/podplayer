@@ -90,6 +90,10 @@ class FeedRepository internal constructor(private val db: PodDatabase, private v
 
     suspend fun get(id: Long): Feed? = db.feeds().get(id)?.toModel()
 
+    /** Each feed's newest episode date, by feed id; feeds without episodes are absent. */
+    fun newestEpisodeDates(): Flow<Map<Long, Long>> =
+        db.episodes().observeNewestPerFeed().map { rows -> rows.associate { it.feedId to it.newest } }
+
     /**
      * Adds a subscription. The URL goes through the URL policy and is stored in canonical form.
      * [ownerTyped]: the owner typed or pasted this URL, so its host is approved even on a private network

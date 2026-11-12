@@ -10,7 +10,9 @@ import android.app.PendingIntent
 import android.content.Context
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -24,6 +26,7 @@ import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.core.imagesandbox.ImageSandbox
 import us.dikarya.podplayer.core.jobs.Jobs
 import us.dikarya.podplayer.core.jobs.PodplayerWorkerFactory
+import us.dikarya.podplayer.core.jobs.refresh.androidFeedParser
 import us.dikarya.podplayer.core.net.AddressPolicy
 import us.dikarya.podplayer.core.net.NetConfig
 import us.dikarya.podplayer.core.net.NetGate
@@ -31,6 +34,13 @@ import us.dikarya.podplayer.playback.BluetoothPlayGate
 import us.dikarya.podplayer.playback.PlaybackClient
 import us.dikarya.podplayer.playback.PlaybackDependencies
 import us.dikarya.podplayer.playback.RoomPlaybackStore
+import us.dikarya.podplayer.ui.browse.BrowseDeps
+import us.dikarya.podplayer.ui.browse.DownloadActions
+import us.dikarya.podplayer.ui.browse.NetworkStatus
+import us.dikarya.podplayer.ui.browse.Subscriptions
+import us.dikarya.podplayer.ui.discover.AppleSearch
+import us.dikarya.podplayer.ui.discover.FeedPreviewer
+import us.dikarya.podplayer.ui.discover.GateFetch
 
 /**
  * Manual dependency injection: the app's long-lived objects, built once in [PodplayerApp].
@@ -87,7 +97,11 @@ class AppGraph(context: Context) {
     /** What the playback service (`:playback`) needs; it is built by Android, so it asks the app for these. */
     val playbackDependencies: PlaybackDependencies by lazy {
         PlaybackDependencies(
-            store = RoomPlaybackStore(data, log) { url -> images.cachedArtworkUri(url) },
+            store = RoomPlaybackStore(
+                data,
+                log,
+                fetchArtwork = { url, approvedHost -> images.artworkUri(url, approvedHost) },
+            ) { url -> images.cachedArtworkUri(url) },
             callFactoryFor = { host -> netGate.callFactory(if (host == null) AddressPolicy.Default else AddressPolicy.approvingHosts(host)) },
             artwork = images,
             playGate = playGate,
@@ -100,6 +114,37 @@ class AppGraph(context: Context) {
 
     /** Our screens' connection to the playback session. Connects on first use. */
     val playback: PlaybackClient by lazy { PlaybackClient(appContext) }
+
+    /** Whether there is a network, for the screens' offline messages. */
+    val network: NetworkStatus by lazy { NetworkStatus(appContext) }
+
+    /** What the browsing screens' view models need (M1-S8). Built on first use, on the main thread. */
+    val browse: BrowseDeps by lazy {
+        val gateFetch = GateFetch { url, limit, policy -> netGate.fetch(url, limit, policy) }
+        BrowseDeps(
+            repositories = { data.awaitRepositories() },
+            settings = settings,
+            playback = playback,
+            downloads = object : DownloadActions {
+                // Not cancelled with the screen that asked: an unsubscribe half done would leave files behind.
+                override suspend fun download(episodeId: Long) {
+                    withContext(NonCancellable + Dispatchers.IO) { jobs.downloads.enqueue(episodeId) }
+                }
+
+                override suspend fun cancel(episodeId: Long) = jobs.downloads.cancel(episodeId)
+
+                override suspend fun delete(episodeId: Long) = withContext(NonCancellable + Dispatchers.IO) { jobs.downloads.delete(episodeId) }
+
+                override suspend fun unsubscribe(feedId: Long) = withContext(NonCancellable + Dispatchers.IO) { jobs.downloads.removeFeed(feedId) }
+            },
+            refresh = { feedId -> jobs.refreshNow(feedId) },
+            online = network.online,
+            search = AppleSearch(gateFetch),
+            previewer = FeedPreviewer(gateFetch, androidFeedParser()),
+            subscriptions = Subscriptions({ data.awaitRepositories() }) { feedId -> jobs.refreshNow(feedId) },
+            log = log,
+        )
+    }
 
     fun start() {
         playGate

@@ -15,10 +15,137 @@
     <string name="open_settings">Settings</string>
     <string name="navigate_back">Back</string>
 
-    <string name="placeholder_home">Your shows and new episodes will appear here.</string>
-    <string name="placeholder_discover">Search for podcasts or paste a feed address here.</string>
-    <string name="placeholder_library">Your subscriptions will appear here.</string>
-    <string name="placeholder_queue">Episodes you add to Up Next will appear here.</string>
+    <string name="placeholder_queue">The Up Next screen comes in the next update. Episodes you add to the queue are kept and play in order.</string>
+
+    <!-- Browsing (M1-S8) -->
+    <string name="show_title">Show</string>
+    <string name="episode_title">Episode</string>
+    <string name="untitled_episode">Untitled episode</string>
+    <string name="untitled_show">Untitled show</string>
+    <string name="offline_banner">You\'re offline. Downloaded episodes still play.</string>
+    <string name="library_closed">Your library couldn\'t be opened.</string>
+    <string name="find_shows">Find a show</string>
+    <string name="not_secure">Not secure</string>
+    <string name="not_secure_feed">Not secure: this feed doesn\'t use https, so others on the network can see and change it.</string>
+
+    <string name="episode_played">Played</string>
+    <string name="episode_left">%1$s left</string>
+    <string name="duration_minutes">%1$d min</string>
+    <string name="duration_hours">%1$d h %2$d min</string>
+
+    <string name="action_play">Play</string>
+    <string name="action_pause">Pause</string>
+    <string name="action_resume">Resume</string>
+    <string name="action_play_episode">Play %1$s</string>
+    <string name="action_pause_episode">Pause %1$s</string>
+    <string name="action_queue_episode">Add %1$s to the queue</string>
+    <string name="action_unqueue_episode">Remove %1$s from the queue</string>
+    <string name="action_download_episode">Download %1$s</string>
+    <string name="action_cancel_download">Stop downloading %1$s</string>
+    <string name="state_downloaded">%1$s is downloaded</string>
+    <string name="action_add_to_queue">Add to queue</string>
+    <string name="action_remove_from_queue">Remove from queue</string>
+    <string name="action_download">Download</string>
+    <string name="action_cancel_download_short">Stop download</string>
+    <string name="action_retry_download">Try download again</string>
+    <string name="action_resume_download">Resume download</string>
+    <string name="action_delete_download">Delete download</string>
+    <string name="action_mark_played">Mark played</string>
+    <string name="action_mark_unplayed">Mark unplayed</string>
+    <string name="action_subscribe">Subscribe</string>
+    <string name="action_unsubscribe">Unsubscribe</string>
+    <string name="action_refresh_all">Refresh all shows</string>
+    <string name="action_refresh_show">Refresh this show</string>
+
+    <string name="home_empty">You haven\'t subscribed to any shows yet.</string>
+    <string name="home_continue">Continue</string>
+    <string name="home_your_shows">Your shows</string>
+    <string name="home_new_episodes">New episodes</string>
+    <string name="home_no_new_episodes">Nothing new. Everything here is played.</string>
+
+    <string name="discover_field">Search or paste a feed address</string>
+    <string name="discover_field_hint">Searching asks Apple\'s podcast directory. A feed address is checked before you subscribe.</string>
+    <string name="discover_search">Search</string>
+    <string name="discover_preview">Preview feed</string>
+    <string name="discover_import_opml">Import OPML file</string>
+    <string name="discover_no_results">No shows found.</string>
+    <string name="discover_subscribed">Subscribed</string>
+    <plurals name="discover_episode_count">
+        <item quantity="one">%1$d episode</item>
+        <item quantity="other">%1$d episodes</item>
+    </plurals>
+    <string name="opml_title">Import OPML</string>
+    <string name="opml_import">Subscribe to all</string>
+    <plurals name="opml_found">
+        <item quantity="one">%1$d show found:</item>
+        <item quantity="other">%1$d shows found:</item>
+    </plurals>
+    <plurals name="opml_skipped">
+        <item quantity="one">%1$d entry left out (no usable address, or a duplicate).</item>
+        <item quantity="other">%1$d entries left out (no usable address, or duplicates).</item>
+    </plurals>
+    <plurals name="opml_more">
+        <item quantity="one">and %1$d more</item>
+        <item quantity="other">and %1$d more</item>
+    </plurals>
+    <string name="opml_done">Added %1$d. Already subscribed: %2$d. Refused: %3$d. New shows refresh when there is a network.</string>
+
+    <string name="problem_offline">You\'re offline, so nothing was sent. Try again when there is a network.</string>
+    <string name="problem_search_answer">The search service sent an answer this app can\'t read.</string>
+    <string name="problem_file_too_large">That file is too large to be an OPML subscription list.</string>
+    <string name="problem_file_unreadable">That file couldn\'t be read.</string>
+    <string name="problem_library_closed">Your library isn\'t open, so nothing was changed.</string>
+    <string name="problem_not_opml">That file isn\'t an OPML subscription list.</string>
+    <string name="problem_not_a_feed_page">That address is a web page, not a podcast feed. Look for the show\'s RSS link.</string>
+    <string name="problem_not_a_feed">That address didn\'t return a feed this app can read.</string>
+    <string name="problem_url_scheme">Only http and https addresses work.</string>
+    <string name="problem_url_too_long">That address is too long.</string>
+    <string name="problem_url_malformed">That doesn\'t look like a web address.</string>
+    <string name="problem_net_blocked">That address is on a private network. Only an address you typed yourself may use one.</string>
+    <string name="problem_net_forbidden">The server refused access (HTTP %1$d). A private feed may need a new address.</string>
+    <string name="problem_net_not_found">There is nothing at that address (HTTP %1$d).</string>
+    <string name="problem_net_status">The server answered HTTP %1$d.</string>
+    <string name="problem_net_too_large">The server sent more than this app accepts.</string>
+    <string name="problem_net_timeout">The server took too long to answer.</string>
+    <string name="problem_net_redirects">The address redirects somewhere this app won\'t follow.</string>
+    <string name="problem_net_unreachable">Couldn\'t reach the server. Check the address and the network.</string>
+
+    <string name="library_empty">Shows you subscribe to appear here.</string>
+    <plurals name="library_count">
+        <item quantity="one">%1$d show</item>
+        <item quantity="other">%1$d shows</item>
+    </plurals>
+    <string name="library_sort">Sort shows</string>
+    <string name="library_sort_title">Title</string>
+    <string name="library_sort_newest">Newest episode</string>
+    <string name="library_sort_subscribed">Recently subscribed</string>
+    <string name="library_show_list">Show as a list</string>
+    <string name="library_show_grid">Show as a grid</string>
+    <string name="library_newest">Newest episode %1$s</string>
+
+    <string name="show_more">More</string>
+    <string name="show_less">Less</string>
+    <string name="show_sort_oldest">Show oldest first</string>
+    <string name="show_sort_newest">Show newest first</string>
+    <string name="show_not_refreshed">Episodes appear after the first refresh.</string>
+    <string name="show_no_episodes">This feed has no episodes.</string>
+    <string name="unsubscribe_title">Unsubscribe from %1$s?</string>
+    <string name="unsubscribe_body">Its episodes, downloads, positions and queue entries are removed from this phone.</string>
+    <string name="speed_default_label">Speed: %1$s (default)</string>
+    <string name="speed_show_label">Speed: %1$s (this show)</string>
+    <string name="speed_use_default">Default speed (%1$s)</string>
+
+    <string name="episode_gone">This episode is no longer in your library.</string>
+    <string name="episode_offline_stream">You\'re offline: this episode isn\'t downloaded, so it can\'t play until there is a network.</string>
+    <string name="notes_none">No show notes.</string>
+    <string name="notes_rejected">These show notes are too large or complex to show safely.</string>
+
+    <string name="link_open_title">Open link?</string>
+    <string name="link_open_body">This opens %1$s outside the app.</string>
+    <string name="link_open">Open</string>
+    <string name="link_no_app">No app on this phone can open that link.</string>
+
+    <string name="mini_player_open">Open the episode</string>
 
     <string name="settings_title">Settings</string>
     <string name="settings_appearance">Appearance</string>

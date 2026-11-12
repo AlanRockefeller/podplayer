@@ -7,7 +7,7 @@ be reused as whole files with their original headers (CLAUDE.md). Never copy GPL
 
 | File(s) in this repo | Source | License | Changes |
 | --- | --- | --- | --- |
-| `app/src/main/res/drawable/ic_home.xml`, `ic_explore.xml`, `ic_library_music.xml`, `ic_queue_music.xml`, `ic_settings.xml`, `ic_arrow_back.xml` | [Material Symbols](https://github.com/google/material-design-icons) (`symbols/android/<name>/materialsymbolsoutlined/<name>_24px.xml`) | Apache-2.0 | Removed the `android:tint` theme attribute (Compose tints icons itself) |
+| `app/src/main/res/drawable/ic_home.xml`, `ic_explore.xml`, `ic_library_music.xml`, `ic_queue_music.xml`, `ic_settings.xml`, `ic_arrow_back.xml`; from M1-S8 `ic_play.xml` (`play_arrow`), `ic_pause.xml`, `ic_queue_add.xml` (`playlist_add`), `ic_queue_added.xml` (`playlist_add_check`), `ic_download.xml`, `ic_download_done.xml`, `ic_refresh.xml`, `ic_grid.xml` (`grid_view`), `ic_list.xml` (`view_list`), `ic_search.xml`, `ic_offline.xml` (`cloud_off`), `ic_sort.xml` (`sort`) | [Material Symbols](https://github.com/google/material-design-icons) (`symbols/android/<name>/materialsymbolsoutlined/<name>_24px.xml`) | Apache-2.0 | Removed the `android:tint` theme attribute (Compose tints icons itself) |
 
 ## Notable dependencies
 
@@ -27,6 +27,8 @@ Only libraries on the SPEC §2 allowlist. Versions are in `gradle/libs.versions.
 | DataStore (Preferences) | `:core:data` (moved from `:app`) | Apache-2.0 |
 | Robolectric, with its Android jar and SQLite native runtime | tests of `:core:data` and `:core:jobs` | MIT (Android jar: Apache-2.0) |
 | AndroidX Test (ext-junit, core) | tests | Apache-2.0 |
+| Compose UI test (`ui-test-junit4`, with `ui-test` and AndroidX Test runner as its dependencies) and Espresso core 3.7.0 (raised from the 3.5.0 it brings, which can't run on the SDK 37 Robolectric jar) | `:app` tests only (Robolectric); `ui-test-manifest` is deliberately not used | Apache-2.0 |
+| Lifecycle ViewModel Compose (`lifecycle-viewmodel-compose`) | `:app`: the browsing screens' view models | Apache-2.0 |
 | Turbine | `:core:data` and `:core:jobs` tests | Apache-2.0 |
 | Media3 ExoPlayer (`media3-exoplayer`), with `media3-extractor`, `media3-common` and the rest of its API, Guava (Android flavour) and AndroidX ExifInterface as its dependencies | `:core:jobs`: only its extractors, to probe downloads (SPEC §9) | Apache-2.0 |
 | OkHttp MockWebServer (`mockwebserver3`) | `:core:jobs` and `:playback` tests | Apache-2.0 |

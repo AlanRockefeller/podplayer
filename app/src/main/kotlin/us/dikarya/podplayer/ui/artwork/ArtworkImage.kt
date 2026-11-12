@@ -13,16 +13,22 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
 import coil3.compose.AsyncImage
 import us.dikarya.podplayer.R
-import us.dikarya.podplayer.appGraph
 import us.dikarya.podplayer.core.imagesandbox.ArtworkResult
+import us.dikarya.podplayer.core.imagesandbox.ImageSandbox
+
+/**
+ * The image sandbox screens load artwork through (`AppGraph.images`, provided by MainActivity). Null in UI tests:
+ * then every image is the plain placeholder and nothing is fetched.
+ */
+val LocalImageSandbox = staticCompositionLocalOf<ImageSandbox?> { null }
 
 /**
  * The artwork for [imageUrl] (a feed or episode image), or null while it loads. [approvedHost] is the feed's
@@ -30,9 +36,9 @@ import us.dikarya.podplayer.core.imagesandbox.ArtworkResult
  */
 @Composable
 fun rememberArtwork(imageUrl: String?, approvedHost: String?): ArtworkResult? {
-    val images = LocalContext.current.appGraph.images
-    val result by produceState<ArtworkResult?>(null, imageUrl, approvedHost) {
-        value = images.artwork.artwork(imageUrl, approvedHost)
+    val images = LocalImageSandbox.current
+    val result by produceState<ArtworkResult?>(null, images, imageUrl, approvedHost) {
+        value = images?.artwork?.artwork(imageUrl, approvedHost)
     }
     return result
 }
@@ -48,14 +54,14 @@ fun ArtworkImage(
     modifier: Modifier = Modifier,
     contentDescription: String? = stringResource(R.string.artwork),
 ) {
-    val images = LocalContext.current.appGraph.images
+    val images = LocalImageSandbox.current
     Box(
         modifier
             .size(size)
             .clip(MaterialTheme.shapes.small)
             .background(MaterialTheme.colorScheme.surfaceVariant),
     ) {
-        if (artwork is ArtworkResult.Ready) {
+        if (artwork is ArtworkResult.Ready && images != null) {
             AsyncImage(
                 model = artwork.file,
                 contentDescription = contentDescription,
@@ -65,4 +71,10 @@ fun ArtworkImage(
             )
         }
     }
+}
+
+/** [imageUrl]'s artwork, loaded and shown in one step. Decorative unless [contentDescription] is given. */
+@Composable
+fun Artwork(imageUrl: String?, approvedHost: String?, size: Dp, modifier: Modifier = Modifier, contentDescription: String? = null) {
+    ArtworkImage(rememberArtwork(imageUrl, approvedHost), size, modifier, contentDescription)
 }

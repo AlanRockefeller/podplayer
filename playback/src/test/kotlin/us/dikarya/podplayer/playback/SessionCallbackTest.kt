@@ -92,6 +92,19 @@ class SessionCallbackTest {
     }
 
     @Test
+    fun ourScreensCanStartAnEpisodeAtASpot() {
+        val args = Bundle().apply {
+            putLong(SessionCallback.Commands.ARG_EPISODE_ID, 2)
+            putLong(SessionCallback.Commands.ARG_START_MS, 90_000)
+        }
+        val result = await(callback.onCustomCommand(session, ownUi, SessionCommand(SessionCallback.Commands.PLAY_EPISODE, Bundle.EMPTY), args))
+        idle()
+        assertEquals(SessionResult.RESULT_SUCCESS, result.resultCode)
+        assertTrue(h.store.positionLog.any { it.episodeId == 2L && it.toMs == 90_000L })
+        assertTrue(h.player.playWhenReady)
+    }
+
+    @Test
     fun itemsAControllerSendsAreLookedUpByIdAndTheirUrisNeverUsed() {
         val hostile = listOf(
             MediaItem.Builder().setMediaId("1").setUri("file:///data/data/us.dikarya.podplayer/databases/podplayer.db").build(),

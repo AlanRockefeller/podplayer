@@ -7,6 +7,7 @@
 package us.dikarya.podplayer.playback
 
 import android.content.Context
+import android.net.Uri
 import android.os.Looper
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.Clock
@@ -70,8 +71,19 @@ internal class FakePlaybackStore : PlaybackStore {
     val saves = mutableListOf<Pair<Long, Long>>()
     val logLines = mutableListOf<String>()
 
-    /** Adds an episode; [file] makes it a completed download. */
-    fun add(id: Long, durationMs: Long = 600_000, feedId: Long = 1, file: File? = null, approvedHost: String? = null) {
+    /** Artwork [fetchArtwork] produces (a sandbox cache URI in the app), by episode id. */
+    val fetchableArtwork = mutableMapOf<Long, Uri>()
+    val artworkFetches = mutableListOf<Long>()
+
+    /** Adds an episode; [file] makes it a completed download. [artworkUri] is artwork already cached. */
+    fun add(
+        id: Long,
+        durationMs: Long = 600_000,
+        feedId: Long = 1,
+        file: File? = null,
+        approvedHost: String? = null,
+        artworkUri: Uri? = null,
+    ) {
         episodes[id] = PlayableEpisode(
             id = id,
             feedId = feedId,
@@ -80,10 +92,15 @@ internal class FakePlaybackStore : PlaybackStore {
             streamUrl = "https://media.example.com/$id.mp3",
             localFile = file,
             approvedHost = approvedHost,
-            artworkUri = null,
+            artworkUri = artworkUri,
             durationMs = durationMs,
         )
         if (file != null) downloaded.value = downloaded.value + id
+    }
+
+    override suspend fun fetchArtwork(id: Long): Uri? {
+        artworkFetches += id
+        return fetchableArtwork[id]
     }
 
     override suspend fun episode(id: Long): PlayableEpisode? = episodes[id]?.let { ep ->
@@ -180,7 +197,12 @@ internal class TestSources(private val store: FakePlaybackStore) : MediaSource.F
                 override fun maybeThrowSourceInfoRefreshError() = throw IOException("broken source for $id")
             }.also { it.setAllowPreparation(false) }
         } else {
-            FakeMediaSource(timeline, ExoPlayerTestRunner.AUDIO_FORMAT).also { if (id in stalled) it.setAllowPreparation(false) }
+            FakeMediaSource(timeline, ExoPlayerTestRunner.AUDIO_FORMAT).also {
+                if (id in stalled) it.setAllowPreparation(false)
+                // Like the real progressive sources (GatedMediaSourceFactoryTest): new metadata for the same
+                // audio updates the item in place.
+                it.setCanUpdateMediaItems(true)
+            }
         }
     }
 

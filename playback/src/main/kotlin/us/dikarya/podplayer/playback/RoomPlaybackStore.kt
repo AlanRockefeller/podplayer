@@ -29,13 +29,23 @@ import us.dikarya.podplayer.core.net.scrubUrls
  * DataLayer), it behaves as an empty library: nothing plays, nothing crashes.
  *
  * [artwork] returns a content URI of a sandbox-produced cache file, or null (SPEC §6); it never fetches.
+ * [fetchArtwork] fetches through the gate and the sandbox first (with the feed's owner-approved host), then does
+ * the same.
  */
 class RoomPlaybackStore(
     private val data: DataLayer,
     private val log: AppLog,
+    private val fetchArtwork: suspend (url: String?, approvedHost: String?) -> Uri? = { _, _ -> null },
     private val artwork: suspend (url: String?) -> Uri?,
 ) : PlaybackStore {
     private suspend fun repos(): Repositories? = data.awaitRepositories()
+
+    override suspend fun fetchArtwork(id: Long): Uri? {
+        val repos = repos() ?: return null
+        val episode = repos.episodes.get(id) ?: return null
+        val feed = repos.feeds.get(episode.feedId)
+        return fetchArtwork(episode.imageUrl ?: feed?.imageUrl, feed?.ownerApprovedHost)
+    }
 
     override suspend fun episode(id: Long): PlayableEpisode? {
         val repos = repos() ?: return null

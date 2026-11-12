@@ -14,6 +14,8 @@ import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import java.io.File
+import us.dikarya.podplayer.core.net.UrlCheck
+import us.dikarya.podplayer.core.net.UrlPolicy
 import us.dikarya.podplayer.core.net.redact
 
 /**
@@ -40,9 +42,12 @@ data class ItemSource(
 /** The player item for this episode, from its file when [useFile] and a file exists, else from the stream. */
 internal fun PlayableEpisode.toMediaItem(useFile: Boolean): MediaItem {
     val source = ItemSource(id, localFile.takeIf { useFile }, streamUrl, approvedHost)
+    // The same URI GatedMediaSourceFactory gives the source (the policy's canonical form), so an item with new
+    // metadata (artwork fetched later) updates its source in place instead of restarting the audio.
+    val streamUri = (UrlPolicy.checkFeedUrl(streamUrl) as? UrlCheck.Allowed)?.url?.toString() ?: streamUrl
     return MediaItem.Builder()
         .setMediaId(id.toString())
-        .setUri(source.file?.let(Uri::fromFile) ?: Uri.parse(streamUrl))
+        .setUri(source.file?.let(Uri::fromFile) ?: Uri.parse(streamUri))
         .setTag(source)
         .setMediaMetadata(
             MediaMetadata.Builder()

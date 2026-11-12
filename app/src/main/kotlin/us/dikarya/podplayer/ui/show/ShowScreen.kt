@@ -1,0 +1,185 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
+package us.dikarya.podplayer.ui.show
+
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import java.util.Locale
+import kotlin.math.roundToInt
+import us.dikarya.podplayer.R
+import us.dikarya.podplayer.core.feed.notes.RichStyle
+import us.dikarya.podplayer.ui.artwork.Artwork
+import us.dikarya.podplayer.ui.browse.CenteredMessage
+import us.dikarya.podplayer.ui.browse.EpisodeRow
+import us.dikarya.podplayer.ui.browse.Loading
+import us.dikarya.podplayer.ui.browse.OfflineBanner
+import us.dikarya.podplayer.ui.browse.rememberDownloadStarter
+import us.dikarya.podplayer.ui.notes.LinkConfirmDialog
+import us.dikarya.podplayer.ui.notes.toAnnotatedString
+import us.dikarya.podplayer.ui.theme.PodplayerTheme
+
+/** A show's page (SPEC §12): header, per-show speed, episodes with sort; refresh and unsubscribe. */
+@Composable
+fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: () -> Unit) {
+    val state by viewModel.state.collectAsStateWithLifecycle()
+    val download = rememberDownloadStarter(viewModel.actions)
+    LaunchedEffect(state.gone) { if (state.gone) onGone() }
+    if (state.loading) return Loading()
+    val feed = state.feed ?: return
+    var link by remember { mutableStateOf<RichStyle.Link?>(null) }
+    var confirmUnsubscribe by rememberSaveable { mutableStateOf(false) }
+    val colors = PodplayerTheme.colors
+
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
+        item { OfflineBanner(state.online) }
+        item {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Artwork(feed.imageUrl, feed.ownerApprovedHost, 96.dp)
+                    Spacer(Modifier.width(16.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(feed.title ?: stringResource(R.string.untitled_show), style = MaterialTheme.typography.titleLarge)
+                        feed.author?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary) }
+                        if (!feed.isSecure) Text(stringResource(R.string.not_secure_feed), style = MaterialTheme.typography.bodySmall, color = colors.warning)
+                    }
+                }
+                state.description?.let { description ->
+                    var expanded by rememberSaveable { mutableStateOf(false) }
+                    val text = remember(description, colors) { description.toAnnotatedString(colors, onLink = { link = it }, onTimestamp = null) }
+                    Text(
+                        text,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = colors.textSecondary,
+                        maxLines = if (expanded) Int.MAX_VALUE else DESCRIPTION_LINES,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    TextButton(onClick = { expanded = !expanded }) {
+                        Text(stringResource(if (expanded) R.string.show_less else R.string.show_more))
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SpeedPicker(state.showSpeed, state.globalSpeed, viewModel::setShowSpeed)
+                    IconButton(onClick = viewModel::refresh) {
+                        Icon(painterResource(R.drawable.ic_refresh), contentDescription = stringResource(R.string.action_refresh_show))
+                    }
+                    IconButton(onClick = viewModel::toggleSort) {
+                        Icon(
+                            painterResource(R.drawable.ic_sort),
+                            contentDescription = stringResource(if (state.newestFirst) R.string.show_sort_oldest else R.string.show_sort_newest),
+                        )
+                    }
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { confirmUnsubscribe = true }) { Text(stringResource(R.string.action_unsubscribe)) }
+                }
+            }
+            HorizontalDivider()
+        }
+        if (state.episodes.isEmpty()) {
+            item { CenteredMessage(stringResource(if (feed.lastRefreshSuccessAt == null) R.string.show_not_refreshed else R.string.show_no_episodes)) }
+        }
+        items(state.episodes, key = { it.id }) { item ->
+            EpisodeRow(item, withShow = false, onOpen = { onOpenEpisode(item.id) }, actions = viewModel.actions, onDownload = download)
+        }
+    }
+
+    link?.let { LinkConfirmDialog(it) { link = null } }
+    if (confirmUnsubscribe) {
+        AlertDialog(
+            onDismissRequest = { confirmUnsubscribe = false },
+            title = { Text(stringResource(R.string.unsubscribe_title, feed.title ?: stringResource(R.string.untitled_show))) },
+            text = { Text(stringResource(R.string.unsubscribe_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmUnsubscribe = false
+                    viewModel.unsubscribe()
+                }) { Text(stringResource(R.string.action_unsubscribe)) }
+            },
+            dismissButton = { TextButton(onClick = { confirmUnsubscribe = false }) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+}
+
+/** SPEC §10: a show's own speed, or the global one. */
+@Composable
+private fun SpeedPicker(showSpeed: Float?, globalSpeed: Float, onChange: (Float?) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { open = true }) {
+            Text(
+                if (showSpeed == null) {
+                    stringResource(R.string.speed_default_label, speedText(globalSpeed))
+                } else {
+                    stringResource(R.string.speed_show_label, speedText(showSpeed))
+                },
+            )
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.speed_use_default, speedText(globalSpeed))) },
+                leadingIcon = { RadioButton(selected = showSpeed == null, onClick = null) },
+                onClick = {
+                    open = false
+                    onChange(null)
+                },
+            )
+            SPEEDS.forEach { speed ->
+                DropdownMenuItem(
+                    text = { Text(speedText(speed)) },
+                    leadingIcon = { RadioButton(selected = showSpeed == speed, onClick = null) },
+                    onClick = {
+                        open = false
+                        onChange(speed)
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** "1.0×", "1.25×". */
+internal fun speedText(speed: Float): String {
+    val hundredths = (speed * 100).roundToInt()
+    return String.format(Locale.getDefault(), if (hundredths % 10 == 0) "%.1f×" else "%.2f×", speed)
+}
+
+private val SPEEDS = listOf(0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.5f, 1.75f, 2.0f, 2.5f, 3.0f)
+private const val DESCRIPTION_LINES = 3

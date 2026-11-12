@@ -76,6 +76,8 @@ dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)
+    // The browsing screens' view models (M1-S8).
+    implementation(libs.androidx.lifecycle.viewmodel.compose)
     implementation(libs.androidx.navigation.compose)
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.kotlinx.coroutines.android)
@@ -91,4 +93,10 @@ dependencies {
     debugImplementation(libs.compose.ui.tooling)
 
     testImplementation(libs.kotlinx.coroutines.test)
+    // Compose UI tests under Robolectric. Not ui-test-manifest: it would add an exported empty activity to the
+    // debug build the owner uses daily; the tests register their host activity with Robolectric instead.
+    testImplementation(platform(libs.compose.bom))
+    testImplementation(libs.compose.ui.test.junit4)
+    // Raises the Espresso that ui-test-junit4 brings (3.5.0 can't idle on the SDK 37 Robolectric jar).
+    testImplementation(libs.androidx.test.espresso.core)
 }

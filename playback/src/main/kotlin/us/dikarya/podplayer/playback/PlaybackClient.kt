@@ -48,19 +48,45 @@ sealed interface SleepUi {
 }
 
 /**
+ * What our screens may do with playback: observe the session's [state] and send commands. Screens hold no
+ * playback state of their own (CLAUDE.md "Playback"). Main thread only.
+ */
+interface PlaybackControls {
+    val state: StateFlow<PlaybackUiState>
+
+    /** Connects if needed; safe to call repeatedly. */
+    fun connect()
+
+    /** Plays [id] from [startAtMs], or from its saved position; it goes to the top of the queue. */
+    fun playEpisode(id: Long, startAtMs: Long? = null)
+
+    fun play()
+
+    fun pause()
+
+    fun seekTo(positionMs: Long)
+
+    fun skipBack()
+
+    fun skipForward()
+
+    /** [speed] null clears the show's own speed; [forShow] false sets the global default. */
+    fun setSpeed(speed: Float?, forShow: Boolean)
+}
+
+/**
  * Our screens' side of the playback session: connects a [MediaController] marked as our own UI, exposes the
  * session's state as a Flow, and sends commands. Main thread only.
  */
-class PlaybackClient(context: Context) {
+class PlaybackClient(context: Context) : PlaybackControls {
     private val appContext = context.applicationContext
     private val main = Handler(Looper.getMainLooper())
     private var controller: MediaController? = null
     private var connecting = false
     private val mutable = MutableStateFlow(PlaybackUiState())
-    val state: StateFlow<PlaybackUiState> = mutable.asStateFlow()
+    override val state: StateFlow<PlaybackUiState> = mutable.asStateFlow()
 
-    /** Connects if needed; safe to call repeatedly. */
-    fun connect() {
+    override fun connect() {
         if (controller != null || connecting) return
         connecting = true
         val token = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
@@ -78,13 +104,17 @@ class PlaybackClient(context: Context) {
         future.addListener(
             {
                 connecting = false
-                val connected = runCatching { future.get() }.getOrNull() ?: return@addListener
+                val connected = runCatching { future.get() }.getOrNull()
+                val waiting = pending
+                pending = null
+                if (connected == null) return@addListener
                 connected.addListener(object : Player.Listener {
                     override fun onEvents(player: Player, events: Player.Events) = refresh()
                 })
                 controller = connected
                 refresh()
                 main.post(poll)
+                waiting?.invoke()
             },
             appContext.mainExecutor,
         )
@@ -94,23 +124,48 @@ class PlaybackClient(context: Context) {
         main.removeCallbacks(poll)
         controller?.release()
         controller = null
+        pending = null
         mutable.value = PlaybackUiState()
     }
 
-    fun playEpisode(id: Long) = custom(SessionCallback.Commands.PLAY_EPISODE) { putLong(SessionCallback.Commands.ARG_EPISODE_ID, id) }
+    /** The last command sent before the session connected (a tap right after the app opened). */
+    private var pending: (() -> Unit)? = null
 
-    fun play() = controller?.play()
+    private fun whenConnected(action: () -> Unit) {
+        if (controller != null) action() else pending = action
+    }
 
-    fun pause() = controller?.pause()
+    override fun playEpisode(id: Long, startAtMs: Long?) {
+        connect()
+        whenConnected {
+            custom(SessionCallback.Commands.PLAY_EPISODE) {
+                putLong(SessionCallback.Commands.ARG_EPISODE_ID, id)
+                startAtMs?.let { putLong(SessionCallback.Commands.ARG_START_MS, it) }
+            }
+        }
+    }
 
-    fun seekTo(positionMs: Long) = controller?.seekTo(positionMs)
+    override fun play() {
+        controller?.play()
+    }
 
-    fun skipBack() = controller?.seekBack()
+    override fun pause() {
+        controller?.pause()
+    }
 
-    fun skipForward() = controller?.seekForward()
+    override fun seekTo(positionMs: Long) {
+        controller?.seekTo(positionMs)
+    }
 
-    /** [speed] null clears the show's own speed; [forShow] false sets the global default. */
-    fun setSpeed(speed: Float?, forShow: Boolean) = custom(SessionCallback.Commands.SET_SPEED) {
+    override fun skipBack() {
+        controller?.seekBack()
+    }
+
+    override fun skipForward() {
+        controller?.seekForward()
+    }
+
+    override fun setSpeed(speed: Float?, forShow: Boolean) = custom(SessionCallback.Commands.SET_SPEED) {
         speed?.let { putFloat(SessionCallback.Commands.ARG_SPEED, it) }
         putBoolean(SessionCallback.Commands.ARG_FOR_SHOW, forShow)
     }

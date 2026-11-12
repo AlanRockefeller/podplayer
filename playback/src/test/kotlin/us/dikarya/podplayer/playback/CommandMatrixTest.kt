@@ -42,6 +42,10 @@ class CommandMatrixTest {
         "cancelSleep" to { it.cancelSleepTimer() },
         "playEpisode" to { it.playEpisode(2) },
         "playUnknownEpisode" to { it.playEpisode(404) },
+        "playEpisodeAt" to { it.playEpisode(2, startAtMs = 30_000) },
+        "playLoadedEpisodeAgain" to { it.playEpisode(1) },
+        "playLoadedEpisodeAt" to { it.playEpisode(1, startAtMs = 4_000) },
+        "playEpisodeAtNegative" to { it.playEpisode(2, startAtMs = -1) },
     )
 
     private fun enter(state: State): Harness {

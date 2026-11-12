@@ -41,6 +41,34 @@ enum class ThemeMode(val stored: String) {
     }
 }
 
+/** How Library shows the subscriptions (SPEC §12: a grid with a list toggle). Stored by name. */
+enum class LibraryLayout {
+    Grid,
+    List,
+    ;
+
+    companion object {
+        fun fromStored(value: String?): LibraryLayout = entries.firstOrNull { it.name == value } ?: Grid
+    }
+}
+
+/** Library's order. Stored by name. */
+enum class LibrarySort {
+    /** A to Z. */
+    Title,
+
+    /** The show with the newest episode first. */
+    NewestEpisode,
+
+    /** Most recently subscribed first. */
+    Subscribed,
+    ;
+
+    companion object {
+        fun fromStored(value: String?): LibrarySort = entries.firstOrNull { it.name == value } ?: Title
+    }
+}
+
 /**
  * The owner's settings, in Preferences DataStore. Everything in this store goes into backups and comes back
  * on restore; settings that belong to this phone only live in [DeviceSettings]. A corrupt or unreadable file
@@ -55,6 +83,18 @@ class AppSettings(private val store: DataStore<Preferences>) {
 
     suspend fun setThemeMode(mode: ThemeMode) {
         store.edit { it[THEME_MODE] = mode.stored }
+    }
+
+    val libraryLayout: Flow<LibraryLayout> = data.map { LibraryLayout.fromStored(it.read<String>(LIBRARY_LAYOUT)) }.distinctUntilChanged()
+
+    suspend fun setLibraryLayout(layout: LibraryLayout) {
+        store.edit { it[LIBRARY_LAYOUT] = layout.name }
+    }
+
+    val librarySort: Flow<LibrarySort> = data.map { LibrarySort.fromStored(it.read<String>(LIBRARY_SORT)) }.distinctUntilChanged()
+
+    suspend fun setLibrarySort(sort: LibrarySort) {
+        store.edit { it[LIBRARY_SORT] = sort.name }
     }
 
     /** SPEC §9: downloads wait for an unmetered network (Wi-Fi) unless the owner turns this off. */
@@ -135,6 +175,8 @@ class AppSettings(private val store: DataStore<Preferences>) {
 
         const val FILE_NAME = "settings.preferences_pb"
         private val THEME_MODE = stringPreferencesKey("theme_mode")
+        private val LIBRARY_LAYOUT = stringPreferencesKey("library_layout")
+        private val LIBRARY_SORT = stringPreferencesKey("library_sort")
         private val DOWNLOADS_WIFI_ONLY = booleanPreferencesKey("downloads_wifi_only")
         private val STORAGE_CAP_BYTES = longPreferencesKey("storage_cap_bytes")
         private val PLAYBACK_SPEED = floatPreferencesKey("playback_speed")

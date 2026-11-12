@@ -9,6 +9,7 @@ package us.dikarya.podplayer.playback
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
+import android.net.Uri
 import androidx.media3.common.Player
 import androidx.media3.test.utils.robolectric.TestPlayerRunHelper.run
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -462,5 +463,111 @@ class PlaybackEngineTest {
         // It is already playing, so allow for the moment that has passed; the saved 500 s were not used.
         assertTrue(h.player.currentPosition < 5_000)
         assertFalse(h.store.positionLog.any { it.cause == PositionCause.Restore })
+    }
+
+    // --- Starting at a spot (M1-S8: timestamps in show notes seek within their episode, SPEC §5) ---
+
+    @Test
+    fun aTimestampStartsItsEpisodeThereAndPutsItAtTheTopOfTheQueue() {
+        val h = harness().apply { store.add(1); store.add(2); store.positions[2] = 50_000; store.queue.value = listOf(1) }.start()
+        h.engine.playEpisode(2, startAtMs = 120_000)
+        idle()
+        assertEquals(listOf(2L, 1L), h.store.queue.value)
+        assertEquals(listOf(2L, 1L), h.itemIds())
+        assertTrue(h.player.playWhenReady)
+        // The fake clock runs on while the test waits, so check the logged jump rather than the live position.
+        val jump = h.store.positionLog.single { it.episodeId == 2L }
+        assertEquals(PositionCause.Seek, jump.cause)
+        assertEquals(50_000L, jump.fromMs)
+        assertEquals(120_000L, jump.toMs)
+        assertTrue(h.player.currentPosition >= 120_000)
+    }
+
+    @Test
+    fun aTimestampInTheLoadedEpisodeSeeksWithoutReloadingIt() {
+        val h = harness().apply { store.add(1) }.start()
+        h.engine.playEpisode(1)
+        h.pauseAfter(5_000)
+        val sources = h.sources.created.size
+        h.engine.playEpisode(1, startAtMs = 200_000)
+        idle()
+        assertEquals("the same source keeps playing", sources, h.sources.created.size)
+        assertTrue(h.player.playWhenReady)
+        assertTrue(h.store.positionLog.any { it.cause == PositionCause.Seek && it.toMs == 200_000L })
+        assertEquals(200_000L, h.lastSave(1))
+    }
+
+    @Test
+    fun playingTheLoadedEpisodeAgainKeepsItsPosition() {
+        val h = harness().apply { store.add(1) }.start()
+        h.engine.playEpisode(1)
+        h.pauseAfter(20_000)
+        val pausedAt = h.player.currentPosition
+        // A save older than the live position must not pull the episode back.
+        h.store.positions[1] = 1_000
+        val sources = h.sources.created.size
+        h.engine.playEpisode(1)
+        idle()
+        assertEquals(sources, h.sources.created.size)
+        assertTrue(h.player.playWhenReady)
+        assertTrue("at $pausedAt or later: ${h.player.currentPosition}", h.player.currentPosition >= pausedAt)
+        assertFalse(h.store.positionLog.any { it.cause == PositionCause.Restore })
+    }
+
+    @Test
+    fun aTimestampPastTheEndIsHeldToTheEpisode() {
+        val h = harness().apply { store.add(1, durationMs = 100_000); store.add(2); store.queue.value = listOf(1, 2) }.start()
+        h.engine.playEpisode(1)
+        h.pauseAfter(1_000)
+        h.engine.playEpisode(1, startAtMs = 5_000_000)
+        idle()
+        assertTrue(h.store.saves.none { it.second > 100_000 })
+        assertTrue(h.store.positionLog.none { it.toMs > 100_000 })
+    }
+
+    // --- Artwork for the playing episode (PROGRESS "Later" S8/S9: the lock screen had none if never shown) ---
+
+    @Test
+    fun artworkThatWasNotCachedIsFetchedAndShownWithoutInterruptingPlayback() {
+        val art = Uri.parse("content://us.dikarya.podplayer.artwork/1.jpg")
+        val h = harness().apply { store.add(1); store.add(2); store.queue.value = listOf(1, 2); store.fetchableArtwork[1] = art }.start()
+        h.engine.playEpisode(1)
+        h.playUntil(3_000)
+        assertEquals(art, h.player.currentMediaItem?.mediaMetadata?.artworkUri)
+        assertEquals("the audio source wasn't rebuilt", 1, h.sources.created.count { it.first == 1L })
+        assertTrue(h.player.isPlaying)
+        assertTrue(h.player.currentPosition >= 3_000)
+        assertEquals(listOf(1L, 2L), h.itemIds())
+        assertEquals(1L, h.store.current)
+        assertFalse(h.store.positionLog.any { it.cause == PositionCause.Unexplained })
+    }
+
+    @Test
+    fun cachedArtworkIsUsedAsItIsAndAnEpisodeWithoutAnyKeepsPlaying() {
+        val cached = Uri.parse("content://us.dikarya.podplayer.artwork/cached.jpg")
+        val h = harness().apply { store.add(1, artworkUri = cached); store.add(2) }.start()
+        h.engine.playEpisode(1)
+        idle()
+        assertEquals(cached, h.player.currentMediaItem?.mediaMetadata?.artworkUri)
+        assertFalse(1L in h.store.artworkFetches)
+        h.engine.playEpisode(2)
+        h.playUntil(1_000)
+        assertTrue(2L in h.store.artworkFetches)
+        assertNull(h.player.currentMediaItem?.mediaMetadata?.artworkUri)
+        assertTrue(h.player.isPlaying)
+    }
+
+    @Test
+    fun theNextEpisodesArtworkIsFetchedWhenItStarts() {
+        val art = Uri.parse("content://us.dikarya.podplayer.artwork/2.jpg")
+        val h = harness().apply {
+            store.add(1, durationMs = 10_000); store.add(2); store.queue.value = listOf(1, 2); store.fetchableArtwork[2] = art
+        }.start()
+        h.engine.playEpisode(1)
+        run(h.player).untilPositionDiscontinuityWithReason(Player.DISCONTINUITY_REASON_AUTO_TRANSITION)
+        idle()
+        assertEquals(2L, h.store.current)
+        assertEquals(art, h.player.currentMediaItem?.mediaMetadata?.artworkUri)
+        assertTrue(h.player.playWhenReady)
     }
 }

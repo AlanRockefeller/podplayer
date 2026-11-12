@@ -9,6 +9,7 @@ package us.dikarya.podplayer.core.data.repo
 import androidx.room.withTransaction
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import us.dikarya.podplayer.core.data.db.DownloadEvent
 import us.dikarya.podplayer.core.data.db.DownloadLogEntity
@@ -141,8 +142,24 @@ class PlaybackRepository internal constructor(private val db: PodDatabase, priva
         true
     }
 
+    /** Every record of [feedId]'s episodes, by episode id (the show page's played and progress marks). */
+    fun recordsForFeed(feedId: Long): Flow<Map<Long, PlaybackRecord>> =
+        db.playback().observeForFeed(feedId).map { rows -> rows.associate { it.episodeId to it.toModel() } }
+
+    /** The records of up to [MAX_IDS] episodes, by episode id; the rest of a longer list is ignored. */
+    fun records(ids: List<Long>): Flow<Map<Long, PlaybackRecord>> {
+        if (ids.isEmpty()) return flowOf(emptyMap())
+        assertInvariant(ids.size <= MAX_IDS) { "records() takes at most $MAX_IDS ids" }
+        return db.playback().observeFor(ids.take(MAX_IDS)).map { rows -> rows.associate { it.episodeId to it.toModel() } }
+    }
+
     /** Started, not finished, most recently touched first. */
     fun inProgress(limit: Int): Flow<List<Episode>> = db.playback().observeInProgress(limit).map { rows -> rows.map { it.toModel() } }
+
+    companion object {
+        /** Well under SQLite's 999-variable limit on old Android versions. */
+        const val MAX_IDS = 500
+    }
 }
 
 class FeedSettingsRepository internal constructor(private val db: PodDatabase) {

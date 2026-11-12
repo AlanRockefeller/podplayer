@@ -39,6 +39,13 @@ data class PlayableEpisode(
 interface PlaybackStore {
     suspend fun episode(id: Long): PlayableEpisode?
 
+    /**
+     * Fetches [id]'s artwork (the episode's image, else the show's) through the gate and the image sandbox, and
+     * returns the content URI of the cache file it produced (SPEC §6), or null. For an episode whose
+     * [PlayableEpisode.artworkUri] was null because nothing had shown its image yet.
+     */
+    suspend fun fetchArtwork(id: Long): Uri?
+
     /** Where to start [id]: the saved position, or 0 when there is none or the episode was played. */
     suspend fun startPosition(id: Long): Long
 

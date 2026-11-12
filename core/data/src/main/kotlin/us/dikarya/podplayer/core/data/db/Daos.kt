@@ -46,6 +46,9 @@ data class EpisodeFeedFields(
     val fingerprint: String,
 )
 
+/** A feed's newest episode date (Library's sort). */
+data class FeedNewest(val feedId: Long, val newest: Long)
+
 /** The columns a refresh may change on a feed. */
 data class FeedChannelFields(
     val id: Long,
@@ -144,6 +147,9 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE inFeed = 1 ORDER BY publishedAt DESC, id DESC LIMIT :limit")
     fun observeLatest(limit: Int): Flow<List<EpisodeEntity>>
 
+    @Query("SELECT feedId, MAX(publishedAt) AS newest FROM episodes GROUP BY feedId")
+    fun observeNewestPerFeed(): Flow<List<FeedNewest>>
+
     @Query("SELECT COUNT(*) FROM episodes WHERE feedId = :feedId")
     suspend fun countForFeed(feedId: Long): Int
 
@@ -220,6 +226,13 @@ interface PlaybackDao {
 
     @Query("SELECT * FROM playback_records WHERE episodeId = :episodeId")
     fun observe(episodeId: Long): Flow<PlaybackRecordEntity?>
+
+    @Query("SELECT p.* FROM playback_records p JOIN episodes e ON e.id = p.episodeId WHERE e.feedId = :feedId")
+    fun observeForFeed(feedId: Long): Flow<List<PlaybackRecordEntity>>
+
+    /** Callers keep [ids] under SQLite's variable limit. */
+    @Query("SELECT * FROM playback_records WHERE episodeId IN (:ids)")
+    fun observeFor(ids: List<Long>): Flow<List<PlaybackRecordEntity>>
 
     @Upsert
     suspend fun upsert(record: PlaybackRecordEntity)

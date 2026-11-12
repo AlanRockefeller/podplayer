@@ -5,10 +5,9 @@ a reviewer reads it to see what was really done.
 
 ## Current state
 - Milestone: M1
-- Next session: M1-S8
-- Build status: `./gradlew check` green locally after the review pass (2026-11-09); `assembleDebug` and
-  `assembleRelease` green after M1-S6, including runs from two empty Gradle homes. The CI result is on the
-  review-pass PR.
+- Next session: M1-S9
+- Build status: `./gradlew check` green locally after M1-S8 (2026-11-12); `assembleDebug` and `assembleRelease`
+  green in the M1-S8 run from an empty Gradle home. The CI result is on the M1-S8 PR.
 
 ## Session log
 <!-- Newest first. Copy this block for each session. -->
@@ -20,6 +19,121 @@ a reviewer reads it to see what was really done.
 - Manual checks for the owner:
 - PR:
 -->
+
+### M1-S8 Browsing UI (2026-11-12)
+- Plan (written before any code; run unattended, so not approved by the owner):
+  - `:playback` (tests first): `playEpisode(id, startAtMs)` so a timestamp in the notes starts its episode at
+    that spot; playing the episode that is already loaded doesn't reload it (no jump back to the last save);
+    artwork for the playing episode when it isn't cached yet (fetched through the gate and sandbox, then the
+    session's metadata updated without interrupting playback, PROGRESS "Later" S8/S9); a `PlaybackControls`
+    interface over `PlaybackClient`, so screens can be tested with a fake session.
+  - `:core:data` (tests first): playback records for a feed and for a list of episodes (played and progress in
+    lists), each feed's newest episode date (Library sort), Library layout and sort in `AppSettings`.
+  - `:app`:
+    - Show notes: `RichText` to `AnnotatedString`; tapping a link shows its destination first and opens the
+      browser only after a confirmation (scheme re-checked); timestamps seek within the episode.
+    - Discover: one field. Search terms go to Apple's search (SPEC §12 URL) through `NetGate`; pasted or typed
+      feed URLs get a preview (fetched through the gate with the typed host approved, parsed with the feed
+      parser) and subscribe with `ownerTyped = true`; search results and OPML imports with false. OPML import
+      through the system file picker with a size limit, a preview and a confirmation.
+    - Home (Continue card, New episodes rows with play, queue, download; Your shows row), Library (grid/list,
+      sort), show page (episodes, sort, per-show speed, refresh, unsubscribe), episode page (notes, play, queue,
+      download, mark played), mini-player above the navigation when something is loaded.
+    - Offline: a network watcher; clear messages on screens that need the network; downloads stay playable.
+    - View models (plain AndroidX `ViewModel`s built from `AppGraph`); they only observe `PlaybackControls` and
+      send commands.
+  - Tests: view-model tests for every screen (Robolectric, a real `DataLayer` in a temp folder, a fake session
+    and fake network); Compose UI tests for subscribe-by-URL and for the mini-player appearing when playback
+    starts; unit tests for the notes conversion, input classification, Apple search parsing and URL building,
+    OPML reading limits.
+  - New libraries, all on the SPEC §2 allowlist: Compose `ui-test-junit4` and `ui-test-manifest` (AndroidX test
+    libraries) for the UI tests, `lifecycle-viewmodel-compose` (AndroidX lifecycle). Verification metadata
+    regenerated per README. (What changed during the build is under "Deviations".)
+- Done:
+  - Home: Continue card (the session's episode, else the last one started), New episodes (newest unplayed across
+    shows, 20, rows with play/pause, queue, download), Your shows row, refresh all; an empty library offers Discover.
+  - Discover: one field. Words search Apple (`https://itunes.apple.com/search?media=podcast&entity=podcast&term=…`,
+    nothing else in the request) through `NetGate` with no private host approved; the answer is read under a 2 MiB /
+    30 s limit, every feed URL goes through the URL policy, titles are cleaned (control and bidi characters) and capped,
+    50 results at most, artwork only http(s). An address (`scheme://…`, or a bare host like `feeds.example.com/rss`,
+    given https) gets a preview fetched through the gate with the typed host approved and parsed by the feed parser;
+    Subscribe stores it with `ownerTyped = true`, applies the preview's episodes at once, asks for a refresh and opens
+    the show. Search results subscribe with `ownerTyped = false`. OPML import: system file picker, read under the OPML
+    limit (20 MiB, never much past it), preview (count, entries left out, first 20 titles), "Subscribe to all" with
+    `ownerTyped = false`, then a summary. Offline: search and preview send nothing and say so. Plain messages for
+    every failure (no URL is ever quoted).
+  - Library: grid or list, sort by title, newest episode or recently subscribed (both choices are settings), refresh.
+  - Show page: header with "not secure" for http feeds, sanitized description (links confirm first), per-show speed
+    (Default or 0.8–3.0×; while one of the show's episodes is loaded it goes through the session, otherwise it is
+    stored for the show), newest/oldest first, refresh, unsubscribe with confirmation (downloads deleted first).
+  - Episode page: sanitized notes as an `AnnotatedString`; a link shows its destination domain and opens only after
+    "Open" (scheme re-checked right before; mailto opens a mail app); timestamps play the episode from that spot;
+    play/pause, queue, download / stop / delete / retry, mark played or unplayed; a warning when offline and not
+    downloaded. Notes over the sanitizer's limits show a plain message and are logged.
+  - Mini-player above the navigation while the session has an episode: artwork, title, show, progress, play/pause;
+    tapping opens the episode page.
+  - Offline: `NetworkStatus` (ConnectivityManager, `ACCESS_NETWORK_STATE`); a banner on every browsing screen;
+    everything browsable is local, so downloads still list and play.
+  - `:playback`: `playEpisode(id, startAtMs)` (`ARG_START_MS`); playing the loaded episode again no longer reloads it
+    from its last save (it could jump back up to 10 s); artwork not yet cached is fetched for the playing episode
+    (and for the next one when it starts) and put into the item's metadata in place, without touching the audio. For
+    that, items now carry the policy's canonical stream URI, the same one the source opens. `PlaybackControls`
+    interface over `PlaybackClient`; a command sent before the session connected is sent once it does.
+  - `:core:data`: playback records for a feed or a list of episodes, each feed's newest episode date, Library layout
+    and sort settings (backed up with the others). No schema change.
+  - 12 Material Symbols icons (THIRD_PARTY.md). The Discover placeholder is gone; the Queue tab says plainly that its
+    screen comes next (S9).
+- Tests added (63 test methods):
+  - `:playback` (9): `PlaybackEngineTest` +7 (timestamp starts its episode there and logs a Seek; timestamp in the
+    loaded episode seeks without reloading; playing the loaded episode keeps its position; a timestamp past the end
+    is held to the episode; uncached artwork is fetched and shown without rebuilding the source; cached artwork is used
+    as is; the next episode's artwork when it starts), `CommandMatrixTest` +4 commands (23 × 7 states),
+    `SessionCallbackTest` +1, `GatedMediaSourceFactoryTest` +1 (new metadata updates stream and file sources in place,
+    including a URL whose canonical form differs from the feed's text).
+  - `:core:data` (4): records for a feed / for ids, newest episode dates, Library layout/sort defaults, persistence
+    and fallback for unknown stored values.
+  - `:app` (50): `NotesTextTest` 6 (styles, link reports its real destination, `javascript:`/`intent:` never links,
+    timestamps seek, description without timestamps, lists and quotes), `LinkIntentTest` 3, `DiscoverInputTest` 5,
+    `AppleSearchTest` 6 (exact request, only usable feeds, hostile text, 50 cap, broken answer and no network, empty
+    term sends nothing), `FeedPreviewerTest` 7 (typed host approved, refused scheme never fetched, web page, network
+    error, OPML preview, oversized OPML stops reading, unreadable files), view-model tests for Home 5, Discover 5,
+    Library 2, Show 5, Episode 4 (Robolectric, a real `DataLayer` in a temp folder, a fake session that reports
+    state like the real one, a fake gate), and `BrowseUiTest` 2 Compose UI tests (subscribe by typed URL with the
+    host approved; the mini-player appears when the session starts playing and sends pause).
+- Deviations from the spec or the plan, and why:
+  - `ui-test-manifest` was not added after all: it puts an exported empty activity into the debug build the owner
+    uses daily. The UI tests register their host activity with Robolectric instead.
+  - Espresso core raised to 3.7.0 for tests (`ui-test-junit4` brings 3.5.0, which can't idle on Robolectric's SDK 37
+    jar: `InputManager.getInstance` is gone). AndroidX test library, test classpath only, pinned in the catalog.
+  - A subscribed preview is applied at once and then refreshed through WorkManager, so the feed is fetched twice;
+    the refresh is what records validators and permanent redirects.
+  - The Queue tab stays a placeholder (S9 builds it), so queued episodes are visible only as checks on rows.
+  - Search results' artwork is fetched from Apple's image servers (through the gate and sandbox): SPEC §12 asks for
+    art in results, and it is part of "Apple's podcast search when the owner searches".
+  - "Offline" means no network with the internet capability; a captive or unvalidated Wi-Fi counts as online, so a
+    LAN-only server stays reachable.
+  - The OPML picker offers every file type (OPML files arrive with all sorts of MIME types); the parser decides.
+- Manual checks for the owner (phone, debug build; no phone was connected during this session, so the app was not
+  installed or launched here):
+  1. Discover → type a show name → Search: results with art; Subscribe on one; it shows "Subscribed"; tap it →
+     the show page fills after the refresh.
+  2. Discover → paste a feed URL (your private one too) → Preview feed: title, author, episode count, latest titles
+     ("Not secure" for http) → Subscribe: the show page opens with its episodes.
+  3. Discover → Import OPML file → pick an export from another app: count and titles shown; Subscribe to all → the
+     summary; Library lists them.
+  4. Home: Continue card, New episodes, Your shows. Tap play on a row: the mini-player appears; pause from it and from
+     the lock screen and see both follow. Tap the mini-player: the episode page opens.
+  5. Episode page: tap a link in the notes → the dialog names the real domain; Open goes to the browser. Tap a
+     timestamp → plays from there. Mark played / unplayed; queue; download, then Delete download.
+  6. Show page: set the speed to 1.5× for the show while one of its episodes plays (the speed changes at once), then
+     Default. Unsubscribe → confirmation → back to the previous screen.
+  7. Library: switch grid/list and each sort; restart the app: the choices stay.
+  8. Airplane mode: the offline banner on every screen; search says nothing was sent; a downloaded episode plays.
+  9. Play an episode whose artwork you never opened in the app: the lock screen gets the artwork a moment later
+     without the audio skipping.
+- PR: #12 (`m1-s8-browsing-ui`).
+- CI fix: `ShowViewModelTest.refreshAndUnsubscribe` was flaky (the fake records `unsubscribe` before Room's delete
+  commits); it now waits for the feed to be gone, and the Discover search-subscribe test waits for the refresh call.
 
 ### M1-S7 Playback service (2026-11-11)
 - Plan (approved by the owner with changes: 99% counts as played; a longer stream buffer; always prefer the
@@ -1201,6 +1315,16 @@ Result:
   route new controller commands through the engine there. `SessionCallback` decides who may do what; items from
   controllers are resolved by episode id only. The service gets its dependencies from `PlaybackHost`
   (`PodplayerApp` → `AppGraph.playbackDependencies`). Our screens use `AppGraph.playback` (`PlaybackClient`).
+- Browsing UI (M1-S8): screens get a `BrowseDeps` (`AppGraph.browse`) and a plain AndroidX `ViewModel` each, built in
+  `AppShell` with `viewModel { … }`. View models see playback only as `PlaybackControls` (state + commands); tests use
+  `FakePlayback`, a real `DataLayer` in a temp folder (`BrowseTestEnv`) and `awaitState`. Network requests from the
+  UI go through `GateFetch` (the gate's `fetch`). Artwork composables read `LocalImageSandbox` (null in UI tests:
+  placeholders only). Compose UI tests register their host activity with Robolectric (`BrowseUiTest`) and wait in
+  real time, since Compose's `waitUntil` runs on virtual time under Robolectric. In composables, read strings through
+  `LocalResources`/`stringResource`, not `LocalContext.current.resources` (lint fails the build).
+- 2026-11-12, owner: artwork for Discover search results may be fetched from Apple's image servers
+  (`*.mzstatic.com`); it counts as part of "Apple's podcast search when the owner searches" (CLAUDE.md). It goes
+  through the gate and the image sandbox like all artwork, and only for results the owner is looking at.
 
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
@@ -1213,11 +1337,12 @@ Result:
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
-- S8/S9: fetch artwork for the playing episode when it isn't cached yet (`images.artworkUri`), then refresh the
-  session's metadata; S7 uses only cached artwork, so an episode whose image was never shown has none on the lock
-  screen.
-- S8/S9: a mini-player and player screen over `PlaybackClient`; settings for skip intervals, rewind-after-pause
-  and the global speed (the setters exist in `AppSettings`).
+- S9: the full player screen (the mini-player opens the episode page until then) and the Queue screen; settings for
+  skip intervals, rewind-after-pause and the global speed (the setters exist in `AppSettings`).
+- A pull-to-refresh gesture on Home, Library and the show page (today a refresh button).
+- `feed://` / `pcast://` addresses typed in Discover are refused with "Only http and https addresses work";
+  converting them to https could come with the OPML item below.
+- Episode search within the library, and a Downloads list (Home shows download state on rows only).
 - S9: show the playback log lines ("Ignored Play from …", file fallback) in the log viewer, so the owner can see
   when the car's Play was ignored.
 - S10: the browse tree (Continue, Queue); `SessionCallback.onGetLibraryRoot`/`onGetChildren` return an empty root
@@ -1232,9 +1357,9 @@ Result:
   enough; today those bytes are never decoded.
 - An on-device check that the sandbox process really has no network and no file access (an instrumented test
   with a debug-only probe in the service), beyond what `isolatedProcess` promises.
-- S8/S9: store a reason code with refresh and download log rows and map it to `strings.xml`; today the rows hold
+- S9: store a reason code with refresh and download log rows and map it to `strings.xml`; today the rows hold
   English text.
-- S8/S9: the full Downloads settings (cap, Wi-Fi only); applying a Wi-Fi-only change to downloads already queued.
+- S9: the full Downloads settings (cap, Wi-Fi only); applying a Wi-Fi-only change to downloads already queued.
 - An instrumented test of `AudioProbe` on real podcast files (MP3 with ID3 art, M4A/AAC, Opus) on a device.
 - S9: log export (concatenate `AppLog.files()`, crash files, and the DB logs) and the full Backup settings.
 - NAT64 with a carrier-specific prefix (RFC 7050): on an IPv6-only network, a hostname resolving to a private
@@ -1255,7 +1380,6 @@ Result:
 - Enforce the MPL notice in XML, TOML and YAML files (it's placed there now but not checked).
 - An instrumented run of the feed corpus on a real device's parser (S5 compares Robolectric's copy of Android's
   parser with kxml2).
-- S8: `RichText` to `AnnotatedString`; tapping a link shows `Link.destination` first; timestamps seek.
 - `itunes:new-feed-url` (a feed that moved without a 301) is not in SPEC §4's field list and isn't parsed yet.
 - RSS 1.0 (RDF) feeds, Atom `xml:base` relative URLs, and `feed://`/`pcast://` URLs in OPML and Discover
   (convert to https?) if a real subscription needs them.

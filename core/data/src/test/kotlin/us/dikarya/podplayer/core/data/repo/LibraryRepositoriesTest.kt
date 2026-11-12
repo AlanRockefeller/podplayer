@@ -221,4 +221,37 @@ class LibraryRepositoriesTest {
         repos.feeds.unsubscribe(feedId)
         assertEquals(LogRepository.KEEP_POSITION_ROWS, repos.logs.positionLog(LogRepository.KEEP_POSITION_ROWS * 2).first().size)
     }
+
+    // --- What the browsing screens show (M1-S8) ---
+
+    @Test
+    fun recordsForAFeedAndForAListOfEpisodesFollowChanges() = runBlocking {
+        val other = (repos.feeds.subscribe("https://other.example.com/feed.xml", false) as SubscribeResult.Subscribed).feedId
+        repos.feeds.applyRefresh(other, parsedFeed(listOf(episode(1, guid = "o1", url = "https://other.example.com/1.mp3"))))
+        val otherEpisode = repos.episodes.forFeed(other).first().single().id
+        repos.playback.savePosition(otherEpisode, 9_000, 60_000)
+
+        repos.playback.recordsForFeed(feedId).test {
+            assertEquals(emptyMap<Long, Any>(), awaitItem())
+            repos.playback.savePosition(ids[0], 5_000, 60_000)
+            assertEquals(5_000L, awaitItem()[ids[0]]?.positionMs)
+            repos.playback.setPlayed(ids[1], true)
+            val both = awaitItem()
+            assertEquals(setOf(ids[0], ids[1]), both.keys)
+            assertTrue(both.getValue(ids[1]).played)
+            cancelAndIgnoreRemainingEvents()
+        }
+        val some = repos.playback.records(listOf(ids[0], otherEpisode, 999_999)).first()
+        assertEquals(setOf(ids[0], otherEpisode), some.keys)
+        assertEquals(emptyMap<Long, Any>(), repos.playback.records(emptyList()).first())
+    }
+
+    @Test
+    fun eachFeedsNewestEpisodeDateIsKnownForSorting() = runBlocking {
+        val newest = repos.episodes.forFeed(feedId).first().maxOf { it.publishedAt }
+        val empty = (repos.feeds.subscribe("https://empty.example.com/feed.xml", false) as SubscribeResult.Subscribed).feedId
+        val dates = repos.feeds.newestEpisodeDates().first()
+        assertEquals(newest, dates[feedId])
+        assertNull("a feed with no episodes has no date", dates[empty])
+    }
 }

@@ -17,6 +17,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.graphics.toArgb
@@ -31,6 +32,7 @@ import kotlinx.coroutines.launch
 import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.settings.applicationNightMode
 import us.dikarya.podplayer.settings.isDark
+import us.dikarya.podplayer.ui.artwork.LocalImageSandbox
 import us.dikarya.podplayer.ui.shell.AppShell
 import us.dikarya.podplayer.ui.theme.DarkTokens
 import us.dikarya.podplayer.ui.theme.LightTokens
@@ -52,10 +54,13 @@ class MainActivity : ComponentActivity() {
             val colors = if (mode.isDark(isSystemInDarkTheme())) DarkTokens else LightTokens
             ApplyWindowColors(colors)
             PodplayerTheme(colors) {
-                AppShell(
-                    themeMode = mode,
-                    onThemeModeChange = { lifecycleScope.launch { graph.settings.setThemeMode(it) } },
-                )
+                CompositionLocalProvider(LocalImageSandbox provides graph.images) {
+                    AppShell(
+                        themeMode = mode,
+                        onThemeModeChange = { lifecycleScope.launch { graph.settings.setThemeMode(it) } },
+                        browse = graph.browse,
+                    )
+                }
             }
         }
 

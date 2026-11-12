@@ -6,6 +6,7 @@
 
 package us.dikarya.podplayer.playback
 
+import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -103,6 +104,29 @@ class GatedMediaSourceFactoryTest {
         play(episode("file://${secret.path}").toMediaItem(useFile = false))
         val error = run(player).untilPlayerError()
         assertTrue(generateSequence<Throwable>(error) { it.cause }.any { "Refused to open" in (it.message ?: "") })
+    }
+
+    /**
+     * The engine adds artwork fetched after an episode started by replacing its item's metadata (M1-S8). That only
+     * leaves the audio alone when the source accepts the new item in place; otherwise the player would rebuild it
+     * and start the episode over.
+     */
+    @Test
+    fun newMetadataForAnItemUpdatesItsSourceInPlace() {
+        val factory = GatedMediaSourceFactory { gate.callFactory() }
+        val file = File(tmp.root, "1.wav").apply { writeBytes(wav()) }
+        val items = listOf(
+            // A host in capitals and an escaped space: the policy's canonical form differs from the feed's text.
+            episode("https://Media.Example.COM/shows/a%20b.mp3?token=1").toMediaItem(useFile = false),
+            episode("https://media.example.com/a.mp3", file = file).toMediaItem(useFile = true),
+        )
+        for (item in items) {
+            val source = factory.createMediaSource(item)
+            val withArt = item.buildUpon()
+                .setMediaMetadata(item.mediaMetadata.buildUpon().setArtworkUri(Uri.parse("content://us.dikarya.podplayer.artwork/a.jpg")).build())
+                .build()
+            assertTrue("$item", source.canUpdateMediaItem(withArt))
+        }
     }
 
     @Test

@@ -44,12 +44,14 @@ abstract class PodDatabase : RoomDatabase() {
 
     abstract fun logs(): LogDao
 
+    abstract fun downloadRules(): DownloadRulesDao
+
     companion object {
         /**
          * The schema version. Bumping it needs: the exported schema file (written by the build), a migration
          * from the previous version in [Migrations.ALL], and a seed-and-check in MigrationTest.
          */
-        const val VERSION = 3
+        const val VERSION = 4
 
         const val FILE_NAME = "podplayer.db"
     }
@@ -81,5 +83,13 @@ object Migrations {
         }
     }
 
-    val ALL: List<Migration> = listOf(V1_TO_V2, V2_TO_V3)
+    /** M1-S9b: auto-download per show, and which episodes it already queued (SPEC §9). Everything starts off. */
+    val V3_TO_V4 = object : Migration(3, 4) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `feed_settings` ADD COLUMN `autoDownloadSince` INTEGER")
+            db.execSQL("ALTER TABLE `episodes` ADD COLUMN `autoDownloadedAt` INTEGER")
+        }
+    }
+
+    val ALL: List<Migration> = listOf(V1_TO_V2, V2_TO_V3, V3_TO_V4)
 }

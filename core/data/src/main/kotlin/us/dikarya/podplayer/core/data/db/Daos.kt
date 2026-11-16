@@ -275,6 +275,48 @@ interface FeedSettingsDao {
     suspend fun upsert(settings: FeedSettingsEntity)
 }
 
+/** What auto-download and clean-up read (SPEC §9). See DownloadRulesRepository for the rules. */
+@Dao
+interface DownloadRulesDao {
+    @Query(
+        """SELECT e.* FROM episodes e JOIN feed_settings s ON s.feedId = e.feedId
+           WHERE s.autoDownloadSince IS NOT NULL AND e.publishedAt > s.autoDownloadSince AND e.inFeed = 1
+             AND e.autoDownloadedAt IS NULL
+             AND NOT EXISTS (SELECT 1 FROM media_files m WHERE m.episodeId = e.id)
+             AND NOT EXISTS (SELECT 1 FROM playback_records p WHERE p.episodeId = e.id AND p.played = 1)
+           ORDER BY e.publishedAt, e.id LIMIT :limit""",
+    )
+    suspend fun autoDownloadCandidates(limit: Int): List<EpisodeEntity>
+
+    @Query(
+        """SELECT e.* FROM episodes e
+           WHERE e.starred = 1 AND e.autoDownloadedAt IS NULL
+             AND NOT EXISTS (SELECT 1 FROM media_files m WHERE m.episodeId = e.id)
+           ORDER BY e.starredAt DESC, e.id DESC LIMIT :limit""",
+    )
+    suspend fun starredNotDownloaded(limit: Int): List<EpisodeEntity>
+
+    @Query("UPDATE episodes SET autoDownloadedAt = :at WHERE id = :id")
+    suspend fun markAutoQueued(id: Long, at: Long): Int
+
+    @Query(
+        """SELECT m.episodeId AS episodeId, m.completedAt AS completedAt, COALESCE(p.played, 0) AS played,
+             CASE WHEN p.played = 1 THEN p.updatedAt ELSE NULL END AS playedAt, e.starred AS starred,
+             EXISTS (SELECT 1 FROM queue_entries q WHERE q.episodeId = m.episodeId) AS queued
+           FROM media_files m JOIN episodes e ON e.id = m.episodeId
+           LEFT JOIN playback_records p ON p.episodeId = m.episodeId
+           WHERE m.state = 'Complete' AND (:episodeId IS NULL OR m.episodeId = :episodeId)
+           ORDER BY m.episodeId""",
+    )
+    suspend fun cleanUpCandidates(episodeId: Long?): List<us.dikarya.podplayer.core.data.repo.CleanUpCandidate>
+
+    @Query("SELECT COUNT(*) FROM playback_records WHERE played = 1")
+    fun observePlayedCount(): Flow<Int>
+
+    @Query("SELECT COUNT(*) FROM episodes WHERE starred = 1")
+    fun observeStarredCount(): Flow<Int>
+}
+
 @Dao
 interface EpisodeActionDao {
     @Insert

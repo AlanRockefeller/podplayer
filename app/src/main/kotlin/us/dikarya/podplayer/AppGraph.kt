@@ -17,6 +17,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import us.dikarya.podplayer.core.data.DataFiles
@@ -145,7 +146,9 @@ class AppGraph(context: Context) {
             online = network.online,
             search = AppleSearch(gateFetch),
             previewer = FeedPreviewer(gateFetch, androidFeedParser()),
-            subscriptions = Subscriptions({ data.awaitRepositories() }) { feedId -> jobs.refreshNow(feedId) },
+            subscriptions = Subscriptions({ data.awaitRepositories() }, { settings.autoDownloadNewShows.first() }) { feedId ->
+                jobs.refreshNow(feedId)
+            },
             log = log,
         )
     }
@@ -157,6 +160,9 @@ class AppGraph(context: Context) {
             repositories = { data.awaitRepositories() },
             // Not cancelled with the screen: the setting and the waiting downloads must not disagree.
             setWifiOnly = { wifiOnly -> withContext(NonCancellable + Dispatchers.IO) { jobs.setDownloadsWifiOnly(wifiOnly) } },
+            setAutoDownloadWifiOnly = { wifiOnly -> withContext(NonCancellable + Dispatchers.IO) { jobs.setAutoDownloadWifiOnly(wifiOnly) } },
+            setCleanUp = { cleanUp -> withContext(NonCancellable + Dispatchers.IO) { jobs.setCleanUp(cleanUp) } },
+            autoDownloadStoppedAt = data.device.autoDownloadStoppedAt,
             // What the system can make room for, counting cache it would clear (lint: UsableSpace).
             freeBytes = {
                 runCatching {
@@ -178,6 +184,7 @@ class AppGraph(context: Context) {
             log.i("App", "Started version ${BuildConfig.VERSION_NAME}")
             data.device.setLastExitSeenAt(ExitReasons.record(appContext, log, data.device.lastExitSeenAt()))
             jobs.schedule()
+            jobs.watch()
             // A restored backup can carry a different Wi-Fi-only choice than the downloads waiting on this phone.
             jobs.downloads.applyNetworkSetting()
         }

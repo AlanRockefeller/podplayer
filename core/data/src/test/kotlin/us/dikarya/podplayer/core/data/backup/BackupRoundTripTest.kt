@@ -30,6 +30,7 @@ import us.dikarya.podplayer.core.data.episode
 import us.dikarya.podplayer.core.data.parsedFeed
 import us.dikarya.podplayer.core.data.repo.SubscribeResult
 import us.dikarya.podplayer.core.data.settings.BackupFailure
+import us.dikarya.podplayer.core.data.settings.CleanUpSettings
 import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.core.model.DownloadState
 
@@ -61,6 +62,13 @@ class BackupRoundTripTest {
         clock.advance(1_000)
         repos.starred.setStarred(eps.getValue("guid-2").id, true)
         first.settings.setThemeMode(ThemeMode.LIGHT)
+        // M1-S9b: per-show auto-download and the download rules travel too.
+        repos.feedSettings.setAutoDownload(feedId, true)
+        val autoSince = repos.feedSettings.autoDownloadSince(feedId)
+        first.settings.setAutoDownloadNewShows(true)
+        first.settings.setAutoDownloadWifiOnly(true)
+        first.settings.setCleanUp(CleanUpSettings(playedDays = 7, unplayedDays = 30, keepStarredDownloaded = true))
+        first.device.setAutoDownloadStoppedAt(123L)
         val firstDevice = first.device.deviceId()
         first.device.setBackupFolder(layers.ownerFolder.path, "Backups")
 
@@ -97,6 +105,13 @@ class BackupRoundTripTest {
         // Stars (SPEC §7: in backups), in the same order, and a starred played episode is still played.
         assertEquals(listOf(back.getValue("guid-2").id, back.getValue("guid-4").id), restored.starred.starred().first().map { it.id })
         assertEquals(ThemeMode.LIGHT, third.settings.themeMode.first())
+        assertEquals(true, restored.feedSettings.autoDownload(feedId).first())
+        assertEquals(autoSince, restored.feedSettings.autoDownloadSince(feedId))
+        assertEquals(false, restored.feedSettings.autoDownload(other).first())
+        assertEquals(true, third.settings.autoDownloadNewShows.first())
+        assertEquals(true, third.settings.autoDownloadWifiOnly.first())
+        assertEquals(CleanUpSettings(7, 30, true), third.settings.cleanUp.first())
+        assertNull("the storage-limit note is this phone's", third.device.autoDownloadStoppedAt.first())
         // Device settings are this phone's own and never come from a backup.
         assertNotEquals(firstDevice, third.device.deviceId())
         // Applied once: the next start opens normally.

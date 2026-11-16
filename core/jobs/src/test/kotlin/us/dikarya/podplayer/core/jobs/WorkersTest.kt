@@ -29,6 +29,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
+import us.dikarya.podplayer.core.jobs.cleanup.CleanUpWorker
+import us.dikarya.podplayer.core.jobs.cleanup.Housekeeping
 import us.dikarya.podplayer.core.jobs.download.DownloadOutcome
 import us.dikarya.podplayer.core.jobs.download.DownloadTask
 import us.dikarya.podplayer.core.jobs.download.DownloadWorker
@@ -160,6 +162,33 @@ class WorkersTest {
         assertTrue(TestListenableWorkerBuilder<RefreshWorker>(context).setWorkerFactory(f).build() is RefreshWorker)
         assertTrue(TestListenableWorkerBuilder<DownloadWorker>(context).setWorkerFactory(f).build() is DownloadWorker)
         assertTrue(TestListenableWorkerBuilder<BackupWorker>(context).setWorkerFactory(f).build() is BackupWorker)
+        assertTrue(TestListenableWorkerBuilder<CleanUpWorker>(context).setWorkerFactory(f).build() is CleanUpWorker)
+    }
+
+    @Test
+    fun cleanUpRunsDailyAndSoonAfterAnEpisodeIsPlayedWithoutANetwork() = runBlocking {
+        CleanUpWorker.schedulePeriodic(workManager)
+        CleanUpWorker.schedulePeriodic(workManager)
+        val daily = infos(CleanUpWorker.PERIODIC_NAME).single()
+        assertEquals(24L * 3600 * 1000, daily.periodicityInfo!!.repeatIntervalMillis)
+        assertEquals(NetworkType.NOT_REQUIRED, daily.constraints.requiredNetworkType)
+        CleanUpWorker.runSoon(workManager)
+        CleanUpWorker.runSoon(workManager)
+        assertTrue(infos(CleanUpWorker.SOON_NAME).size == 1)
+
+        var runs = 0
+        val worker = TestListenableWorkerBuilder<CleanUpWorker>(context)
+            .setWorkerFactory(
+                PodplayerWorkerFactory(
+                    backups = { DailyBackup { DailyBackupOutcome.NotDue } },
+                    refresher = { FakeRefresher() },
+                    downloads = { FakeDownload(DownloadOutcome.Completed) },
+                    notifications = { DownloadNotifications(context) },
+                    housekeeping = { Housekeeping { runs++ } },
+                ),
+            ).build()
+        assertEquals(ListenableWorker.Result.success(), worker.doWork())
+        assertEquals(1, runs)
     }
 
     private fun withEnv(block: (TestEnv, Downloads) -> Unit) {
@@ -168,6 +197,7 @@ class WorkersTest {
                 workManager = { workManager },
                 repositories = { env.data.awaitRepositories() },
                 wifiOnly = { env.data.settings.downloadsWifiOnly.first() },
+                autoWifiOnly = { env.data.settings.autoDownloadWifiOnly.first() },
                 runner = env.runner,
                 paths = env.data.paths,
                 log = env.log,

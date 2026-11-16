@@ -10,6 +10,8 @@ import android.content.Context
 import androidx.work.ListenableWorker
 import androidx.work.WorkerFactory
 import androidx.work.WorkerParameters
+import us.dikarya.podplayer.core.jobs.cleanup.CleanUpWorker
+import us.dikarya.podplayer.core.jobs.cleanup.Housekeeping
 import us.dikarya.podplayer.core.jobs.download.DownloadTask
 import us.dikarya.podplayer.core.jobs.download.DownloadWorker
 import us.dikarya.podplayer.core.jobs.refresh.Refresher
@@ -24,12 +26,14 @@ class PodplayerWorkerFactory(
     private val refresher: () -> Refresher,
     private val downloads: () -> DownloadTask,
     private val notifications: () -> DownloadNotifications,
+    private val housekeeping: () -> Housekeeping = { Housekeeping {} },
 ) : WorkerFactory() {
     override fun createWorker(appContext: Context, workerClassName: String, workerParameters: WorkerParameters): ListenableWorker? =
         when (workerClassName) {
             BackupWorker::class.java.name -> BackupWorker(appContext, workerParameters, backups())
             RefreshWorker::class.java.name -> RefreshWorker(appContext, workerParameters, refresher())
             DownloadWorker::class.java.name -> DownloadWorker(appContext, workerParameters, downloads(), notifications())
+            CleanUpWorker::class.java.name -> CleanUpWorker(appContext, workerParameters, housekeeping())
             else -> null
         }
 }

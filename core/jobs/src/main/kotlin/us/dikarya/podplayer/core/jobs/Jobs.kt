@@ -8,11 +8,20 @@ package us.dikarya.podplayer.core.jobs
 
 import android.content.Context
 import androidx.work.WorkManager
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import us.dikarya.podplayer.core.data.DataLayer
 import us.dikarya.podplayer.core.data.logs.AppLog
+import us.dikarya.podplayer.core.data.settings.CleanUpSettings
+import us.dikarya.podplayer.core.jobs.cleanup.CleanUp
+import us.dikarya.podplayer.core.jobs.cleanup.CleanUpWorker
+import us.dikarya.podplayer.core.jobs.cleanup.Housekeeping
 import us.dikarya.podplayer.core.jobs.download.AudioProbe
+import us.dikarya.podplayer.core.jobs.download.AutoDownloadAfterRefresh
+import us.dikarya.podplayer.core.jobs.download.AutoDownloader
 import us.dikarya.podplayer.core.jobs.download.DownloadRunner
 import us.dikarya.podplayer.core.jobs.download.Downloads
 import us.dikarya.podplayer.core.jobs.download.KeyedLocks
@@ -60,8 +69,32 @@ class Jobs(
             workManager = { workManager },
             repositories = { data.awaitRepositories() },
             wifiOnly = { data.settings.downloadsWifiOnly.first() },
+            autoWifiOnly = { data.settings.autoDownloadWifiOnly.first() },
             runner = runner,
             paths = data.paths,
+            log = log,
+        )
+    }
+
+    /** SPEC §9 auto-download; runs after every refresh worker run and with the daily housekeeping. */
+    val autoDownloader: AutoDownloader by lazy {
+        AutoDownloader(
+            repositories = { data.awaitRepositories() },
+            enqueue = { downloads.enqueue(it, auto = true) },
+            storageCap = { data.settings.storageCapBytes.first() },
+            cleanUp = { data.settings.cleanUp.first() },
+            device = data.device,
+            log = log,
+        )
+    }
+
+    /** SPEC §9 clean-up of downloaded files. */
+    val cleanUp: CleanUp by lazy {
+        CleanUp(
+            repositories = { data.awaitRepositories() },
+            runner = runner,
+            settings = { data.settings.cleanUp.first() },
+            loadedEpisodeId = { data.device.currentEpisodeId() },
             log = log,
         )
     }
@@ -70,15 +103,48 @@ class Jobs(
 
     val workerFactory = PodplayerWorkerFactory(
         backups = { data.backups.asDailyBackup() },
-        refresher = { refresher },
+        refresher = { AutoDownloadAfterRefresh(refresher, { log.e(TAG, "Auto-download failed", it) }) { autoDownloader.run() } },
         downloads = { runner },
         notifications = { notifications },
+        housekeeping = {
+            Housekeeping {
+                cleanUp.run()
+                autoDownloader.run()
+            }
+        },
     )
 
     /** Safe on every start: existing schedules are kept. Call off the main thread. */
     fun schedule() {
         BackupWorker.schedule(workManager)
         RefreshWorker.schedulePeriodic(workManager)
+        CleanUpWorker.schedulePeriodic(workManager)
+    }
+
+    /**
+     * For the life of the process: clean-up runs soon after an episode is marked played (SPEC §9), and with "keep
+     * starred episodes downloaded" a newly starred episode is queued at once. Call once, from the app's start.
+     */
+    fun watch() {
+        scope.launch {
+            val repos = data.awaitRepositories() ?: return@launch
+            launch { repos.downloadRules.playedCount().drop(1).collect { CleanUpWorker.runSoon(workManager) } }
+            launch {
+                repos.downloadRules.starredCount().drop(1).collect {
+                    if (data.settings.cleanUp.first().keepStarredDownloaded) runAutoDownload()
+                }
+            }
+        }
+    }
+
+    private suspend fun runAutoDownload() {
+        try {
+            autoDownloader.run()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            log.e(TAG, "Auto-download failed", e)
+        }
     }
 
     /** Settings › Downloads: stores the Wi-Fi-only choice and moves downloads still waiting to it (SPEC §9). */
@@ -87,6 +153,23 @@ class Jobs(
         downloads.applyNetworkSetting()
     }
 
+    /** Settings › Downloads: auto-downloads' own network rule; waiting auto-downloads move to it (SPEC §9). */
+    suspend fun setAutoDownloadWifiOnly(wifiOnly: Boolean) {
+        data.settings.setAutoDownloadWifiOnly(wifiOnly)
+        downloads.applyNetworkSetting()
+    }
+
+    /** Settings › Downloads: clean-up numbers and "keep starred episodes downloaded", which takes effect at once. */
+    suspend fun setCleanUp(settings: CleanUpSettings) {
+        data.settings.setCleanUp(settings)
+        if (settings.keepStarredDownloaded) runAutoDownload()
+        CleanUpWorker.runSoon(workManager)
+    }
+
     /** The owner asked: refresh [feedId], or every feed when null, as soon as there is a network. */
     fun refreshNow(feedId: Long?) = RefreshWorker.refreshNow(workManager, feedId)
+
+    private companion object {
+        const val TAG = "Jobs"
+    }
 }

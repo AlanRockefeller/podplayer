@@ -117,6 +117,41 @@ class AppSettingsTest {
     }
 
     @Test
+    fun autoDownloadAndCleanUpDefaultsFollowTheSpec() {
+        // SPEC §9: new shows off, auto-downloads on any connection, played after 3 days, unplayed after 14.
+        assertEquals(false, withSettings { it.autoDownloadNewShows.first() })
+        assertEquals(false, withSettings { it.autoDownloadWifiOnly.first() })
+        assertEquals(CleanUpSettings(playedDays = 3, unplayedDays = 14, keepStarredDownloaded = false), withSettings { it.cleanUp.first() })
+    }
+
+    @Test
+    fun autoDownloadAndCleanUpSettingsPersistClampAndTravelWithABackup() {
+        val snapshot = withSettings {
+            it.setAutoDownloadNewShows(true)
+            it.setAutoDownloadWifiOnly(true)
+            it.setCleanUp(CleanUpSettings(playedDays = 0, unplayedDays = 100_000, keepStarredDownloaded = true))
+            it.snapshot()
+        }
+        assertEquals(true, withSettings { it.autoDownloadNewShows.first() })
+        assertEquals(true, withSettings { it.autoDownloadWifiOnly.first() })
+        assertEquals(CleanUpSettings(0, CleanUpSettings.MAX_DAYS, true), withSettings { it.cleanUp.first() })
+        withSettings {
+            it.setAutoDownloadNewShows(false)
+            it.setAutoDownloadWifiOnly(false)
+            it.setCleanUp(CleanUpSettings())
+        }
+        assertTrue(withSettings { it.restore(snapshot) })
+        assertEquals(true, withSettings { it.autoDownloadNewShows.first() })
+        assertEquals(true, withSettings { it.autoDownloadWifiOnly.first() })
+        assertEquals(CleanUpSettings(0, CleanUpSettings.MAX_DAYS, true), withSettings { it.cleanUp.first() })
+    }
+
+    @Test
+    fun negativeCleanUpDaysFromAHostileBackupReadAsNever() {
+        assertEquals(CleanUpSettings(0, 0, false), CleanUpSettings(-5, -1, false).normalized())
+    }
+
+    @Test
     fun libraryLayoutAndSortDefaultToAGridByTitleAndPersist() {
         assertEquals(LibraryLayout.Grid, withSettings { it.libraryLayout.first() })
         assertEquals(LibrarySort.Title, withSettings { it.librarySort.first() })

@@ -67,6 +67,30 @@ class ShowViewModelTest {
     }
 
     @Test
+    fun downloadNewEpisodesIsOffAndTurnsOnFromNow() = runBlocking {
+        val feed = env.show("Alpha")
+        val vm = ShowViewModel(env.deps, feed)
+        assertEquals(false, awaitState(vm.state) { it.feed != null }.autoDownload)
+        vm.setAutoDownload(true)
+        awaitState(vm.state) { it.autoDownload }
+        assertTrue(env.repos.feedSettings.autoDownloadSince(feed) != null)
+        vm.setAutoDownload(false)
+        awaitState(vm.state) { !it.autoDownload }
+        assertEquals(null, env.repos.feedSettings.autoDownloadSince(feed))
+    }
+
+    @Test
+    fun aNewShowGetsTheOwnersDefault() = runBlocking {
+        env.data.settings.setAutoDownloadNewShows(true)
+        val on = env.deps.subscriptions.subscribe("https://on.example.com/feed.xml", ownerTyped = false)
+        val id = (on as us.dikarya.podplayer.ui.browse.SubscribeOutcome.Subscribed).feedId
+        assertEquals(true, env.repos.feedSettings.autoDownload(id).first())
+        env.data.settings.setAutoDownloadNewShows(false)
+        val off = env.deps.subscriptions.subscribe("https://off.example.com/feed.xml", ownerTyped = false)
+        assertEquals(false, env.repos.feedSettings.autoDownload((off as us.dikarya.podplayer.ui.browse.SubscribeOutcome.Subscribed).feedId).first())
+    }
+
+    @Test
     fun whileTheShowPlaysItsSpeedGoesThroughTheSession() {
         val feed = env.show("Alpha")
         val playing = env.episodeIds(feed).first()

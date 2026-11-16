@@ -43,6 +43,22 @@ class AppLogTest {
     }
 
     @Test
+    fun aFolderAnotherThreadMadeFirstStillGetsTheLine() {
+        // LogExportTest lost its first line once: the crash folder (inside the log folder) was made on another
+        // thread between the writer's "is it there?" and its mkdirs(), which then said false.
+        val racing = object : File(tmp.root, "raced") {
+            override fun mkdirs(): Boolean {
+                super.mkdirs()
+                return false
+            }
+        }
+        val raced = AppLog({ racing }, clock, echo = false)
+        raced.i("Refresh", "first line")
+        raced.close()
+        assertTrue(File(racing, "app.log").readText().contains("first line"))
+    }
+
+    @Test
     fun linesHaveTimeLevelTagAndMessage() {
         log.i("Refresh", "3 new episodes")
         val text = allText()

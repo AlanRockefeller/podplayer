@@ -96,7 +96,9 @@ class AppLog(
         synchronized(lock) {
             try {
                 val folder = dir()
-                if (!folder.isDirectory && !folder.mkdirs()) return
+                // mkdirs() is false when another thread made the folder first (the crash folder lives inside it):
+                // only a folder that still isn't there drops the line.
+                if (!folder.isDirectory && !folder.mkdirs() && !folder.isDirectory) return
                 val bytes = (line + "\n").toByteArray(Charsets.UTF_8)
                 val current = fileAt(folder, 0)
                 if (current.length() + bytes.size > maxFileBytes && current.length() > 0) roll(folder)

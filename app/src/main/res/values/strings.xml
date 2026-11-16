@@ -270,6 +270,27 @@
         <item quantity="other">%1$d episodes are downloaded.</item>
     </plurals>
     <string name="settings_storage_free">%1$s free on this phone.</string>
+    <string name="settings_auto_download">Automatic downloads</string>
+    <string name="settings_auto_new_shows">Download new episodes for new shows</string>
+    <string name="settings_auto_new_shows_body">Shows you subscribe to from now on start with “Download new episodes” on. Each show can change it on its page.</string>
+    <string name="settings_auto_wifi_only">Automatic downloads on Wi-Fi only</string>
+    <string name="settings_auto_wifi_only_body">Off: automatic downloads use any connection, including mobile data. Separate from the setting above for your own downloads.</string>
+    <string name="settings_auto_stopped">Automatic downloads stopped: downloads reached the storage limit. Nothing was deleted to make room. Delete some downloads or raise the limit.</string>
+    <string name="settings_clean_up">Clean-up</string>
+    <string name="settings_clean_up_body">Starred episodes, episodes in the queue and the episode in the player are never deleted. Every deletion is in the download log.</string>
+    <string name="settings_clean_played">Delete played episodes</string>
+    <string name="settings_clean_unplayed">Delete unplayed downloads</string>
+    <string name="settings_never">Never</string>
+    <plurals name="settings_clean_played_after">
+        <item quantity="one">%1$d day after they were played</item>
+        <item quantity="other">%1$d days after they were played</item>
+    </plurals>
+    <plurals name="settings_clean_unplayed_after">
+        <item quantity="one">%1$d day after they were downloaded</item>
+        <item quantity="other">%1$d days after they were downloaded</item>
+    </plurals>
+    <string name="settings_keep_starred">Keep starred episodes downloaded</string>
+    <string name="settings_keep_starred_body">Starred episodes that aren’t downloaded are downloaded automatically, once each.</string>
     <string name="settings_logs">Logs</string>
     <string name="settings_view_logs">View logs</string>
     <!-- A storage limit in whole gigabytes, e.g. "10 GB". -->
@@ -337,6 +358,8 @@
     <string name="home_starred_all">See all</string>
     <string name="show_starred_only">Starred only</string>
     <string name="show_no_starred">No starred episodes in this show.</string>
+    <string name="show_auto_download">Download new episodes</string>
+    <string name="show_auto_download_body">Episodes published from now on download after each refresh.</string>
     <string name="starred_search">Search starred episodes</string>
     <string name="starred_share">Share starred episodes</string>
     <string name="starred_share_heading">Starred episodes</string>

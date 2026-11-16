@@ -23,6 +23,7 @@ import okhttp3.HttpUrl
 import us.dikarya.podplayer.core.data.db.DownloadEvent
 import us.dikarya.podplayer.core.data.logs.AppLog
 import us.dikarya.podplayer.core.data.media.MediaPaths
+import us.dikarya.podplayer.core.data.repo.CleanUpCandidate
 import us.dikarya.podplayer.core.data.repo.Repositories
 import us.dikarya.podplayer.core.jobs.Messages
 import us.dikarya.podplayer.core.model.DownloadState
@@ -168,6 +169,24 @@ class DownloadRunner(
         repos.media.delete(episodeId)
         repos.logs.addDownload(episodeId, DownloadEvent.Deleted, null)
         if (record.state == DownloadState.Complete) repos.actions.append(episodeId, EpisodeActionKind.Deleted, null, null)
+    }
+
+    /**
+     * Clean-up (SPEC §9): deletes [episodeId]'s finished download if [reason] still gives a reason once the
+     * per-episode lock is held, so it can't race a download of the same episode. [reason] sees the download as it
+     * is then; null keeps it. Every deletion goes in the download log with its reason. Returns true if deleted.
+     */
+    suspend fun cleanUp(episodeId: Long, reason: suspend (CleanUpCandidate) -> String?): Boolean = locks.withLock(episodeId) {
+        val repos = repositories() ?: return@withLock false
+        val candidate = repos.downloadRules.cleanUpCandidate(episodeId) ?: return@withLock false
+        val why = reason(candidate) ?: return@withLock false
+        val record = repos.media.get(episodeId) ?: return@withLock false
+        withContext(Dispatchers.IO) { paths.resolve(record.relativePath)?.delete() }
+        repos.media.delete(episodeId)
+        repos.logs.addDownload(episodeId, DownloadEvent.Deleted, why)
+        repos.actions.append(episodeId, EpisodeActionKind.Deleted, null, null)
+        log.i(TAG, "Episode $episodeId deleted by clean-up: $why")
+        true
     }
 
     private inner class Attempt(

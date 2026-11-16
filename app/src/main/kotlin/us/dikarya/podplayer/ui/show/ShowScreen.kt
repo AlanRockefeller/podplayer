@@ -34,7 +34,11 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -132,6 +136,7 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
                         Text(stringResource(R.string.action_unsubscribe), maxLines = 1, softWrap = false)
                     }
                 }
+                AutoDownloadRow(state.autoDownload, viewModel::setAutoDownload)
             }
             HorizontalDivider()
         }
@@ -164,6 +169,29 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
         )
     }
 }
+
+/** SPEC §9 "Download new episodes": the whole row is the switch, at least 56 dp tall. */
+@Composable
+private fun AutoDownloadRow(checked: Boolean, onChange: (Boolean) -> Unit) {
+    Row(
+        Modifier.fillMaxWidth().heightIn(min = 56.dp).toggleable(value = checked, role = Role.Switch, onValueChange = onChange)
+            .testTag(TAG_SHOW_AUTO_DOWNLOAD),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(stringResource(R.string.show_auto_download), style = MaterialTheme.typography.bodyLarge)
+            Text(
+                stringResource(R.string.show_auto_download_body),
+                style = MaterialTheme.typography.bodySmall,
+                color = PodplayerTheme.colors.textSecondary,
+            )
+        }
+        Switch(checked = checked, onCheckedChange = null)
+    }
+}
+
+const val TAG_SHOW_AUTO_DOWNLOAD = "show-auto-download"
 
 /** SPEC §10: a show's own speed, or the global one. */
 @Composable

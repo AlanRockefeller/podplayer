@@ -9,6 +9,7 @@ package us.dikarya.podplayer.core.data.repo
 import androidx.room.withTransaction
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import us.dikarya.podplayer.core.data.db.DownloadEvent
@@ -45,11 +46,12 @@ class Repositories(
     val episodes = EpisodeRepository(db)
     val queue = QueueRepository(db, clock)
     val playback = PlaybackRepository(db, clock)
-    val feedSettings = FeedSettingsRepository(db)
+    val feedSettings = FeedSettingsRepository(db, clock)
     val actions = EpisodeActionRepository(db, clock, deviceId)
     val media = MediaFileRepository(db)
     val logs = LogRepository(db, clock)
     val starred = StarredRepository(db, clock, deviceId)
+    val downloadRules = DownloadRulesRepository(db, clock)
 }
 
 class EpisodeRepository internal constructor(private val db: PodDatabase) {
@@ -188,9 +190,26 @@ class PlaybackRepository internal constructor(private val db: PodDatabase, priva
     }
 }
 
-class FeedSettingsRepository internal constructor(private val db: PodDatabase) {
+class FeedSettingsRepository internal constructor(private val db: PodDatabase, private val clock: () -> Long) {
     /** The per-show speed, or null for the global default. */
     fun speed(feedId: Long): Flow<Float?> = db.feedSettings().observe(feedId).map { it?.playbackSpeed }
+
+    /** SPEC §9 "Download new episodes" for this show. */
+    fun autoDownload(feedId: Long): Flow<Boolean> = db.feedSettings().observe(feedId).map { it?.autoDownloadSince != null }.distinctUntilChanged()
+
+    /** When "Download new episodes" was turned on, or null when it is off. */
+    suspend fun autoDownloadSince(feedId: Long): Long? = db.feedSettings().get(feedId)?.autoDownloadSince
+
+    /**
+     * Turning it on records the time, so only episodes published from now on are downloaded; turning it on again
+     * while on keeps the first time. Turning it off forgets it.
+     */
+    suspend fun setAutoDownload(feedId: Long, on: Boolean) = db.withTransaction {
+        if (db.feeds().get(feedId) == null) return@withTransaction
+        val old = db.feedSettings().get(feedId) ?: FeedSettingsEntity(feedId)
+        val since = if (on) old.autoDownloadSince ?: clock() else null
+        if (since != old.autoDownloadSince) db.feedSettings().upsert(old.copy(autoDownloadSince = since))
+    }
 
     /** Out-of-range speeds are clamped; NaN or null clears the override. */
     suspend fun setSpeed(feedId: Long, speed: Float?) = db.withTransaction {

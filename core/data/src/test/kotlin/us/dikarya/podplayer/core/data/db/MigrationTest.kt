@@ -159,6 +159,26 @@ internal object MigrationSeeds {
                 assertEquals(500L, repos.episodes.get(10)!!.starredAt)
                 assertEquals(false, repos.episodes.get(12)!!.starred)
                 assertEquals(listOf(EpisodeActionKind.Starred), repos.actions.unsynced(10).map { it.kind })
+                // Version 4 added auto-download; a migrated show starts with it off and nothing marked.
+                assertEquals(false, repos.feedSettings.autoDownload(1).first())
+                assertEquals(emptyList<Any>(), repos.downloadRules.autoDownloadCandidates(10))
+            },
+        ),
+        4 to Seed(
+            sql = listOf(
+                "INSERT INTO feeds (id, url, title, subscribedAt, consecutiveFailures) VALUES (1, 'https://f.example.com/rss', 'Show', 1, 0)",
+                "INSERT INTO feed_settings (feedId, playbackSpeed, autoDownloadSince) VALUES (1, NULL, 150)",
+                "INSERT INTO episodes (id, feedId, guid, title, publishedAt, firstSeenAt, enclosureUrl, fingerprint, inFeed, starred) " +
+                    "VALUES (10, 1, 'g1', 'Old', 100, 100, 'https://f.example.com/1.mp3', 'fp', 1, 0)",
+                "INSERT INTO episodes (id, feedId, guid, title, publishedAt, firstSeenAt, enclosureUrl, fingerprint, inFeed, starred, autoDownloadedAt) " +
+                    "VALUES (11, 1, 'g2', 'Queued once', 200, 200, 'https://f.example.com/2.mp3', 'fp', 1, 0, 210)",
+                "INSERT INTO episodes (id, feedId, guid, title, publishedAt, firstSeenAt, enclosureUrl, fingerprint, inFeed, starred) " +
+                    "VALUES (12, 1, 'g3', 'New', 300, 300, 'https://f.example.com/3.mp3', 'fp', 1, 0)",
+            ),
+            check = { repos ->
+                assertEquals(true, repos.feedSettings.autoDownload(1).first())
+                assertEquals(150L, repos.feedSettings.autoDownloadSince(1))
+                assertEquals(listOf(12L), repos.downloadRules.autoDownloadCandidates(10).map { it.id })
             },
         ),
     )

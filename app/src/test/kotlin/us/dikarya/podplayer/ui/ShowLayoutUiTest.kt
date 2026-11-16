@@ -14,6 +14,10 @@ import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performClick
+import us.dikarya.podplayer.ui.show.TAG_SHOW_AUTO_DOWNLOAD
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -28,6 +32,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import us.dikarya.podplayer.R
 import us.dikarya.podplayer.ui.browse.BrowseTestEnv
+import us.dikarya.podplayer.ui.browse.awaitState
 import us.dikarya.podplayer.ui.show.ShowScreen
 import us.dikarya.podplayer.ui.show.ShowViewModel
 import us.dikarya.podplayer.ui.theme.DarkTokens
@@ -79,6 +84,16 @@ class ShowLayoutUiTest {
         val textWidth = bounds.right - bounds.left
         // Squeezed, the label was one letter wide (and so many lines tall). "Unsubscribe" needs about 80 dp.
         assertTrue("at $width dp the label is only $textWidth wide and $height tall", textWidth > 70.dp)
+
+        // M1-S9b: the "Download new episodes" row fits the width, is a full touch target, and its title isn't squeezed.
+        val row = compose.onNodeWithTag(TAG_SHOW_AUTO_DOWNLOAD).getBoundsInRoot()
+        assertTrue("at $width dp the row ends at ${row.right}", row.right <= width.dp)
+        assertTrue("at $width dp the row is ${row.bottom - row.top} tall", row.bottom - row.top >= 48.dp)
+        val title = compose.onNodeWithText(context.getString(R.string.show_auto_download), useUnmergedTree = true).getBoundsInRoot()
+        assertTrue("at $width dp the title is ${title.right - title.left} wide", title.right - title.left > 120.dp)
+        compose.onNodeWithTag(TAG_SHOW_AUTO_DOWNLOAD).assertIsOff().performClick()
+        // Real time: the switch's write goes to Room on its own threads.
+        awaitState(vm.state) { it.autoDownload }
     }
 
     private companion object {

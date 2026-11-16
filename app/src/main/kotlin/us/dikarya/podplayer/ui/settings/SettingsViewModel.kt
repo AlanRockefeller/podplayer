@@ -24,6 +24,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import us.dikarya.podplayer.core.data.settings.AppSettings
+import us.dikarya.podplayer.core.data.settings.CleanUpSettings
 import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.core.model.PlaybackSettings
 import us.dikarya.podplayer.playback.SkipIntervals
@@ -38,6 +39,13 @@ data class SettingsUiState(
     /** Finished downloads. */
     val downloads: Int = 0,
     val freeBytes: Long? = null,
+    /** SPEC §9: "Download new episodes" for shows subscribed from now on. */
+    val autoDownloadNewShows: Boolean = false,
+    /** Auto-downloads' own network rule; false is any connection (the default). */
+    val autoDownloadWifiOnly: Boolean = false,
+    val cleanUp: CleanUpSettings = CleanUpSettings(),
+    /** When auto-downloads stopped at the storage limit, or null while they run. */
+    val autoDownloadStoppedAt: Long? = null,
 )
 
 /** Settings › Playback and Downloads and storage (SPEC §9, §10, §12). Every value lives in `AppSettings`. */
@@ -54,13 +62,26 @@ class SettingsViewModel(private val deps: SettingsDeps) : ViewModel() {
         } ?: flowOf(Usage(0, 0, deps.freeBytes()))
     }.flowOn(Dispatchers.IO)
 
+    private class Auto(val newShows: Boolean, val wifiOnly: Boolean, val cleanUp: CleanUpSettings, val stoppedAt: Long?)
+
+    private val auto = combine(
+        deps.settings.autoDownloadNewShows,
+        deps.settings.autoDownloadWifiOnly,
+        deps.settings.cleanUp,
+        deps.autoDownloadStoppedAt,
+    ) { newShows, wifiOnly, cleanUp, stoppedAt -> Auto(newShows, wifiOnly, cleanUp, stoppedAt) }
+
     val state: StateFlow<SettingsUiState> = combine(
         deps.settings.playback,
         deps.settings.downloadsWifiOnly,
         deps.settings.storageCapBytes,
         usage,
-    ) { playback, wifiOnly, cap, usage ->
-        SettingsUiState(false, playback, wifiOnly, cap, usage.usedBytes, usage.downloads, usage.freeBytes)
+        auto,
+    ) { playback, wifiOnly, cap, usage, auto ->
+        SettingsUiState(
+            false, playback, wifiOnly, cap, usage.usedBytes, usage.downloads, usage.freeBytes,
+            auto.newShows, auto.wifiOnly, auto.cleanUp, auto.stoppedAt,
+        )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_AFTER_MS), SettingsUiState())
 
     fun setSpeed(speed: Float) = write { deps.settings.setPlaybackSpeed(speed) }
@@ -89,6 +110,17 @@ class SettingsViewModel(private val deps: SettingsDeps) : ViewModel() {
 
     fun setStorageCap(bytes: Long) = write { deps.settings.setStorageCapBytes(bytes) }
 
+    fun setAutoDownloadNewShows(on: Boolean) = write { deps.settings.setAutoDownloadNewShows(on) }
+
+    /** Through the jobs, so auto-downloads already waiting follow the new rule (SPEC §9). */
+    fun setAutoDownloadWifiOnly(wifiOnly: Boolean) = write { deps.setAutoDownloadWifiOnly(wifiOnly) }
+
+    fun setPlayedDays(days: Int) = write { deps.setCleanUp(deps.settings.cleanUp.first().copy(playedDays = days)) }
+
+    fun setUnplayedDays(days: Int) = write { deps.setCleanUp(deps.settings.cleanUp.first().copy(unplayedDays = days)) }
+
+    fun setKeepStarredDownloaded(keep: Boolean) = write { deps.setCleanUp(deps.settings.cleanUp.first().copy(keepStarredDownloaded = keep)) }
+
     private suspend fun current(): PlaybackSettings = deps.settings.playback.first()
 
     private fun write(block: suspend () -> Unit) {
@@ -114,5 +146,9 @@ class SettingsViewModel(private val deps: SettingsDeps) : ViewModel() {
         val REWIND_SECONDS_CHOICES = listOf(3, 5, 10, 15, 20, 30, 60)
         val REWIND_AFTER_MINUTES_CHOICES = listOf(1, 5, 10, 15, 30, 60, 120, 240)
         val STORAGE_CAP_CHOICES = listOf(1, 2, 5, 10, 20, 50, 100, 200).map { it * AppSettings.GB }
+
+        /** Days; [CleanUpSettings.NEVER] first. */
+        val PLAYED_DAYS_CHOICES = listOf(CleanUpSettings.NEVER, 1, 2, 3, 7, 14, 30)
+        val UNPLAYED_DAYS_CHOICES = listOf(CleanUpSettings.NEVER, 7, 14, 30, 60, 90)
     }
 }

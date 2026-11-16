@@ -5,8 +5,8 @@ a reviewer reads it to see what was really done.
 
 ## Current state
 - Milestone: M1
-- Next session: M1-S9b
-- Build status: `./gradlew check` green locally after M1-S9a (2026-11-15). The CI result is on the M1-S9a PR.
+- Next session: M1-S9c
+- Build status: `./gradlew check` green locally after M1-S9b (2026-11-15). The CI result is on the M1-S9b PR.
 
 ## Session log
 <!-- Newest first. Copy this block for each session. -->
@@ -18,6 +18,90 @@ a reviewer reads it to see what was really done.
 - Manual checks for the owner:
 - PR:
 -->
+
+### M1-S9b Auto-download and clean-up (2026-11-15)
+- Plan (written before any code; run unattended, so not approved by the owner):
+  - Schema v4: `feed_settings.autoDownloadSince` (null: off; the time it was turned on) and
+    `episodes.autoDownloadedAt` (set when auto-download queued the episode, so it is never fetched automatically
+    twice, e.g. after clean-up or the owner deleted it). Migration 3→4, exported `4.json`, a v4 seed; the v3 seed
+    checks auto-download starts off. A refresh never writes either column.
+  - `:core:data`: `FeedSettingsRepository.autoDownload`/`setAutoDownload` (turning on stamps the time, turning off
+    clears it); `FeedRepository.subscribe(…, autoDownload)` writes the new show's setting in the same
+    transaction. DAO queries for auto-download candidates (show on, published after `autoDownloadSince`, still in the
+    feed, never auto-queued, no download record, not played), starred episodes not downloaded, clean-up candidates
+    (finished downloads with played state, finish time, starred, queued), and a played count to watch. `AppSettings`
+    (backed up): new-show default (off), auto-download Wi-Fi only (off = any connection), played clean-up days (3),
+    unplayed clean-up days (14), keep starred downloaded (off); "never" is 0. `DeviceSettings` (not backed up): when
+    auto-downloads last stopped at the storage cap.
+  - `:core:jobs`: `Downloads.enqueue(id, auto)`: auto work uses its own network setting, a `download-auto` tag and
+    runs as background work (the worker skips `setForeground`); `applyNetworkSetting` applies each kind's own
+    setting; an owner tap on a waiting auto download turns it into an owner download. `AutoDownloader.run()`: under
+    one mutex, picks candidates (plus starred ones when "keep starred" is on), stops at the cap without deleting
+    anything (records the time for Settings, logs once), marks and enqueues the rest. `Refresher` wrapper so every
+    refresh worker run is followed by it. `CleanUp.run()`: pure rules (`CleanUpRules`), then each deletion through
+    `DownloadRunner.cleanUp`, which takes the per-episode lock and re-checks that the file is still a finished,
+    still-due download before deleting; every deletion is a `Deleted` row in the download log with the reason.
+    `CleanUpWorker` daily (unique, KEEP) and soon after the played count changes (Jobs watches it). The loaded
+    episode comes from `DeviceSettings.currentEpisodeId`.
+  - `:app`: Settings › Downloads and storage gains the five settings and the "stopped at the limit" message; the
+    show page a "Download new episodes" switch row; `Subscriptions` applies the new-show default.
+  - Tests first: migration seed; repository toggle and subscribe default; only new episodes are auto-downloaded and
+    never twice; the network setting maps to the constraint (any by default, Wi-Fi when set), independent of the
+    manual one; cap stops without deleting; each clean-up rule and exemption (starred, queued, loaded, never, keep
+    starred); clean-up and a running download of the same episode don't race; settings persist and travel in
+    backups; Settings and show-page view models.
+- Done: everything in the plan. Also fixed the `LogExportTest` flake (Known issues): `AppLog` dropped a line when
+  another thread created the log folder between its "is it there?" check and `mkdirs()` (the test's crash folder
+  lives inside it; on the phone the crash handler can do the same). Now only a folder that still isn't there drops
+  the line.
+- Tests added: `DownloadRulesRepositoryTest` (9: toggle stamps and keeps the time, speed and auto-download don't
+  overwrite each other, subscribe with the default, only episodes published after turning on, never twice / not
+  downloaded / not played / still in the feed, a refresh keeps the mark, starred-not-downloaded, clean-up candidate
+  fields, played count); `MigrationTest` v4 seed (the v3 seed checks auto-download starts off); `BackupRoundTripTest`
+  (per-show auto-download, its time and the five settings travel; the storage-limit note doesn't);
+  `AppSettingsTest` (defaults, persist + clamp + backup, negative days read as never); `AppLogTest` (the mkdirs
+  race); `AutoDownloadTest` (9: only new episodes, once even after deletion, any connection by default and its own
+  Wi-Fi setting, owner downloads keep the manual rule, tapping a waiting auto-download makes it the owner's (same
+  work id), the cap stops without deleting and clears when there is room, declared sizes that would pass the cap,
+  keep starred, every refresh followed by a pass that can't fail it); `CleanUpTest` (7: played after 3 days,
+  unplayed after 14, played counts from finishing, configurable and never, starred/queued/loaded exempt, the pure
+  rules incl. a clock that went back, a running download of the same episode holds the lock and is left alone);
+  `WorkersTest` (clean-up worker daily, unique soon-run, no network, built by the factory); `SettingsViewModelTest`
+  (3: defaults and choices, persist across restart through the jobs, the storage-limit note); `ShowViewModelTest`
+  (2: toggle, new shows get the default); `ShowLayoutUiTest` (the new row fits 320/360/412 dp, ≥ 48 dp tall, and
+  toggles).
+- Deviations from the spec, and why:
+  - An episode is auto-downloaded at most once (`episodes.autoDownloadedAt`). Otherwise clean-up deleting it after 14
+    days, or the owner deleting it, would bring it straight back on the next refresh.
+  - "Played N days after it was finished" counts from the playback record's last change while played. Reaching 98%
+    marks it played but it stays loaded and keeps saving its position until it ends, so the clock starts when the
+    owner stops listening, not at 98%. The loaded episode is exempt anyway.
+  - "Keep starred episodes downloaded" (SPEC §12 calls it optional; no detail given): starred episodes with no
+    download are fetched once each, as auto-downloads (background, auto-download network rule), right when starred,
+    when the setting is turned on, after each refresh and daily. Starred downloads are never cleaned up either way.
+  - The storage cap check before queuing uses the feed's declared sizes (missing, negative or over 2 GiB count as
+    unknown); the runner still enforces the cap on the real bytes, so an auto-download that hits the cap while
+    running fails like an owner download and only its own partial file is removed. Nothing else is deleted.
+  - Clean-up only touches finished downloads; paused or failed partial files are left for the owner.
+  - The clean-up day choices include "Never" (0), so each rule can be turned off. Played: Never, 1, 2, 3, 7, 14, 30
+    days; unplayed: Never, 7, 14, 30, 60, 90 days.
+  - The "stopped at the storage limit" note is shown in Settings › Downloads and storage and logged once to the app
+    log; it is per phone (`DeviceSettings`) and clears on the next pass with room.
+- Manual checks for the owner:
+  - Install the debug build: it migrates the library to schema 4 (a backup is taken first). Auto-download starts off
+    for every show; clean-up starts with 3 / 14 days.
+  - Clean-up runs on first start and daily. Before installing, check what it would delete: any finished download
+    that is not starred, queued or loaded and was played over 3 days ago, or downloaded over 14 days ago and not
+    played. If that's too much, set "Never" right after installing (the first run happens soon after start), or
+    star what you want to keep.
+  - Turn on "Download new episodes" on a show you know publishes soon; after its next refresh the new episode
+    downloads without a notification (background work), on mobile data too unless "Automatic downloads on Wi-Fi
+    only" is on. Older episodes must not download.
+  - Settings › Downloads and storage on your 360 dp phone: the new switches and the two clean-up choices read well;
+    with a low storage limit the red note appears and nothing is deleted.
+  - Mark a downloaded episode played with played-days set to 1, wait a day: it disappears and the download log
+    says "Deleted by clean-up: played 1 day ago or more."
+- PR: see the `m1-s9b-auto-download` pull request.
 
 ### M1-S9a Starred episodes, 98% played, import a list of shows (2026-11-15)
 - Plan (written before any code; run unattended, so not approved by the owner):
@@ -1570,6 +1654,13 @@ Result:
   is `PlaybackRecord.countsAsPlayed` in `:core:model`; nothing else may hard-code the fraction. The import file
   format is `ImportFile` (`:core:data` `importing`, version 1); M1-S9c writes it and `ListImportViewModel` reads it.
   List imports pace Apple requests with `BrowseDeps.importPacer` and never subscribe with `ownerTyped = true`.
+- Auto-download and clean-up (M1-S9b): auto-downloads are queued only by `AutoDownloader` through
+  `Downloads.enqueue(id, auto = true)` (tag `download-auto`, own network rule, no foreground service). Change the
+  auto network rule and clean-up settings through `Jobs.setAutoDownloadWifiOnly` / `Jobs.setCleanUp`. Downloads are
+  deleted by clean-up only through `DownloadRunner.cleanUp`, which holds the per-episode lock and re-checks
+  `CleanUpRules`. The library side is `Repositories.downloadRules`; per-show "Download new episodes" is
+  `FeedSettingsRepository.setAutoDownload` (a time, not a flag). New subscriptions get the default through
+  `Subscriptions`.
 
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
@@ -1582,6 +1673,10 @@ Result:
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
+- Auto-download: a "Downloads" list that shows which downloads were automatic, and a per-show "keep the newest N"
+  rule if 3/14-day clean-up isn't enough.
+- A Compose layout test of Settings › Downloads and storage at 360 dp (S9b checked the show page's new row only;
+  Settings reuses the existing switch and choice rows).
 - List import: an optional per-line "Check" that previews a pasted feed address (owner-tapped fetch), and a way to
   type a new search term for one line instead of only choosing among its five matches.
 - S10: Android Auto's Starred node can use `StarredRepository.starred()`.
@@ -1630,6 +1725,4 @@ Result:
 
 ## Known issues
 <!-- Bugs found but not yet fixed, with how to reproduce. -->
-- `LogExportTest.theExportHoldsEveryLogWithEveryUrlRedacted` failed once locally during M1-S9a (the first app-log
-  line was missing from the export) and passed on three reruns. It looks like the export reading the app log before
-  the first write landed; not investigated (outside the session).
+- (Fixed in M1-S9b: the `LogExportTest` flake was `AppLog` losing a line to a folder-creation race.)

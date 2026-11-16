@@ -51,6 +51,8 @@ data class ShowUiState(
     /** The show's own speed, or null for the global one. */
     val showSpeed: Float? = null,
     val globalSpeed: Float = 1.0f,
+    /** SPEC §9 "Download new episodes" for this show. */
+    val autoDownload: Boolean = false,
     val online: Boolean = true,
 )
 
@@ -62,7 +64,7 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
     private val starredOnly = MutableStateFlow(false)
     private val unsubscribed = MutableStateFlow(false)
 
-    private class Header(val feed: Feed?, val description: RichText?, val showSpeed: Float?, val global: PlaybackSettings)
+    private class Header(val feed: Feed?, val description: RichText?, val showSpeed: Float?, val global: PlaybackSettings, val autoDownload: Boolean)
 
     private fun header(repos: Repositories) = combine(
         repos.feeds.feed(feedId),
@@ -71,7 +73,8 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
             .flowOn(Dispatchers.Default),
         repos.feedSettings.speed(feedId),
         deps.settings.playback,
-    ) { feed, description, speed, global -> Header(feed, description, speed, global) }
+        repos.feedSettings.autoDownload(feedId),
+    ) { feed, description, speed, global, auto -> Header(feed, description, speed, global, auto) }
 
     val state: StateFlow<ShowUiState> = deps.withRepositories(ShowUiState(loading = false, gone = true)) { repos ->
         val rows = combine(
@@ -99,6 +102,7 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
                 loadedHere = rows.playback.episodeId != null && rows.episodes.any { it.id == rows.playback.episodeId },
                 showSpeed = header.showSpeed,
                 globalSpeed = header.global.speed,
+                autoDownload = header.autoDownload,
                 online = online,
             )
         }
@@ -126,6 +130,11 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
         } else {
             viewModelScope.launch { deps.repositories()?.feedSettings?.setSpeed(feedId, speed) }
         }
+    }
+
+    /** On: episodes published from now on are downloaded after each refresh (SPEC §9); the back catalogue isn't. */
+    fun setAutoDownload(on: Boolean) {
+        viewModelScope.launch { deps.repositories()?.feedSettings?.setAutoDownload(feedId, on) }
     }
 
     fun refresh() = deps.refresh(feedId)

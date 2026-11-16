@@ -13,6 +13,7 @@ import us.dikarya.podplayer.core.data.db.EpisodeEntity
 import us.dikarya.podplayer.core.data.db.EpisodeFeedFields
 import us.dikarya.podplayer.core.data.db.FeedChannelFields
 import us.dikarya.podplayer.core.data.db.FeedEntity
+import us.dikarya.podplayer.core.data.db.FeedSettingsEntity
 import us.dikarya.podplayer.core.data.db.PodDatabase
 import us.dikarya.podplayer.core.feed.ParsedEpisode
 import us.dikarya.podplayer.core.feed.ParsedFeed
@@ -97,9 +98,10 @@ class FeedRepository internal constructor(private val db: PodDatabase, private v
     /**
      * Adds a subscription. The URL goes through the URL policy and is stored in canonical form.
      * [ownerTyped]: the owner typed or pasted this URL, so its host is approved even on a private network
-     * (SPEC §3). Feeds from search or OPML import pass false.
+     * (SPEC §3). Feeds from search or OPML import pass false. [autoDownload]: the owner's default for new shows
+     * (SPEC §9); a new subscription gets it from this moment, an existing one keeps its own.
      */
-    suspend fun subscribe(url: String, ownerTyped: Boolean): SubscribeResult {
+    suspend fun subscribe(url: String, ownerTyped: Boolean, autoDownload: Boolean = false): SubscribeResult {
         val allowed = when (val check = UrlPolicy.checkFeedUrl(url)) {
             is UrlCheck.Allowed -> check.url
             is UrlCheck.Rejected -> return SubscribeResult.Refused(check.problem)
@@ -114,9 +116,10 @@ class FeedRepository internal constructor(private val db: PodDatabase, private v
                 }
                 SubscribeResult.AlreadySubscribed(existing.id)
             } else {
-                SubscribeResult.Subscribed(
-                    db.feeds().insert(FeedEntity(url = canonical, ownerApprovedHost = host, subscribedAt = clock())),
-                )
+                val now = clock()
+                val id = db.feeds().insert(FeedEntity(url = canonical, ownerApprovedHost = host, subscribedAt = now))
+                if (autoDownload) db.feedSettings().upsert(FeedSettingsEntity(id, autoDownloadSince = now))
+                SubscribeResult.Subscribed(id)
             }
         }
     }

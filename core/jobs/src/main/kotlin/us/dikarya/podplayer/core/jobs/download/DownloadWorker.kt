@@ -41,10 +41,13 @@ class DownloadWorker(
     private val episodeId: Long get() = inputData.getLong(KEY_EPISODE, -1)
     private val title: String? get() = inputData.getString(KEY_TITLE)
 
+    /** SPEC §9: auto-downloads run as background work; the owner didn't start them. */
+    private val foreground: Boolean get() = !inputData.getBoolean(KEY_AUTO, false)
+
     override suspend fun doWork(): Result {
         val id = episodeId
         if (id <= 0) return Result.failure()
-        goForeground(notifications.foregroundInfo(this.id, id, title, 0, null))
+        if (foreground) goForeground(notifications.foregroundInfo(this.id, id, title, 0, null))
         val progress = AtomicReference<Pair<Long, Long?>?>(null)
         val outcome = try {
             coroutineScope {
@@ -56,7 +59,7 @@ class DownloadWorker(
                         if (now != null && now != shown) {
                             shown = now
                             setProgress(workDataOf(KEY_BYTES to now.first, KEY_TOTAL to (now.second ?: -1L)))
-                            goForeground(notifications.foregroundInfo(this@DownloadWorker.id, id, title, now.first, now.second))
+                            if (foreground) goForeground(notifications.foregroundInfo(this@DownloadWorker.id, id, title, now.first, now.second))
                         }
                     }
                 }
@@ -101,6 +104,7 @@ class DownloadWorker(
     companion object {
         const val KEY_EPISODE = "episode"
         const val KEY_TITLE = "title"
+        const val KEY_AUTO = "auto"
         const val KEY_BYTES = "bytes"
         const val KEY_TOTAL = "total"
         const val MAX_ATTEMPTS = 5

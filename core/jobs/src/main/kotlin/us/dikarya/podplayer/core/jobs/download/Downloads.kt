@@ -35,44 +35,66 @@ class Downloads(
     private val workManager: () -> WorkManager,
     private val repositories: suspend () -> Repositories?,
     private val wifiOnly: suspend () -> Boolean,
+    /** Auto-downloads' own network rule (SPEC §9), separate from [wifiOnly]. */
+    private val autoWifiOnly: suspend () -> Boolean,
     private val runner: DownloadRunner,
     private val paths: MediaPaths,
     private val log: AppLog,
 ) {
     /**
-     * Queues an owner-started download. It waits for Wi-Fi (an unmetered network) when the Wi-Fi-only setting
-     * is on, which is the default. Returns false if there is nothing to download.
+     * Queues a download. An owner-started one waits for Wi-Fi (an unmetered network) when the Wi-Fi-only setting
+     * is on, which is the default, and runs in the foreground. An [auto] one (SPEC §9: the owner didn't start it)
+     * follows the auto-download network setting and runs as background work. The owner asking for an episode
+     * whose auto-download is still waiting turns it into the owner's download, same work id. Returns false if
+     * there is nothing to download.
      */
-    suspend fun enqueue(episodeId: Long): Boolean {
+    suspend fun enqueue(episodeId: Long, auto: Boolean = false): Boolean {
         val episode = repositories()?.episodes?.get(episodeId) ?: return false
         if (!runner.queue(episodeId)) return false
-        workManager().enqueueUniqueWork(workName(episodeId), ExistingWorkPolicy.KEEP, request(episode, wifiOnly(), id = null))
+        if (!auto) {
+            val waitingAuto = waitingWork(episodeId)?.takeIf { TAG_AUTO in it.tags }
+            if (waitingAuto != null) {
+                val result = withContext(Dispatchers.IO) { workManager().updateWork(request(episode, wifiOnly(), waitingAuto.id, auto = false)).get() }
+                if (result != WorkManager.UpdateResult.NOT_APPLIED) return true
+            }
+        }
+        val network = if (auto) autoWifiOnly() else wifiOnly()
+        workManager().enqueueUniqueWork(workName(episodeId), ExistingWorkPolicy.KEEP, request(episode, network, id = null, auto = auto))
         return true
     }
 
+    private suspend fun waitingWork(episodeId: Long): WorkInfo? =
+        withContext(Dispatchers.IO) { workManager().getWorkInfosForUniqueWork(workName(episodeId)).get() }
+            .firstOrNull { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
+
     /**
-     * Moves every download that is still waiting to the current Wi-Fi-only setting (the owner changed it, or a
-     * restore did). Each keeps its WorkManager id and its record, so nothing restarts or loses its place. A
-     * download already running finishes on the network it has; the new rule applies if it has to run again.
-     * Returns how many waiting downloads were updated.
+     * Moves every download that is still waiting to the current network settings (the owner changed one, or a
+     * restore did): owner downloads to the Wi-Fi-only setting, auto-downloads to their own. Each keeps its
+     * WorkManager id and its record, so nothing restarts or loses its place. A download already running finishes
+     * on the network it has; the new rule applies if it has to run again. Returns how many waiting downloads were
+     * updated.
      */
     suspend fun applyNetworkSetting(): Int {
         val repos = repositories() ?: return 0
         val wifiOnly = wifiOnly()
+        val autoWifiOnly = autoWifiOnly()
         val waiting = repos.media.observeAll().first().filter { it.state == DownloadState.Queued || it.state == DownloadState.Downloading }
         var updated = 0
+        var updatedAuto = 0
         for (file in waiting) {
             val episode = repos.episodes.get(file.episodeId) ?: continue
-            val info = withContext(Dispatchers.IO) { workManager().getWorkInfosForUniqueWork(workName(file.episodeId)).get() }
-                .firstOrNull { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED } ?: continue
-            val result = withContext(Dispatchers.IO) { workManager().updateWork(request(episode, wifiOnly, info.id)).get() }
-            if (result != WorkManager.UpdateResult.NOT_APPLIED) updated++
+            val info = waitingWork(file.episodeId) ?: continue
+            val auto = TAG_AUTO in info.tags
+            val request = request(episode, if (auto) autoWifiOnly else wifiOnly, info.id, auto)
+            val result = withContext(Dispatchers.IO) { workManager().updateWork(request).get() }
+            if (result != WorkManager.UpdateResult.NOT_APPLIED) if (auto) updatedAuto++ else updated++
         }
         if (updated > 0) log.i(TAG, networkSettingMessage(updated, wifiOnly))
-        return updated
+        if (updatedAuto > 0) log.i(TAG, "Auto-downloads: " + networkSettingMessage(updatedAuto, autoWifiOnly))
+        return updated + updatedAuto
     }
 
-    private fun request(episode: Episode, wifiOnly: Boolean, id: UUID?): OneTimeWorkRequest {
+    private fun request(episode: Episode, wifiOnly: Boolean, id: UUID?, auto: Boolean): OneTimeWorkRequest {
         val network = if (wifiOnly) NetworkType.UNMETERED else NetworkType.CONNECTED
         return OneTimeWorkRequestBuilder<DownloadWorker>()
             .apply { if (id != null) setId(id) }
@@ -80,12 +102,14 @@ class Downloads(
                 workDataOf(
                     DownloadWorker.KEY_EPISODE to episode.id,
                     DownloadWorker.KEY_TITLE to DownloadNotifications.clean(episode.title),
+                    DownloadWorker.KEY_AUTO to auto,
                 ),
             )
             .setConstraints(Constraints.Builder().setRequiredNetworkType(network).build())
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, BACKOFF_SECONDS, TimeUnit.SECONDS)
             .addTag(TAG_ALL)
             .addTag(feedTag(episode.feedId))
+            .apply { if (auto) addTag(TAG_AUTO) }
             .build()
     }
 
@@ -130,6 +154,9 @@ class Downloads(
 
         const val TAG = "Downloads"
         const val TAG_ALL = "download"
+
+        /** Auto-downloads (SPEC §9): background work on their own network rule. */
+        const val TAG_AUTO = "download-auto"
         const val BACKOFF_SECONDS = 60L
 
         fun workName(episodeId: Long) = "download-$episodeId"

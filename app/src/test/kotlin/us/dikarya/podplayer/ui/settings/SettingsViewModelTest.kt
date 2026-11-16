@@ -13,12 +13,15 @@ import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import us.dikarya.podplayer.core.data.settings.AppSettings
+import us.dikarya.podplayer.core.data.settings.CleanUpSettings
 import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.core.model.MediaFile
 import us.dikarya.podplayer.core.model.PlaybackSettings
@@ -83,6 +86,54 @@ class SettingsViewModelTest {
         assertEquals(5L * GIB, runBlocking { settings.storageCapBytes.first() })
         val again = awaitState(SettingsViewModel(restarted.deps).state) { !it.loading }
         assertEquals(expected, again.playback)
+    }
+
+    @Test
+    fun autoDownloadAndCleanUpDefaultsFollowTheSpec() {
+        val state = awaitState(SettingsViewModel(open().deps).state) { !it.loading }
+        assertEquals(false, state.autoDownloadNewShows)
+        assertEquals("any connection", false, state.autoDownloadWifiOnly)
+        assertEquals(CleanUpSettings(playedDays = 3, unplayedDays = 14, keepStarredDownloaded = false), state.cleanUp)
+        assertNull(state.autoDownloadStoppedAt)
+        assertTrue(3 in SettingsViewModel.PLAYED_DAYS_CHOICES && CleanUpSettings.NEVER in SettingsViewModel.PLAYED_DAYS_CHOICES)
+        assertTrue(14 in SettingsViewModel.UNPLAYED_DAYS_CHOICES && CleanUpSettings.NEVER in SettingsViewModel.UNPLAYED_DAYS_CHOICES)
+    }
+
+    @Test
+    fun autoDownloadAndCleanUpSettingsPersistAcrossARestart() {
+        val first = open()
+        val vm = SettingsViewModel(first.deps)
+        awaitState(vm.state) { !it.loading }
+        vm.setAutoDownloadNewShows(true)
+        vm.setAutoDownloadWifiOnly(true)
+        vm.setPlayedDays(7)
+        vm.setUnplayedDays(CleanUpSettings.NEVER)
+        vm.setKeepStarredDownloaded(true)
+        val expected = CleanUpSettings(7, CleanUpSettings.NEVER, true)
+        awaitState(vm.state) { it.autoDownloadNewShows && it.autoDownloadWifiOnly && it.cleanUp == expected }
+        assertEquals("through the jobs, which move waiting auto-downloads", listOf(true), first.autoWifiOnlyChanges)
+        assertEquals("each change keeps the others", expected, first.cleanUpChanges.last())
+        assertEquals(listOf<Boolean>(), first.wifiOnlyChanges)
+        first.close()
+        env = null
+
+        val again = awaitState(SettingsViewModel(open().deps).state) { !it.loading }
+        assertEquals(true, again.autoDownloadNewShows)
+        assertEquals(true, again.autoDownloadWifiOnly)
+        assertEquals(expected, again.cleanUp)
+        assertEquals("the manual setting is untouched", true, again.wifiOnly)
+    }
+
+    @Test
+    fun theStorageLimitNoteShowsWhileAutoDownloadsAreStopped() = runBlocking {
+        val e = open()
+        val vm = SettingsViewModel(e.deps)
+        awaitState(vm.state) { !it.loading }
+        e.browse.data.device.setAutoDownloadStoppedAt(1_234L)
+        awaitState(vm.state) { it.autoDownloadStoppedAt == 1_234L }
+        e.browse.data.device.setAutoDownloadStoppedAt(null)
+        awaitState(vm.state) { it.autoDownloadStoppedAt == null }
+        Unit
     }
 
     @Test

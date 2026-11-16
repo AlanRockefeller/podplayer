@@ -96,6 +96,11 @@ data class EpisodeEntity(
      */
     @ColumnInfo(defaultValue = "0") val starred: Boolean = false,
     val starredAt: Long? = null,
+    /**
+     * When auto-download queued this episode (SPEC §9, v4), so it is never fetched automatically twice: not after
+     * clean-up deleted it, nor after the owner did. Set only by DownloadRulesRepository; a refresh never writes it.
+     */
+    val autoDownloadedAt: Long? = null,
 ) {
     override fun toString() =
         "EpisodeEntity(id=$id, feedId=$feedId, guid=$guid, title=$title, enclosure=${redact(enclosureUrl)}, inFeed=$inFeed, starred=$starred)"
@@ -163,6 +168,11 @@ data class FeedSettingsEntity(
     @PrimaryKey val feedId: Long,
     /** Null: use the global speed. */
     val playbackSpeed: Float? = null,
+    /**
+     * "Download new episodes" (SPEC §9, v4): when the owner turned it on, or null when it is off. Only episodes
+     * published after this time are downloaded automatically.
+     */
+    val autoDownloadSince: Long? = null,
 )
 
 /** Append-only history for M2 sync. Deleting the episode keeps the action (episodeId becomes null). */

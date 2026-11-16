@@ -30,6 +30,8 @@ data class ImportSummary(val added: Int, val alreadySubscribed: Int, val refused
  */
 class Subscriptions(
     private val repositories: suspend () -> Repositories?,
+    /** SPEC §9: the owner's "Download new episodes" default for new shows (`AppSettings.autoDownloadNewShows`). */
+    private val autoDownloadDefault: suspend () -> Boolean = { false },
     private val refresh: (feedId: Long?) -> Unit,
 ) {
     /**
@@ -39,7 +41,7 @@ class Subscriptions(
      */
     suspend fun subscribe(url: String, ownerTyped: Boolean, preview: ParsedFeed? = null): SubscribeOutcome {
         val repos = repositories() ?: return SubscribeOutcome.LibraryClosed
-        return when (val result = repos.feeds.subscribe(url, ownerTyped)) {
+        return when (val result = repos.feeds.subscribe(url, ownerTyped, autoDownloadDefault())) {
             is SubscribeResult.Refused -> SubscribeOutcome.Refused(result.problem)
             is SubscribeResult.AlreadySubscribed -> SubscribeOutcome.AlreadySubscribed(result.feedId)
             is SubscribeResult.Subscribed -> {
@@ -59,8 +61,9 @@ class Subscriptions(
         var added = 0
         var already = 0
         var refused = 0
+        val autoDownload = autoDownloadDefault()
         for (feed in feeds) {
-            when (repos.feeds.subscribe(feed.feedUrl, ownerTyped = false)) {
+            when (repos.feeds.subscribe(feed.feedUrl, ownerTyped = false, autoDownload = autoDownload)) {
                 is SubscribeResult.Subscribed -> added++
                 is SubscribeResult.AlreadySubscribed -> already++
                 is SubscribeResult.Refused -> refused++

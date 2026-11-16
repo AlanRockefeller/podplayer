@@ -9,6 +9,7 @@ package us.dikarya.podplayer.ui.settings
 import android.content.Context
 import android.text.format.Formatter
 import us.dikarya.podplayer.core.data.settings.AppSettings
+import us.dikarya.podplayer.core.data.settings.CleanUpSettings
 import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -53,6 +54,7 @@ import us.dikarya.podplayer.ui.player.speedText
 import us.dikarya.podplayer.ui.theme.PodplayerTheme
 
 const val TAG_SETTINGS_LIST = "settings-list"
+const val TAG_AUTO_STOPPED = "settings-auto-stopped"
 private const val MPL_URL = "https://www.mozilla.org/en-US/MPL/2.0/"
 
 /**
@@ -188,6 +190,78 @@ private fun DownloadsSection(state: SettingsUiState, viewModel: SettingsViewMode
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
         )
     }
+    AutoDownloadSection(state, viewModel)
+}
+
+/** SPEC §9 auto-download and clean-up, part of Downloads and storage. */
+@Composable
+private fun AutoDownloadSection(state: SettingsUiState, viewModel: SettingsViewModel) {
+    SubHeading(R.string.settings_auto_download)
+    if (state.autoDownloadStoppedAt != null) {
+        Text(
+            stringResource(R.string.settings_auto_stopped),
+            style = MaterialTheme.typography.bodyMedium,
+            color = PodplayerTheme.colors.warning,
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp).testTag(TAG_AUTO_STOPPED),
+        )
+    }
+    SwitchSetting(
+        title = R.string.settings_auto_new_shows,
+        body = stringResource(R.string.settings_auto_new_shows_body),
+        checked = state.autoDownloadNewShows,
+        onChange = viewModel::setAutoDownloadNewShows,
+    )
+    SwitchSetting(
+        title = R.string.settings_auto_wifi_only,
+        body = stringResource(R.string.settings_auto_wifi_only_body),
+        checked = state.autoDownloadWifiOnly,
+        onChange = viewModel::setAutoDownloadWifiOnly,
+    )
+    SubHeading(R.string.settings_clean_up)
+    Text(
+        stringResource(R.string.settings_clean_up_body),
+        style = MaterialTheme.typography.bodyMedium,
+        color = PodplayerTheme.colors.textSecondary,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+    val played: @Composable (Int) -> String = { days ->
+        if (days == CleanUpSettings.NEVER) stringResource(R.string.settings_never) else pluralStringResource(R.plurals.settings_clean_played_after, days, days)
+    }
+    ChoiceSetting(
+        title = R.string.settings_clean_played,
+        value = played(state.cleanUp.playedDays),
+        choices = SettingsViewModel.PLAYED_DAYS_CHOICES,
+        selected = state.cleanUp.playedDays,
+        label = played,
+        onPick = viewModel::setPlayedDays,
+    )
+    val unplayed: @Composable (Int) -> String = { days ->
+        if (days == CleanUpSettings.NEVER) stringResource(R.string.settings_never) else pluralStringResource(R.plurals.settings_clean_unplayed_after, days, days)
+    }
+    ChoiceSetting(
+        title = R.string.settings_clean_unplayed,
+        value = unplayed(state.cleanUp.unplayedDays),
+        choices = SettingsViewModel.UNPLAYED_DAYS_CHOICES,
+        selected = state.cleanUp.unplayedDays,
+        label = unplayed,
+        onPick = viewModel::setUnplayedDays,
+    )
+    SwitchSetting(
+        title = R.string.settings_keep_starred,
+        body = stringResource(R.string.settings_keep_starred_body),
+        checked = state.cleanUp.keepStarredDownloaded,
+        onChange = viewModel::setKeepStarredDownloaded,
+    )
+}
+
+@Composable
+private fun SubHeading(@StringRes text: Int) {
+    Text(
+        text = stringResource(text),
+        style = MaterialTheme.typography.labelLarge,
+        color = PodplayerTheme.colors.textSecondary,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 4.dp).semantics { heading() },
+    )
 }
 
 @Composable

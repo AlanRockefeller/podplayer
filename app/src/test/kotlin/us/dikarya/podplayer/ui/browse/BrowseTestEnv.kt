@@ -149,7 +149,7 @@ class BrowseTestEnv(root: File) {
         online = online,
         search = AppleSearch(gate),
         previewer = FeedPreviewer(gate, androidFeedParser()),
-        subscriptions = Subscriptions({ data.awaitRepositories() }) { refreshes += it },
+        subscriptions = Subscriptions({ data.awaitRepositories() }, { data.settings.autoDownloadNewShows.first() }) { refreshes += it },
         log = log,
         importPacer = { Pacer(now = { pacerNow }) { ms -> pacedWaits += ms; pacerNow += ms } },
     )

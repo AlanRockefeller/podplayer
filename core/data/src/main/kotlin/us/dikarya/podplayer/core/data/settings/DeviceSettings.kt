@@ -100,7 +100,18 @@ class DeviceSettings(private val store: DataStore<Preferences>) {
         store.edit { if (id == null) it.remove(CURRENT_EPISODE) else it[CURRENT_EPISODE] = id }
     }
 
+    /**
+     * When auto-downloads last stopped because downloads reached the storage limit (SPEC §9), or null while they
+     * run. Device-only: storage belongs to this phone.
+     */
+    val autoDownloadStoppedAt: Flow<Long?> = data.map { it[AUTO_DOWNLOAD_STOPPED_AT] }.distinctUntilChanged()
+
+    suspend fun setAutoDownloadStoppedAt(at: Long?) {
+        store.edit { if (at == null) it.remove(AUTO_DOWNLOAD_STOPPED_AT) else it[AUTO_DOWNLOAD_STOPPED_AT] = at }
+    }
+
     companion object {
+        private val AUTO_DOWNLOAD_STOPPED_AT = longPreferencesKey("auto_download_stopped_at")
         const val FILE_NAME = "device.preferences_pb"
         private val CURRENT_EPISODE = longPreferencesKey("current_episode_id")
         private val FOLDER_URI = stringPreferencesKey("backup_folder_uri")

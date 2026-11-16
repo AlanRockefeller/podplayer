@@ -70,6 +70,26 @@ enum class LibrarySort {
 }
 
 /**
+ * SPEC §9 clean-up of downloaded files. A day count of 0 means never. Starred, queued and loaded episodes are
+ * never deleted whatever these say; [keepStarredDownloaded] also downloads starred episodes that aren't.
+ */
+data class CleanUpSettings(
+    /** Played episodes are deleted this many days after they were finished. */
+    val playedDays: Int = 3,
+    /** Unplayed downloads are deleted this many days after they finished downloading. */
+    val unplayedDays: Int = 14,
+    val keepStarredDownloaded: Boolean = false,
+) {
+    /** A restored backup can hold anything: negative is never, and a year is the most. */
+    fun normalized() = copy(playedDays = playedDays.coerceIn(0, MAX_DAYS), unplayedDays = unplayedDays.coerceIn(0, MAX_DAYS))
+
+    companion object {
+        const val NEVER = 0
+        const val MAX_DAYS = 365
+    }
+}
+
+/**
  * The owner's settings, in Preferences DataStore. Everything in this store goes into backups and comes back
  * on restore; settings that belong to this phone only live in [DeviceSettings]. A corrupt or unreadable file
  * falls back to the defaults.
@@ -114,6 +134,41 @@ class AppSettings(private val store: DataStore<Preferences>) {
 
     suspend fun setStorageCapBytes(bytes: Long) {
         store.edit { it[STORAGE_CAP_BYTES] = bytes.coerceIn(MIN_STORAGE_CAP_BYTES, MAX_STORAGE_CAP_BYTES) }
+    }
+
+    /** SPEC §9: "Download new episodes" for shows subscribed from now on (default off). */
+    val autoDownloadNewShows: Flow<Boolean> = data.map { it.read<Boolean>(AUTO_DOWNLOAD_NEW_SHOWS) ?: false }.distinctUntilChanged()
+
+    suspend fun setAutoDownloadNewShows(on: Boolean) {
+        store.edit { it[AUTO_DOWNLOAD_NEW_SHOWS] = on }
+    }
+
+    /** SPEC §9: auto-downloads' own network rule, separate from [downloadsWifiOnly]; default any connection. */
+    val autoDownloadWifiOnly: Flow<Boolean> = data.map { it.read<Boolean>(AUTO_DOWNLOAD_WIFI_ONLY) ?: false }.distinctUntilChanged()
+
+    suspend fun setAutoDownloadWifiOnly(wifiOnly: Boolean) {
+        store.edit { it[AUTO_DOWNLOAD_WIFI_ONLY] = wifiOnly }
+    }
+
+    /** SPEC §9 clean-up, clamped on read. */
+    val cleanUp: Flow<CleanUpSettings> = data
+        .map { prefs ->
+            val default = CleanUpSettings()
+            CleanUpSettings(
+                playedDays = prefs.read<Int>(CLEAN_UP_PLAYED_DAYS) ?: default.playedDays,
+                unplayedDays = prefs.read<Int>(CLEAN_UP_UNPLAYED_DAYS) ?: default.unplayedDays,
+                keepStarredDownloaded = prefs.read<Boolean>(KEEP_STARRED_DOWNLOADED) ?: default.keepStarredDownloaded,
+            ).normalized()
+        }
+        .distinctUntilChanged()
+
+    suspend fun setCleanUp(settings: CleanUpSettings) {
+        val clamped = settings.normalized()
+        store.edit {
+            it[CLEAN_UP_PLAYED_DAYS] = clamped.playedDays
+            it[CLEAN_UP_UNPLAYED_DAYS] = clamped.unplayedDays
+            it[KEEP_STARRED_DOWNLOADED] = clamped.keepStarredDownloaded
+        }
     }
 
     /** SPEC §10: global speed, skip intervals and rewind-after-pause, clamped on read. */
@@ -185,6 +240,11 @@ class AppSettings(private val store: DataStore<Preferences>) {
         private val REWIND_AFTER_PAUSE = booleanPreferencesKey("rewind_after_pause")
         private val REWIND_SECONDS = intPreferencesKey("rewind_seconds")
         private val REWIND_AFTER_PAUSE_MINUTES = intPreferencesKey("rewind_after_pause_minutes")
+        private val AUTO_DOWNLOAD_NEW_SHOWS = booleanPreferencesKey("auto_download_new_shows")
+        private val AUTO_DOWNLOAD_WIFI_ONLY = booleanPreferencesKey("auto_download_wifi_only")
+        private val CLEAN_UP_PLAYED_DAYS = intPreferencesKey("clean_up_played_days")
+        private val CLEAN_UP_UNPLAYED_DAYS = intPreferencesKey("clean_up_unplayed_days")
+        private val KEEP_STARRED_DOWNLOADED = booleanPreferencesKey("keep_starred_downloaded")
 
         /**
          * Decimal gigabytes, the unit Android shows sizes in ("35 GB free"): a 10 GB limit reads "10 GB", not the

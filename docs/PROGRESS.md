@@ -19,6 +19,17 @@ a reviewer reads it to see what was really done.
 - PR:
 -->
 
+### Fixes from the owner's use after the Podbean import (2026-11-16)
+- Home's new episodes stopped at 20. They now load a page (30) at a time as the list nears its end
+  (`HomeViewModel.loadMore`, `canLoadMore`). Test: `HomeViewModelTest.scrollingToTheEndLoadsOlderEpisodes`.
+- Home rows drop the star and queue buttons (`EpisodeRow(compact = true)`) so titles get the room; both stay on
+  the episode page. Show and Starred lists keep them.
+- Playback rule changed (owner): when the last episode ends it stays loaded, paused at its end, played and out of
+  the queue, instead of "Nothing is playing". Play then starts it over. Tests:
+  `PlaybackEngineTest.theLastEpisodeEndingStaysLoaded` (replaces `theLastEpisodeEndingLeavesNothingLoaded`),
+  `playOnAnEndedEpisodeStartsItOver`.
+- Manual checks: scroll Home well past 30 episodes; play an episode to its end with nothing queued, then press Play.
+
 ### M1-S9c Podbean import, attended (2026-11-16), and a share fix
 - Podbean's data, checked on the owner's phone (all read-only):
   - Its private storage can't be read: not debuggable (`run-as` refused), no `ALLOW_BACKUP`; its key-value

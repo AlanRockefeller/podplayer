@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -29,6 +30,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -104,8 +106,13 @@ fun HomeScreen(
         if (state.newEpisodes.isEmpty()) {
             item(key = "new-empty") { CenteredMessage(stringResource(R.string.home_no_new_episodes)) }
         }
-        items(state.newEpisodes, key = { "new-${it.id}" }) { item ->
-            EpisodeRow(item, withShow = true, onOpen = { onOpenEpisode(item.id) }, actions = viewModel.actions, onDownload = download)
+        // Star and queue live on the episode page; Home rows keep the title room (owner, 2026-11-16).
+        itemsIndexed(state.newEpisodes, key = { _, item -> "new-${item.id}" }) { index, item ->
+            EpisodeRow(item, withShow = true, onOpen = { onOpenEpisode(item.id) }, actions = viewModel.actions, onDownload = download, compact = true)
+            // Near the end of the list: ask for older episodes (keyed on the size, so once per page).
+            if (index >= state.newEpisodes.size - LOAD_MORE_AHEAD && state.canLoadMore) {
+                LaunchedEffect(state.newEpisodes.size) { viewModel.loadMore() }
+            }
         }
     }
 }
@@ -173,3 +180,6 @@ private fun ShowsRow(shows: List<Feed>, onOpenShow: (Long) -> Unit) {
         }
     }
 }
+
+/** How many rows before the end Home asks for older episodes. */
+private const val LOAD_MORE_AHEAD = 5

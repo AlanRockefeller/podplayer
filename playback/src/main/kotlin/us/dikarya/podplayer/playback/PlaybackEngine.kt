@@ -148,7 +148,10 @@ class PlaybackEngine(
                 store.putAtQueueHead(id)
                 val start = startAtMs?.coerceAtLeast(0)
                 if (id == currentId && player.mediaItemCount > 0) {
-                    if (start != null) seekWithCause(clampToDuration(start), PositionCause.Seek) else maybeRewindAfterPause()
+                    if (start != null) seekWithCause(clampToDuration(start), PositionCause.Seek) else {
+                        restartIfEnded()
+                        maybeRewindAfterPause()
+                    }
                     if (player.playbackState == Player.STATE_IDLE) player.prepare()
                     player.playWhenReady = true
                 } else {
@@ -254,6 +257,7 @@ class PlaybackEngine(
             }
             return
         }
+        restartIfEnded()
         maybeRewindAfterPause()
         if (player.playbackState == Player.STATE_IDLE) player.prepare()
         player.playWhenReady = true
@@ -474,25 +478,20 @@ class PlaybackEngine(
         resample()
     }
 
-    /** Nothing follows the episode that just ended: it is played, and nothing stays loaded. */
+    /**
+     * Nothing follows the episode that just ended: it is played and out of the queue, and stays loaded, paused at its
+     * end, so the player still shows it (owner, 2026-11-16). Play starts it over ([restartIfEnded]).
+     */
     private fun endOfLastEpisode() {
         val previous = currentId ?: return
-        currentId = null
-        currentFeedId = null
-        rebuilding = true
-        try {
-            player.clearMediaItems()
-            player.stop()
-            player.playWhenReady = false
-        } finally {
-            rebuilding = false
-        }
+        player.playWhenReady = false
         if (sleep.value == SleepTimerState.EndOfEpisode) cancelSleepTimer()
-        // Clear the stored current episode before the queue changes, or the queue's update could reload it.
-        scope.launch {
-            store.setCurrentEpisodeId(null)
-            finished(previous)
-        }
+        finished(previous)
+    }
+
+    /** Play on an episode that has ended starts it from the beginning. */
+    private fun restartIfEnded() {
+        if (player.playbackState == Player.STATE_ENDED) seekWithCause(0, PositionCause.Seek)
     }
 
     private fun onPausedAtEndOfItem() {

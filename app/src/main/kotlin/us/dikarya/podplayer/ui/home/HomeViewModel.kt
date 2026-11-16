@@ -9,6 +9,7 @@ package us.dikarya.podplayer.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
@@ -17,6 +18,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import us.dikarya.podplayer.core.data.repo.Repositories
 import us.dikarya.podplayer.core.model.Episode
 import us.dikarya.podplayer.core.model.Feed
@@ -34,6 +36,8 @@ data class HomeUiState(
     /** Newest starred first; Home shows the row only when this isn't empty (SPEC §12). */
     val starred: List<EpisodeItem> = emptyList(),
     val online: Boolean = true,
+    /** Older episodes exist beyond [newEpisodes]; Home asks for them as the list nears its end. */
+    val canLoadMore: Boolean = false,
 ) {
     val noShows: Boolean get() = !loading && shows.isEmpty()
 }
@@ -51,9 +55,19 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
         val starred: List<Episode>,
     )
 
-    private fun library(repos: Repositories) = combine(
+    /** How many new episodes Home lists; grows a page at a time as the owner scrolls. */
+    private val shown = MutableStateFlow(PAGE)
+
+    /** Lists one more page of older episodes. */
+    fun loadMore() {
+        val listed = state.value
+        if (listed.canLoadMore) shown.update { it + PAGE }
+    }
+
+    private fun library(repos: Repositories, shown: Int) = combine(
         repos.feeds.feeds(),
-        repos.episodes.latest(LATEST_CANDIDATES),
+        // Extra candidates cover played episodes and the Continue episode, which are left out of the list.
+        repos.episodes.latest(shown + CANDIDATE_SLACK),
         repos.playback.inProgress(1).map { it.firstOrNull() },
         deps.playback.state.map { it.episodeId }.distinctUntilChanged()
             .flatMapLatest { id -> if (id == null) flowOf(null) else repos.episodes.observe(id) },
@@ -61,7 +75,7 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
     ) { feeds, latest, inProgress, loaded, starred -> Library(feeds, latest, inProgress, loaded, starred) }
 
     val state: StateFlow<HomeUiState> = deps.withRepositories(HomeUiState(loading = false, libraryClosed = true)) { repos ->
-        library(repos).flatMapLatest { lib ->
+        shown.flatMapLatest { count -> library(repos, count).map { count to it } }.flatMapLatest { (count, lib) ->
             val continueEpisode = lib.loaded ?: lib.inProgress
             val ids = (lib.latest.map { it.id } + listOfNotNull(continueEpisode?.id) + lib.starred.map { it.id }).distinct()
             combine(
@@ -75,14 +89,13 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
                 val downloads = media.associateBy { it.episodeId }
                 val queued = queue.mapTo(HashSet()) { it.episodeId }
                 fun item(e: Episode) = EpisodeItem.of(e, feeds[e.feedId], records[e.id], downloads[e.id], e.id in queued, playback)
+                val unplayed = lib.latest.filter { it.id != continueEpisode?.id && records[it.id]?.played != true }
                 HomeUiState(
                     loading = false,
                     continueItem = continueEpisode?.let(::item),
-                    newEpisodes = lib.latest.asSequence()
-                        .filter { it.id != continueEpisode?.id && records[it.id]?.played != true }
-                        .take(NEW_EPISODES)
-                        .map(::item)
-                        .toList(),
+                    newEpisodes = unplayed.take(count).map(::item),
+                    // More unplayed candidates than listed, or a full window (the database may hold older ones).
+                    canLoadMore = unplayed.size > count || lib.latest.size == count + CANDIDATE_SLACK,
                     shows = lib.feeds,
                     starred = lib.starred.map(::item),
                     online = online,
@@ -93,10 +106,11 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
 
     fun refresh() = deps.refresh(null)
 
-    private companion object {
-        const val LATEST_CANDIDATES = 60
-        const val NEW_EPISODES = 20
-        const val STARRED = 12
-        const val STOP_AFTER_MS = 5_000L
+    companion object {
+        /** New episodes per page. */
+        const val PAGE = 30
+        private const val CANDIDATE_SLACK = 40
+        private const val STARRED = 12
+        private const val STOP_AFTER_MS = 5_000L
     }
 }

@@ -138,6 +138,8 @@ fun EpisodeRow(
     actions: EpisodeActions,
     onDownload: (Long) -> Unit,
     modifier: Modifier = Modifier,
+    /** Leaves out star and queue (they are on the episode page), so the title gets the room. */
+    compact: Boolean = false,
 ) {
     val colors = PodplayerTheme.colors
     Column(modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onOpen)) {
@@ -154,9 +156,9 @@ fun EpisodeRow(
                 )
                 Text(episodeMeta(item, withShow), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            StarButton(item, actions)
+            if (!compact) StarButton(item, actions)
             PlayButton(item, actions)
-            QueueButton(item, actions)
+            if (!compact) QueueButton(item, actions)
             DownloadButton(item, actions, onDownload)
         }
         item.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }

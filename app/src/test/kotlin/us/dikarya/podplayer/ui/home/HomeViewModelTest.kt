@@ -46,6 +46,21 @@ class HomeViewModelTest {
     }
 
     @Test
+    fun scrollingToTheEndLoadsOlderEpisodes() = runBlocking {
+        // Owner, 2026-11-16: Home stopped at about 20 episodes; it should keep going as you scroll.
+        env.show("Alpha", episodes = 70, publishedBase = 1_790_000_000_000L)
+        val vm = HomeViewModel(env.deps)
+        val first = awaitState(vm.state) { it.newEpisodes.size == HomeViewModel.PAGE }
+        assertTrue(first.canLoadMore)
+        vm.loadMore()
+        val second = awaitState(vm.state) { it.newEpisodes.size == 2 * HomeViewModel.PAGE }
+        assertEquals("the first page is kept, in order", first.newEpisodes.map { it.id }, second.newEpisodes.take(HomeViewModel.PAGE).map { it.id })
+        vm.loadMore()
+        val all = awaitState(vm.state) { it.newEpisodes.size == 70 }
+        assertFalse("nothing older is left", all.canLoadMore)
+    }
+
+    @Test
     fun newEpisodesAreNewestFirstAcrossShowsAndLeaveOutPlayedOnes() = runBlocking {
         val a = env.show("Alpha", episodes = 2, publishedBase = 1_790_000_000_000L)
         val b = env.show("Beta", episodes = 2, publishedBase = 1_790_000_000_000L + BrowseTestEnv.DAY / 2)

@@ -19,6 +19,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -106,16 +107,30 @@ class PlaybackEngineTest {
     }
 
     @Test
-    fun theLastEpisodeEndingLeavesNothingLoaded() {
+    fun theLastEpisodeEndingStaysLoaded() {
+        // Owner, 2026-11-16: when the last episode ends, the player stays on it instead of "Nothing is playing".
         val h = harness().apply { store.add(1, durationMs = 10_000); store.queue.value = listOf(1) }.start()
         h.engine.playEpisode(1)
-        // The engine reacts to STATE_ENDED within the same callback, so wait for the stop it causes.
+        // The engine reacts to STATE_ENDED within the same callback, so wait for the pause it causes.
         run(h.player).untilPlayWhenReadyIs(false)
         idle()
         assertTrue(1L in h.store.played)
         assertEquals(emptyList<Long>(), h.store.queue.value)
-        assertNull(h.store.current)
-        assertEquals(0, h.player.mediaItemCount)
+        assertEquals(1L, h.store.current)
+        assertEquals(listOf(1L), h.itemIds())
+    }
+
+    @Test
+    fun playOnAnEndedEpisodeStartsItOver() {
+        val h = harness().apply { store.add(1, durationMs = 10_000); store.queue.value = listOf(1) }.start()
+        h.engine.playEpisode(1)
+        run(h.player).untilPlayWhenReadyIs(false)
+        idle()
+        h.engine.sessionPlayer.play()
+        idle()
+        assertTrue(h.player.playWhenReady)
+        assertNotEquals(Player.STATE_ENDED, h.player.playbackState)
+        assertTrue("starts again near the beginning", h.player.currentPosition < 5_000)
     }
 
     @Test

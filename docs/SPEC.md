@@ -107,6 +107,8 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
   played flag, updated time), feed_settings (per-show speed now; skip intro/outro and ad-skip settings later),
   episode_actions (append-only log of play/pause/seek/played/downloaded/deleted events with device id and a
   synced flag, used by M2 sync), download_log, refresh_log.
+- Added (owner, 2026-11-15): a starred flag and starred time per episode (in backups; M2 sync carries it as an
+  episode action), and per-show auto-download settings in feed_settings.
 - Backups: automatic daily backup of the database (SQLite `VACUUM INTO` or equivalent) plus settings into a
   folder the owner chooses through the Storage Access Framework; keep the last 7. Manual export and import.
   Always back up before running a migration.
@@ -126,9 +128,21 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
 - Declared MIME types are hints only (publishers mislabel them as audio/mp3, application/octet-stream and so on).
   Accept a file when Media3's extractors recognize an audio format; refuse video and unknown formats in M1 with a
   plain message.
-- Storage cap setting (default 10 GB); Wi-Fi-only setting (default on); disk full fails cleanly and leaves
+- Storage cap setting (default 10 GB); Wi-Fi-only setting for manual downloads (default on); disk full fails cleanly and leaves
   no file marked complete.
 - Per-download log the owner can read.
+- Auto-download (owner, 2026-11-15):
+  - Per show: "Download new episodes" on or off; a global default for new subscriptions (default off).
+  - Only episodes published after it was turned on for that show are downloaded (no flood on the first refresh).
+  - Its own network setting: any connection (default) or Wi-Fi only. Manual downloads keep their own Wi-Fi-only
+    setting. The storage cap applies; at the cap, auto-downloads stop and the app says so; it never deletes
+    to make room.
+  - Runs after each refresh, as background downloads (not foreground; the owner didn't start them).
+- Clean-up of downloaded files (owner, 2026-11-15; every number configurable in Settings):
+  - Played episodes (98%, as in §10) are deleted 3 days after they were finished.
+  - Unplayed downloads are deleted 14 days after they finished downloading.
+  - Never deleted automatically: starred episodes, episodes in the queue, the episode loaded in the player.
+  - Runs once a day and after playback marks an episode played; every deletion goes in the download log.
 
 ## 10. Playback (`:playback`)
 - `MediaLibraryService` with ExoPlayer and a `MediaLibrarySession`.
@@ -136,7 +150,8 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
   instead of ducking); `setHandleAudioBecomingNoisy(true)`; network wake mode while streaming;
   HTTP through `OkHttpDataSource` with the gated client; MP3 index seeking for downloaded files.
 - Queue: database is the truth; the player holds the current item plus the next; rebuild on every queue change.
-  Finishing an episode marks it played, removes it from the queue, and advances.
+  Finishing an episode marks it played, removes it from the queue, and advances. Reaching 98% of an episode
+  counts as played (owner, 2026-11-15); it stays loaded until it ends or the owner moves on.
 - Positions persisted as in `CLAUDE.md`. No unintended rewind on resume; an optional "rewind N seconds after a
   pause longer than M minutes" setting, default off.
 - Speed: global default plus per-show override; pitch preserved. Skip intervals: back 15 s, forward 30 s,
@@ -150,7 +165,7 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
 
 ## 11. Android Auto
 - Browse tree from `MediaLibrarySession.Callback`: root items Continue (last played, playable at its
-  position), Queue, Downloads, Latest episodes, Podcasts (browsable to episodes).
+  position), Queue, Downloads, Latest episodes, Starred, Podcasts (browsable to episodes).
 - At most 50 children per node; titles cleaned of control characters and capped at 120 characters.
 - Artwork: content URIs of sandbox-produced cache files only.
 - Test in the Desktop Head Unit. Sideloaded builds appear in Auto only after enabling Developer mode and
@@ -170,6 +185,25 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
   queue, download.
 - Settings: Appearance (Dark default on first launch, Light, Use system), Playback, Downloads and storage,
   Backup and restore, Logs (app log, download log, refresh log, crash log; export via share), About and licenses.
+- Starred episodes (owner, 2026-11-15):
+  - A star on the episode page, episode rows and the full player. Tapping it stars or unstars at once, with an
+    Undo bar; no confirmation dialog. No star on the lock screen or notification (no way to confirm there, and a
+    pocket tap would star silently).
+  - Library has a Starred list (searchable by episode or show name); Home has a Starred row; a show page can
+    filter to its starred episodes.
+  - Starred episodes are never deleted by clean-up (§9); an optional setting keeps them downloaded.
+  - Starring a played episode keeps it played; playing it again starts from the beginning.
+  - Share starred: a plain-text list of titles with their episode links (the feed's item link, never the
+    enclosure URL, which can carry tokens).
+- Import a list of shows (owner, 2026-11-15), in Discover:
+  - The owner pastes, or shares into the app, a list of show names (one per line) or links.
+  - Each line is matched through Apple's podcast search (feed URLs and links go to the typed-URL preview).
+    A preview lists every line with its best match, lets the owner pick another result or skip it, and
+    subscribes only after confirmation (`ownerTyped = false` for search matches).
+  - Lines are untrusted input: limits on count (500) and length, no fetches until the owner confirms the preview
+    except the search requests themselves, which are paced.
+  - The same importer accepts the file a one-off adb export from another app writes (M1-S9c): show names, and
+    optionally starred episodes, played episodes and positions, each matched by show, then episode title and date.
 - No transcript UI, no translation UI, no ad-skip UI in M1.
 - Debug builds only: a Developer screen (add feed by URL, refresh, list episodes, download, artwork, play/pause/
   seek/speed/sleep timer, logs) so features can be tested on a phone before the real UI exists. It lives in the

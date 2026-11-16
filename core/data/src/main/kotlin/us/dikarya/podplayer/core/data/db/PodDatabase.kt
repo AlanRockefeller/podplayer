@@ -49,7 +49,7 @@ abstract class PodDatabase : RoomDatabase() {
          * The schema version. Bumping it needs: the exported schema file (written by the build), a migration
          * from the previous version in [Migrations.ALL], and a seed-and-check in MigrationTest.
          */
-        const val VERSION = 2
+        const val VERSION = 3
 
         const val FILE_NAME = "podplayer.db"
     }
@@ -72,5 +72,14 @@ object Migrations {
         }
     }
 
-    val ALL: List<Migration> = listOf(V1_TO_V2)
+    /** M1-S9a: starred episodes (SPEC §7). Existing episodes start unstarred. */
+    val V2_TO_V3 = object : Migration(2, 3) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `episodes` ADD COLUMN `starred` INTEGER NOT NULL DEFAULT 0")
+            db.execSQL("ALTER TABLE `episodes` ADD COLUMN `starredAt` INTEGER")
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_episodes_starred_starredAt` ON `episodes` (`starred`, `starredAt`)")
+        }
+    }
+
+    val ALL: List<Migration> = listOf(V1_TO_V2, V2_TO_V3)
 }

@@ -49,6 +49,7 @@ class Repositories(
     val actions = EpisodeActionRepository(db, clock, deviceId)
     val media = MediaFileRepository(db)
     val logs = LogRepository(db, clock)
+    val starred = StarredRepository(db, clock, deviceId)
 }
 
 class EpisodeRepository internal constructor(private val db: PodDatabase) {

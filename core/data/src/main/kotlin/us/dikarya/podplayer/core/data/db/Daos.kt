@@ -155,6 +155,24 @@ interface EpisodeDao {
 
     @Query("SELECT EXISTS(SELECT 1 FROM episodes WHERE id = :id)")
     suspend fun exists(id: Long): Boolean
+
+    /** [starredAt] is null exactly when [starred] is false (StarredRepository). */
+    @Query("UPDATE episodes SET starred = :starred, starredAt = :starredAt WHERE id = :id")
+    suspend fun setStarred(id: Long, starred: Boolean, starredAt: Long?): Int
+
+    /**
+     * Starred episodes, newest starred first. [pattern] is a LIKE pattern with `\` as the escape character, or
+     * null for every one. SQLite's LIKE ignores case for ASCII letters only.
+     */
+    @Query(
+        """SELECT e.* FROM episodes e JOIN feeds f ON f.id = e.feedId
+           WHERE e.starred = 1 AND (:pattern IS NULL OR e.title LIKE :pattern ESCAPE '\' OR f.title LIKE :pattern ESCAPE '\')
+           ORDER BY e.starredAt DESC, e.id DESC LIMIT :limit""",
+    )
+    fun observeStarred(pattern: String?, limit: Int): Flow<List<EpisodeEntity>>
+
+    @Query("SELECT id FROM episodes WHERE feedId = :feedId AND starred = 1")
+    fun observeStarredIds(feedId: Long): Flow<List<Long>>
 }
 
 @Dao

@@ -324,4 +324,68 @@
 
     <!-- Open-source licenses (M1-S9) -->
     <string name="licenses_body">Podplayer is built with these open-source projects. Each keeps its own license.</string>
+
+    <!-- Starred episodes (M1-S9a) -->
+    <string name="action_star_episode">Star %1$s</string>
+    <string name="action_unstar_episode">Remove star from %1$s</string>
+    <string name="starred_done">Starred</string>
+    <string name="unstarred_done">Removed from Starred</string>
+    <string name="undo">Undo</string>
+    <string name="starred_title">Starred</string>
+    <string name="library_starred">Starred</string>
+    <string name="home_starred">Starred</string>
+    <string name="home_starred_all">See all</string>
+    <string name="show_starred_only">Starred only</string>
+    <string name="show_no_starred">No starred episodes in this show.</string>
+    <string name="starred_search">Search starred episodes</string>
+    <string name="starred_share">Share starred episodes</string>
+    <string name="starred_share_heading">Starred episodes</string>
+    <string name="starred_empty">Nothing starred yet. Tap the star on an episode to keep it here.</string>
+    <string name="starred_no_matches">No starred episode matches that search.</string>
+
+    <!-- Import a list of shows (M1-S9a) -->
+    <string name="discover_import_list">Import a list</string>
+    <string name="import_list_title">Import a list of shows</string>
+    <string name="import_list_intro">Paste show names or links, one per line. Each name is looked up on Apple\'s podcast search; you check every match before anything is subscribed.</string>
+    <string name="import_list_field">Shows, one per line</string>
+    <string name="import_list_find">Find shows</string>
+    <string name="import_list_file">Open a file</string>
+    <string name="import_list_searching">Searching, a few seconds apart so Apple doesn\'t refuse…</string>
+    <string name="import_list_searching_one">Searching…</string>
+    <string name="import_list_waiting">Waiting to search</string>
+    <string name="import_list_no_match">No match found</string>
+    <string name="import_list_failed">The search didn\'t work</string>
+    <string name="import_list_skipped">Skipped</string>
+    <string name="import_list_address">Feed address: checked when you subscribe</string>
+    <string name="import_list_change">Change</string>
+    <string name="import_list_skip">Skip</string>
+    <string name="import_list_include">Include</string>
+    <string name="import_list_retry">Search again</string>
+    <string name="import_list_start_over">Start over</string>
+    <string name="import_list_done">Added %1$d. Already subscribed: %2$d. Skipped: %3$d. Couldn\'t add: %4$d.</string>
+    <string name="import_list_not_found">Not found</string>
+    <string name="import_list_unmatched_episodes">Episodes that didn\'t match</string>
+    <string name="import_list_problem_empty">There\'s nothing to import.</string>
+    <string name="import_list_problem_too_many">That\'s more than 500 shows. Import them in smaller lists.</string>
+    <string name="import_list_problem_too_large">That\'s too much text for a list of shows.</string>
+    <string name="import_list_problem_unreadable">That file couldn\'t be read.</string>
+    <string name="import_list_problem_not_import_file">That isn\'t an import file this app understands.</string>
+    <string name="import_list_problem_newer">That import file is from a newer version of the app.</string>
+    <string name="import_list_problem_offline">You\'re offline. Searching needs a connection.</string>
+    <plurals name="import_list_will_subscribe">
+        <item quantity="one">%1$d of %2$d lines will be subscribed</item>
+        <item quantity="other">%1$d of %2$d lines will be subscribed</item>
+    </plurals>
+    <plurals name="import_list_subscribe">
+        <item quantity="one">Subscribe to %1$d show</item>
+        <item quantity="other">Subscribe to %1$d shows</item>
+    </plurals>
+    <plurals name="import_list_left_out">
+        <item quantity="one">%1$d line left out (a repeat, too long, or a link that can\'t be used)</item>
+        <item quantity="other">%1$d lines left out (repeats, too long, or links that can\'t be used)</item>
+    </plurals>
+    <plurals name="import_list_marks">
+        <item quantity="one">%1$d episode mark (starred, played or position) to apply</item>
+        <item quantity="other">%1$d episode marks (starred, played or positions) to apply</item>
+    </plurals>
 </resources>

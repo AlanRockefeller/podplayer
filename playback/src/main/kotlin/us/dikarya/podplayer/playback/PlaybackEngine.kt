@@ -27,6 +27,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import us.dikarya.podplayer.core.model.EpisodeActionKind
+import us.dikarya.podplayer.core.model.PlaybackRecord
 import us.dikarya.podplayer.core.model.PlaybackSettings
 import us.dikarya.podplayer.core.model.PositionCause
 import us.dikarya.podplayer.core.model.PositionChange
@@ -517,10 +518,10 @@ class PlaybackEngine(
         checkNearlyFinished(id, position, duration)
     }
 
-    /** Owner, M1-S7: 99% of an episode counts as played, while it stays loaded until it ends or is left. */
+    /** SPEC §10: 98% of an episode counts as played, while it stays loaded until it ends or is left. */
     private fun checkNearlyFinished(id: Long, position: Long, duration: Long?) {
         if (markedPlayed || duration == null) return
-        if (position >= duration * PLAYED_FRACTION) {
+        if (PlaybackRecord.countsAsPlayed(position, duration)) {
             markedPlayed = true
             scope.launch {
                 store.markPlayed(id)
@@ -567,7 +568,7 @@ class PlaybackEngine(
         }
     }
 
-    // --- The tick: periodic saves, 99%, jump detection, sleep timer ---
+    // --- The tick: periodic saves, 98%, jump detection, sleep timer ---
 
     /** Ticks only while audio plays, so a paused player never wakes the CPU (the sleep timer is paused too). */
     private fun ensureTicking() {
@@ -723,7 +724,6 @@ class PlaybackEngine(
         const val TICK_MS = 250L
         const val SAVE_EVERY_MS = 10_000L
         const val FADE_MS = 10_000L
-        const val PLAYED_FRACTION = 0.99
         const val MIN_SLEEP_MINUTES = 5
         const val MAX_SLEEP_MINUTES = 120
     }

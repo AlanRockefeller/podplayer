@@ -98,4 +98,16 @@ class AppleSearchTest {
         assertEquals(SearchOutcome.Results(emptyList()), search(json("{}")).search("   "))
         assertTrue(calls.isEmpty())
     }
+
+    @Test
+    fun anAppleLinkIsLookedUpByItsIdOnly() = runBlocking {
+        val outcome = search(json("""{"results":[{"collectionName":"Linked","feedUrl":"https://feeds.example.com/l.xml"}]}""")).lookup(1234567890)
+        val call = calls.single()
+        assertEquals("itunes.apple.com", call.url.host)
+        assertEquals(listOf("lookup"), call.url.pathSegments)
+        assertEquals(setOf("id", "entity"), call.url.queryParameterNames)
+        assertEquals("1234567890", call.url.queryParameter("id"))
+        assertEquals(AddressPolicy.Default, call.policy)
+        assertEquals(listOf("Linked"), (outcome as SearchOutcome.Results).hits.map { it.title })
+    }
 }

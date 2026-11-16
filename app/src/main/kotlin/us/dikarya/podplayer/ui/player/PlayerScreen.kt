@@ -65,6 +65,8 @@ import us.dikarya.podplayer.ui.browse.CenteredMessage
 import us.dikarya.podplayer.ui.browse.DownloadButton
 import us.dikarya.podplayer.ui.browse.Loading
 import us.dikarya.podplayer.ui.browse.QueueButton
+import us.dikarya.podplayer.ui.browse.StarButton
+import us.dikarya.podplayer.ui.browse.StarUndoBar
 import us.dikarya.podplayer.ui.browse.rememberDownloadStarter
 import us.dikarya.podplayer.ui.theme.PodplayerTheme
 
@@ -76,6 +78,7 @@ import us.dikarya.podplayer.ui.theme.PodplayerTheme
 fun PlayerScreen(viewModel: PlayerViewModel, onOpenEpisode: (Long) -> Unit, onOpenQueue: () -> Unit) {
     LaunchedEffect(viewModel) { viewModel.connect() }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    StarUndoBar(viewModel.actions)
     var sheet by rememberSaveable { mutableStateOf(Sheet.None) }
     when {
         state.loading -> Loading()
@@ -157,6 +160,7 @@ private fun Player(state: PlayerUiState, viewModel: PlayerViewModel, onOpenEpiso
                 )
             }
             if (item != null) {
+                StarButton(item, viewModel.actions)
                 QueueButton(item, viewModel.actions)
                 DownloadButton(item, viewModel.actions, rememberDownloadStarter(viewModel.actions))
             }

@@ -8,6 +8,7 @@ package us.dikarya.podplayer.ui.browse
 
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
@@ -18,6 +19,7 @@ import us.dikarya.podplayer.core.data.settings.AppSettings
 import us.dikarya.podplayer.playback.PlaybackControls
 import us.dikarya.podplayer.ui.discover.AppleSearch
 import us.dikarya.podplayer.ui.discover.FeedPreviewer
+import us.dikarya.podplayer.ui.discover.importlist.Pacer
 
 /** Downloads as the screens use them (`:core:jobs` Downloads in the app, a fake in tests). */
 interface DownloadActions {
@@ -50,6 +52,10 @@ class BrowseDeps(
     val subscriptions: Subscriptions,
     /** The redacted app log. */
     val log: AppLog,
+    /** Spaces a list import's Apple searches (one pacer per import; tests pass one that doesn't wait). */
+    val importPacer: () -> Pacer = { Pacer() },
+    /** Text shared into the app (ACTION_SEND), waiting for the list importer to take it. */
+    val sharedText: MutableStateFlow<String?> = MutableStateFlow(null),
 ) {
     /** [block] over the open library, or just [closed] when the library couldn't be opened (DataLayer). */
     @OptIn(ExperimentalCoroutinesApi::class)

@@ -40,6 +40,7 @@ import us.dikarya.podplayer.playback.SleepUi
 import us.dikarya.podplayer.ui.discover.AppleSearch
 import us.dikarya.podplayer.ui.discover.FeedPreviewer
 import us.dikarya.podplayer.ui.discover.GateFetch
+import us.dikarya.podplayer.ui.discover.importlist.Pacer
 
 /**
  * The session as our screens see it, standing in for `PlaybackClient`. Commands are recorded, and [playEpisode]
@@ -150,7 +151,14 @@ class BrowseTestEnv(root: File) {
         previewer = FeedPreviewer(gate, androidFeedParser()),
         subscriptions = Subscriptions({ data.awaitRepositories() }) { refreshes += it },
         log = log,
+        importPacer = { Pacer(now = { pacerNow }) { ms -> pacedWaits += ms; pacerNow += ms } },
     )
+
+    /** The list importer's pacing, on a clock of its own so tests don't wait: every wait is recorded. */
+    val pacedWaits: MutableList<Long> = java.util.Collections.synchronizedList(mutableListOf<Long>())
+
+    @Volatile
+    private var pacerNow = 0L
 
     /** Subscribes to a show with [episodes] episodes (newest first: "<title> 1" is the newest). */
     fun show(title: String, episodes: Int = 3, url: String = "https://${title.lowercase().replace(' ', '-')}.example.com/feed.xml", publishedBase: Long = 1_790_000_000_000L): Long = runBlocking {

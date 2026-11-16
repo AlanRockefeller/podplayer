@@ -7,6 +7,7 @@
 package us.dikarya.podplayer
 
 import android.app.UiModeManager
+import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.View
@@ -33,6 +34,7 @@ import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.settings.applicationNightMode
 import us.dikarya.podplayer.settings.isDark
 import us.dikarya.podplayer.ui.artwork.LocalImageSandbox
+import us.dikarya.podplayer.ui.discover.importlist.ImportLines
 import us.dikarya.podplayer.ui.shell.AppShell
 import us.dikarya.podplayer.ui.theme.DarkTokens
 import us.dikarya.podplayer.ui.theme.LightTokens
@@ -47,6 +49,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val graph = appGraph
+        if (savedInstanceState == null) takeSharedText(intent)
 
         setContent {
             val saved by graph.themeMode.collectAsStateWithLifecycle()
@@ -78,6 +81,26 @@ class MainActivity : ComponentActivity() {
                 graph.themeMode.filterNotNull().collect(::rememberNightModeForStartingWindow)
             }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        takeSharedText(intent)
+    }
+
+    /**
+     * A list of shows shared in from another app (SPEC §12). Untrusted text: only plain text is taken, cut just past
+     * the importer's limit so it can still say "too much", and nothing happens until the owner confirms.
+     */
+    private fun takeSharedText(intent: Intent?) {
+        if (intent?.action != Intent.ACTION_SEND || intent.type?.startsWith("text/") != true) return
+        val text = try {
+            intent.getCharSequenceExtra(Intent.EXTRA_TEXT)?.let { it.subSequence(0, minOf(it.length, ImportLines.MAX_CHARS + 1)).toString() }
+        } catch (_: RuntimeException) {
+            // A malformed extra from the sending app (BadParcelableException and friends).
+            null
+        }
+        if (!text.isNullOrBlank()) appGraph.browse.sharedText.value = text
     }
 
     private fun holdFirstFrameUntil(ready: () -> Boolean) {

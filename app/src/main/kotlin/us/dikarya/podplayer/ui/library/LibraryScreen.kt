@@ -31,6 +31,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -60,7 +61,7 @@ import us.dikarya.podplayer.ui.theme.PodplayerTheme
 
 /** Library (SPEC §12): every subscription, as a grid or a list, sorted by the owner's choice. */
 @Composable
-fun LibraryScreen(viewModel: LibraryViewModel, onOpenShow: (Long) -> Unit, onDiscover: () -> Unit) {
+fun LibraryScreen(viewModel: LibraryViewModel, onOpenShow: (Long) -> Unit, onDiscover: () -> Unit, onOpenStarred: () -> Unit = {}) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     when {
         state.loading -> return Loading()
@@ -68,7 +69,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, onOpenShow: (Long) -> Unit, onDis
     }
     Column(Modifier.fillMaxSize()) {
         OfflineBanner(state.online)
-        Toolbar(state, viewModel)
+        Toolbar(state, viewModel, onOpenStarred)
         if (state.shows.isEmpty()) {
             CenteredMessage(stringResource(R.string.library_empty)) { FindShowsButton(onDiscover) }
             return@Column
@@ -91,7 +92,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, onOpenShow: (Long) -> Unit, onDis
 }
 
 @Composable
-private fun Toolbar(state: LibraryUiState, viewModel: LibraryViewModel) {
+private fun Toolbar(state: LibraryUiState, viewModel: LibraryViewModel, onOpenStarred: () -> Unit) {
     var sorting by rememberSaveable { mutableStateOf(false) }
     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -100,6 +101,11 @@ private fun Toolbar(state: LibraryUiState, viewModel: LibraryViewModel) {
             color = PodplayerTheme.colors.textSecondary,
             modifier = Modifier.weight(1f).padding(start = 8.dp),
         )
+        TextButton(onClick = onOpenStarred) {
+            Icon(painterResource(R.drawable.ic_star), contentDescription = null, tint = PodplayerTheme.colors.accent)
+            Spacer(Modifier.width(4.dp))
+            Text(stringResource(R.string.library_starred), maxLines = 1, softWrap = false)
+        }
         IconButton(onClick = viewModel::refreshAll) {
             Icon(painterResource(R.drawable.ic_refresh), contentDescription = stringResource(R.string.action_refresh_all))
         }

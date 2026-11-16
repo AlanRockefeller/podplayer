@@ -52,6 +52,8 @@ internal fun EpisodeEntity.toModel() = Episode(
     number = episodeNumber,
     chaptersUrl = chaptersUrl,
     inFeed = inFeed,
+    // A hand-made backup could set one column without the other; the flag decides.
+    starredAt = if (starred) starredAt ?: 0L else null,
 )
 
 internal fun QueueEntryEntity.toModel() = QueueEntry(episodeId, position, addedAt)

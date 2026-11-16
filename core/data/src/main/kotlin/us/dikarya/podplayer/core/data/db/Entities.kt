@@ -6,6 +6,7 @@
 
 package us.dikarya.podplayer.core.data.db
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -61,7 +62,7 @@ data class FeedEntity(
     foreignKeys = [
         ForeignKey(entity = FeedEntity::class, parentColumns = ["id"], childColumns = ["feedId"], onDelete = ForeignKey.CASCADE),
     ],
-    indices = [Index(value = ["feedId", "publishedAt"]), Index(value = ["feedId", "guid"])],
+    indices = [Index(value = ["feedId", "publishedAt"]), Index(value = ["feedId", "guid"]), Index(value = ["starred", "starredAt"])],
 )
 data class EpisodeEntity(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
@@ -89,9 +90,15 @@ data class EpisodeEntity(
     val fingerprint: String,
     val inFeed: Boolean = true,
     val removedFromFeedAt: Long? = null,
+    /**
+     * The owner's star (SPEC §7, v3). Set only by StarredRepository, which keeps [starredAt] non-null exactly
+     * when [starred] is true; a refresh never writes either (EpisodeFeedFields leaves them out).
+     */
+    @ColumnInfo(defaultValue = "0") val starred: Boolean = false,
+    val starredAt: Long? = null,
 ) {
     override fun toString() =
-        "EpisodeEntity(id=$id, feedId=$feedId, guid=$guid, title=$title, enclosure=${redact(enclosureUrl)}, inFeed=$inFeed)"
+        "EpisodeEntity(id=$id, feedId=$feedId, guid=$guid, title=$title, enclosure=${redact(enclosureUrl)}, inFeed=$inFeed, starred=$starred)"
 }
 
 /** A download. Media lives in app-private storage; [relativePath] is relative to the files folder (SPEC §7). */

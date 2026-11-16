@@ -57,6 +57,9 @@ class BackupRoundTripTest {
         repos.playback.savePosition(eps.getValue("guid-3").id, 754_000L, 1_800_000L)
         repos.playback.setPlayed(eps.getValue("guid-2").id, true)
         repos.feedSettings.setSpeed(feedId, 1.4f)
+        repos.starred.setStarred(eps.getValue("guid-4").id, true)
+        clock.advance(1_000)
+        repos.starred.setStarred(eps.getValue("guid-2").id, true)
         first.settings.setThemeMode(ThemeMode.LIGHT)
         val firstDevice = first.device.deviceId()
         first.device.setBackupFolder(layers.ownerFolder.path, "Backups")
@@ -91,6 +94,8 @@ class BackupRoundTripTest {
         assertEquals(754_000L, restored.playback.get(back.getValue("guid-3").id)!!.positionMs)
         assertTrue(restored.playback.get(back.getValue("guid-2").id)!!.played)
         assertEquals(1.4f, restored.feedSettings.speed(feedId).first())
+        // Stars (SPEC §7: in backups), in the same order, and a starred played episode is still played.
+        assertEquals(listOf(back.getValue("guid-2").id, back.getValue("guid-4").id), restored.starred.starred().first().map { it.id })
         assertEquals(ThemeMode.LIGHT, third.settings.themeMode.first())
         // Device settings are this phone's own and never come from a backup.
         assertNotEquals(firstDevice, third.device.deviceId())

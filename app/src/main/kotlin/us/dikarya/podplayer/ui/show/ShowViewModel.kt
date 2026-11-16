@@ -44,6 +44,10 @@ data class ShowUiState(
     val description: RichText? = null,
     val episodes: List<EpisodeItem> = emptyList(),
     val newestFirst: Boolean = true,
+    /** Only the starred episodes are listed (SPEC §12). */
+    val starredOnly: Boolean = false,
+    /** One of this show's episodes is the session's, whether or not the filter lists it. */
+    val loadedHere: Boolean = false,
     /** The show's own speed, or null for the global one. */
     val showSpeed: Float? = null,
     val globalSpeed: Float = 1.0f,
@@ -55,6 +59,7 @@ data class ShowUiState(
 class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : ViewModel() {
     val actions = EpisodeActions(deps, viewModelScope)
     private val newestFirst = MutableStateFlow(true)
+    private val starredOnly = MutableStateFlow(false)
     private val unsubscribed = MutableStateFlow(false)
 
     private class Header(val feed: Feed?, val description: RichText?, val showSpeed: Float?, val global: PlaybackSettings)
@@ -76,9 +81,13 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
             repos.queue.entries(),
             deps.playback.state,
         ) { episodes, records, media, queue, playback -> Rows(episodes, records, media.associateBy { it.episodeId }, queue.mapTo(HashSet()) { it.episodeId }, playback) }
-        combine(header(repos), rows, newestFirst, deps.online, unsubscribed) { header, rows, newest, online, gone ->
+        val view = combine(newestFirst, starredOnly) { newest, onlyStarred -> newest to onlyStarred }
+        combine(header(repos), rows, view, deps.online, unsubscribed) { header, rows, (newest, onlyStarred), online, gone ->
             val feed = header.feed
-            val items = rows.episodes.map { e -> EpisodeItem.of(e, feed, rows.records[e.id], rows.media[e.id], e.id in rows.queued, rows.playback) }
+            val items = rows.episodes.asSequence()
+                .filter { !onlyStarred || it.starred }
+                .map { e -> EpisodeItem.of(e, feed, rows.records[e.id], rows.media[e.id], e.id in rows.queued, rows.playback) }
+                .toList()
             ShowUiState(
                 loading = false,
                 gone = gone || feed == null,
@@ -86,6 +95,8 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
                 description = header.description,
                 episodes = if (newest) items else items.asReversed(),
                 newestFirst = newest,
+                starredOnly = onlyStarred,
+                loadedHere = rows.playback.episodeId != null && rows.episodes.any { it.id == rows.playback.episodeId },
                 showSpeed = header.showSpeed,
                 globalSpeed = header.global.speed,
                 online = online,
@@ -103,12 +114,14 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
 
     fun toggleSort() = newestFirst.update { !it }
 
+    fun toggleStarredOnly() = starredOnly.update { !it }
+
     /**
      * [speed] null goes back to the global speed. While one of this show's episodes is loaded, the session sets it
      * (it applies it at once and stores it); otherwise it is stored for the show's next episode.
      */
     fun setShowSpeed(speed: Float?) {
-        if (state.value.episodes.any { it.loaded }) {
+        if (state.value.loadedHere) {
             deps.playback.setSpeed(speed?.let(PlaybackSettings::clampSpeed), forShow = true)
         } else {
             viewModelScope.launch { deps.repositories()?.feedSettings?.setSpeed(feedId, speed) }

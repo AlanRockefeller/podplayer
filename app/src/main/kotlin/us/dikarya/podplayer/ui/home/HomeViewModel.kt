@@ -31,6 +31,8 @@ data class HomeUiState(
     val continueItem: EpisodeItem? = null,
     val newEpisodes: List<EpisodeItem> = emptyList(),
     val shows: List<Feed> = emptyList(),
+    /** Newest starred first; Home shows the row only when this isn't empty (SPEC §12). */
+    val starred: List<EpisodeItem> = emptyList(),
     val online: Boolean = true,
 ) {
     val noShows: Boolean get() = !loading && shows.isEmpty()
@@ -46,6 +48,7 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
         val latest: List<Episode>,
         val inProgress: Episode?,
         val loaded: Episode?,
+        val starred: List<Episode>,
     )
 
     private fun library(repos: Repositories) = combine(
@@ -54,12 +57,13 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
         repos.playback.inProgress(1).map { it.firstOrNull() },
         deps.playback.state.map { it.episodeId }.distinctUntilChanged()
             .flatMapLatest { id -> if (id == null) flowOf(null) else repos.episodes.observe(id) },
-    ) { feeds, latest, inProgress, loaded -> Library(feeds, latest, inProgress, loaded) }
+        repos.starred.starred(limit = STARRED),
+    ) { feeds, latest, inProgress, loaded, starred -> Library(feeds, latest, inProgress, loaded, starred) }
 
     val state: StateFlow<HomeUiState> = deps.withRepositories(HomeUiState(loading = false, libraryClosed = true)) { repos ->
         library(repos).flatMapLatest { lib ->
             val continueEpisode = lib.loaded ?: lib.inProgress
-            val ids = (lib.latest.map { it.id } + listOfNotNull(continueEpisode?.id)).distinct()
+            val ids = (lib.latest.map { it.id } + listOfNotNull(continueEpisode?.id) + lib.starred.map { it.id }).distinct()
             combine(
                 repos.playback.records(ids),
                 repos.media.observeAll(),
@@ -80,6 +84,7 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
                         .map(::item)
                         .toList(),
                     shows = lib.feeds,
+                    starred = lib.starred.map(::item),
                     online = online,
                 )
             }
@@ -91,6 +96,7 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
     private companion object {
         const val LATEST_CANDIDATES = 60
         const val NEW_EPISODES = 20
+        const val STARRED = 12
         const val STOP_AFTER_MS = 5_000L
     }
 }

@@ -66,8 +66,12 @@ data class Episode(
     val chaptersUrl: String?,
     /** False once the feed stops listing it. It stays in the library (SPEC §4). */
     val inFeed: Boolean,
+    /** When the owner starred it (SPEC §12), or null when it isn't starred. */
+    val starredAt: Long? = null,
 ) {
-    override fun toString() = "Episode(id=$id, feedId=$feedId, title=$title, inFeed=$inFeed)"
+    val starred: Boolean get() = starredAt != null
+
+    override fun toString() = "Episode(id=$id, feedId=$feedId, title=$title, inFeed=$inFeed, starred=$starred)"
 }
 
 /** One entry of Up Next. The database queue is the source of truth; the player's playlist projects it. */
@@ -80,10 +84,22 @@ data class PlaybackRecord(
     val durationMs: Long?,
     val played: Boolean,
     val updatedAt: Long,
-)
+) {
+    companion object {
+        /** Owner, 2026-11-15 (SPEC §10): reaching 98% of an episode counts as played. */
+        const val PLAYED_FRACTION = 0.98
 
-/** Kinds of [EpisodeAction], the append-only history M2 sync sends to the owner's server. */
-enum class EpisodeActionKind { Play, Pause, Seek, Played, Downloaded, Deleted }
+        /** True from [PLAYED_FRACTION] of a known, positive [durationMs] on. */
+        fun countsAsPlayed(positionMs: Long, durationMs: Long?): Boolean =
+            durationMs != null && durationMs > 0 && positionMs >= durationMs * PLAYED_FRACTION
+    }
+}
+
+/**
+ * Kinds of [EpisodeAction], the append-only history M2 sync sends to the owner's server. Stored by name: add new
+ * kinds at will, but renaming one needs a migration.
+ */
+enum class EpisodeActionKind { Play, Pause, Seek, Played, Downloaded, Deleted, Starred, Unstarred }
 
 data class EpisodeAction(
     val id: Long,

@@ -18,13 +18,16 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -56,6 +59,7 @@ import us.dikarya.podplayer.ui.browse.CenteredMessage
 import us.dikarya.podplayer.ui.browse.EpisodeRow
 import us.dikarya.podplayer.ui.browse.Loading
 import us.dikarya.podplayer.ui.browse.OfflineBanner
+import us.dikarya.podplayer.ui.browse.StarUndoBar
 import us.dikarya.podplayer.ui.browse.rememberDownloadStarter
 import us.dikarya.podplayer.ui.notes.LinkConfirmDialog
 import us.dikarya.podplayer.ui.notes.toAnnotatedString
@@ -66,6 +70,7 @@ import us.dikarya.podplayer.ui.theme.PodplayerTheme
 fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: () -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val download = rememberDownloadStarter(viewModel.actions)
+    StarUndoBar(viewModel.actions)
     LaunchedEffect(state.gone) { if (state.gone) onGone() }
     if (state.loading) return Loading()
     val feed = state.feed ?: return
@@ -116,6 +121,13 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
                             contentDescription = stringResource(if (state.newestFirst) R.string.show_sort_oldest else R.string.show_sort_newest),
                         )
                     }
+                    FilterChip(
+                        selected = state.starredOnly,
+                        onClick = viewModel::toggleStarredOnly,
+                        label = { Text(stringResource(R.string.show_starred_only), maxLines = 1, softWrap = false) },
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_star), contentDescription = null, modifier = Modifier.size(18.dp)) },
+                        modifier = Modifier.heightIn(min = 48.dp),
+                    )
                     TextButton(onClick = { confirmUnsubscribe = true }) {
                         Text(stringResource(R.string.action_unsubscribe), maxLines = 1, softWrap = false)
                     }
@@ -124,7 +136,12 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
             HorizontalDivider()
         }
         if (state.episodes.isEmpty()) {
-            item { CenteredMessage(stringResource(if (feed.lastRefreshSuccessAt == null) R.string.show_not_refreshed else R.string.show_no_episodes)) }
+            val message = when {
+                state.starredOnly -> R.string.show_no_starred
+                feed.lastRefreshSuccessAt == null -> R.string.show_not_refreshed
+                else -> R.string.show_no_episodes
+            }
+            item { CenteredMessage(stringResource(message)) }
         }
         items(state.episodes, key = { it.id }) { item ->
             EpisodeRow(item, withShow = false, onOpen = { onOpenEpisode(item.id) }, actions = viewModel.actions, onDownload = download)

@@ -65,12 +65,14 @@ class FeedPreviewer(
     private val parser: FeedParser,
     private val parseDispatcher: CoroutineDispatcher = Dispatchers.Default,
 ) {
-    suspend fun preview(raw: String): PreviewOutcome {
+    /** [ownerTyped] false (a list import's line) approves no private host for this request. */
+    suspend fun preview(raw: String, ownerTyped: Boolean = true): PreviewOutcome {
         val url = when (val check = UrlPolicy.checkFeedUrl(raw)) {
             is UrlCheck.Allowed -> check.url
             is UrlCheck.Rejected -> return PreviewOutcome.Failed(DiscoverProblem.BadUrl(check.problem))
         }
-        return when (val result = gate.fetch(url, BodyLimit.FEED, AddressPolicy.ownerTyped(url))) {
+        val policy = if (ownerTyped) AddressPolicy.ownerTyped(url) else AddressPolicy.Default
+        return when (val result = gate.fetch(url, BodyLimit.FEED, policy)) {
             is FetchResult.Failure -> PreviewOutcome.Failed(DiscoverProblem.Net(result.error))
             is FetchResult.NotModified -> PreviewOutcome.Failed(DiscoverProblem.Net(NetError.HttpStatus(304)))
             is FetchResult.Success -> when (val parsed = withContext(parseDispatcher) { parser.parse(result.body, result.contentType) }) {

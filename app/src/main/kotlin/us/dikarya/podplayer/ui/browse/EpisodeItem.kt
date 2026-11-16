@@ -7,7 +7,11 @@
 package us.dikarya.podplayer.ui.browse
 
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
+import us.dikarya.podplayer.core.data.repo.StarChange
 import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.core.model.Episode
 import us.dikarya.podplayer.core.model.Feed
@@ -38,12 +42,16 @@ data class EpisodeItem(
     val positionMs: Long get() = livePositionMs ?: record?.positionMs ?: 0
     val downloadState: DownloadState? get() = download?.state
     val downloaded: Boolean get() = download?.state == DownloadState.Complete
+    val starred: Boolean get() = episode.starred
 
-    /** 0..1 through the episode, or null when it hasn't started, is played, or has no known length. */
+    /**
+     * 0..1 through the episode, or null when it hasn't started, is played, has no known length, or has reached the
+     * 98% that counts as played (SPEC §10): no bar or "left" text for the last few seconds.
+     */
     val progress: Float?
         get() {
             val duration = durationMs ?: return null
-            if (played || duration <= 0 || positionMs <= 0) return null
+            if (played || duration <= 0 || positionMs <= 0 || PlaybackRecord.countsAsPlayed(positionMs, duration)) return null
             return (positionMs.toFloat() / duration).coerceIn(0f, 1f)
         }
 
@@ -104,5 +112,22 @@ class EpisodeActions(private val deps: BrowseDeps, private val scope: CoroutineS
 
     fun setPlayed(episodeId: Long, played: Boolean) {
         scope.launch { deps.repositories()?.playback?.setPlayed(episodeId, played) }
+    }
+
+    private val starred = MutableSharedFlow<StarChange>(extraBufferCapacity = 8)
+
+    /** Each star or unstar that happened, for the Undo bar ([StarUndoBar]). */
+    val starChanges: SharedFlow<StarChange> = starred.asSharedFlow()
+
+    /** Stars or unstars at once, with no confirmation (SPEC §12); the Undo bar offers the way back. */
+    fun toggleStar(item: EpisodeItem) {
+        scope.launch {
+            val change = deps.repositories()?.starred?.setStarred(item.id, !item.starred) ?: return@launch
+            starred.emit(change)
+        }
+    }
+
+    fun undoStar(change: StarChange) {
+        scope.launch { deps.repositories()?.starred?.undo(change) }
     }
 }

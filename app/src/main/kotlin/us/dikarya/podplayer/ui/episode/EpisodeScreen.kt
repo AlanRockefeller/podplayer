@@ -46,6 +46,8 @@ import us.dikarya.podplayer.ui.browse.CenteredMessage
 import us.dikarya.podplayer.ui.browse.EpisodeItem
 import us.dikarya.podplayer.ui.browse.Loading
 import us.dikarya.podplayer.ui.browse.OfflineBanner
+import us.dikarya.podplayer.ui.browse.StarButton
+import us.dikarya.podplayer.ui.browse.StarUndoBar
 import us.dikarya.podplayer.ui.browse.episodeMeta
 import us.dikarya.podplayer.ui.browse.rememberDownloadStarter
 import us.dikarya.podplayer.ui.notes.LinkConfirmDialog
@@ -56,6 +58,7 @@ import us.dikarya.podplayer.ui.theme.PodplayerTheme
 @Composable
 fun EpisodeScreen(viewModel: EpisodeViewModel, onOpenShow: (Long) -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    StarUndoBar(viewModel.actions)
     if (state.loading) return Loading()
     val item = state.item ?: return CenteredMessage(stringResource(R.string.episode_gone))
     var link by remember { mutableStateOf<RichStyle.Link?>(null) }
@@ -79,6 +82,7 @@ fun EpisodeScreen(viewModel: EpisodeViewModel, onOpenShow: (Long) -> Unit) {
                     }
                     Text(episodeMeta(item, withShow = false), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
                 }
+                StarButton(item, viewModel.actions)
             }
             item.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth()) }
             Actions(item, viewModel, state.downloadsWifiOnly)

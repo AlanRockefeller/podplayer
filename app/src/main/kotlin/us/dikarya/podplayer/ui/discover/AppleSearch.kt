@@ -46,11 +46,16 @@ class AppleSearch(private val gate: GateFetch) {
     suspend fun search(term: String): SearchOutcome {
         val cleaned = term.trim().take(DiscoverInput.MAX_TERM)
         if (cleaned.isEmpty()) return SearchOutcome.Results(emptyList())
-        return when (val result = gate.fetch(url(cleaned), LIMIT, AddressPolicy.Default)) {
-            is FetchResult.Failure -> SearchOutcome.Failed(DiscoverProblem.Net(result.error))
-            is FetchResult.NotModified -> SearchOutcome.Failed(DiscoverProblem.BadSearchResponse)
-            is FetchResult.Success -> parse(result.body)
-        }
+        return get(url(cleaned))
+    }
+
+    /** A podcasts.apple.com link's show, by its id (Apple's lookup, same host and limits as search). */
+    suspend fun lookup(id: Long): SearchOutcome = get(lookupUrl(id))
+
+    private suspend fun get(url: HttpUrl): SearchOutcome = when (val result = gate.fetch(url, LIMIT, AddressPolicy.Default)) {
+        is FetchResult.Failure -> SearchOutcome.Failed(DiscoverProblem.Net(result.error))
+        is FetchResult.NotModified -> SearchOutcome.Failed(DiscoverProblem.BadSearchResponse)
+        is FetchResult.Success -> parse(result.body)
     }
 
     private fun parse(body: ByteArray): SearchOutcome {
@@ -106,6 +111,14 @@ class AppleSearch(private val gate: GateFetch) {
             .addQueryParameter("media", "podcast")
             .addQueryParameter("entity", "podcast")
             .addQueryParameter("term", term)
+            .build()
+
+        fun lookupUrl(id: Long): HttpUrl = HttpUrl.Builder()
+            .scheme("https")
+            .host("itunes.apple.com")
+            .addPathSegment("lookup")
+            .addQueryParameter("id", id.toString())
+            .addQueryParameter("entity", "podcast")
             .build()
 
         /** Control and formatting characters (bidi overrides included) removed, whitespace collapsed, capped. */

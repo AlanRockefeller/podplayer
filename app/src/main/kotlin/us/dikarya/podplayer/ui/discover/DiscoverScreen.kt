@@ -4,6 +4,8 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+@file:OptIn(ExperimentalLayoutApi::class)
+
 package us.dikarya.podplayer.ui.discover
 
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -11,6 +13,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -60,7 +64,7 @@ import us.dikarya.podplayer.ui.theme.PodplayerTheme
 
 /** Discover (SPEC §12): search or paste a feed address in one field, or import an OPML file. */
 @Composable
-fun DiscoverScreen(viewModel: DiscoverViewModel, onOpenShow: (Long) -> Unit) {
+fun DiscoverScreen(viewModel: DiscoverViewModel, onOpenShow: (Long) -> Unit, onImportList: () -> Unit = {}) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -95,11 +99,12 @@ fun DiscoverScreen(viewModel: DiscoverViewModel, onOpenShow: (Long) -> Unit) {
                     keyboardActions = KeyboardActions(onSearch = { submit() }),
                     modifier = Modifier.fillMaxWidth().testTag(TAG_FIELD),
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Button(onClick = submit, enabled = state.query.isNotBlank()) {
                         Text(stringResource(if (isUrl) R.string.discover_preview else R.string.discover_search))
                     }
                     OutlinedButton(onClick = { pickOpml.launch(OPML_TYPES) }) { Text(stringResource(R.string.discover_import_opml)) }
+                    OutlinedButton(onClick = onImportList) { Text(stringResource(R.string.discover_import_list)) }
                 }
                 state.message?.let { problem ->
                     Row(verticalAlignment = Alignment.CenterVertically) {

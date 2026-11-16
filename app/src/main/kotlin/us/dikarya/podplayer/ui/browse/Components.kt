@@ -129,7 +129,7 @@ fun durationText(resources: Resources, ms: Long): String {
     }
 }
 
-/** One compact episode row (SPEC §12 Home "New episodes"; the show page's list): play, queue, download. */
+/** One compact episode row (SPEC §12 Home "New episodes"; the show page's list): star, play, queue, download. */
 @Composable
 fun EpisodeRow(
     item: EpisodeItem,
@@ -154,6 +154,7 @@ fun EpisodeRow(
                 )
                 Text(episodeMeta(item, withShow), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            StarButton(item, actions)
             PlayButton(item, actions)
             QueueButton(item, actions)
             DownloadButton(item, actions, onDownload)

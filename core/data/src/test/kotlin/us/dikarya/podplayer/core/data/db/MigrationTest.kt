@@ -30,6 +30,7 @@ import org.junit.runner.RunWith
 import us.dikarya.podplayer.core.data.TestClock
 import us.dikarya.podplayer.core.data.appContext
 import us.dikarya.podplayer.core.data.repo.Repositories
+import us.dikarya.podplayer.core.model.EpisodeActionKind
 import us.dikarya.podplayer.core.model.PositionCause
 
 /**
@@ -137,6 +138,27 @@ internal object MigrationSeeds {
                 assertEquals(listOf(999L, 10L), log.map { it.episodeId })
                 assertEquals(PositionCause.Unexplained, log.first().cause)
                 assertEquals(true, log.first().streaming)
+                // Version 3 added stars; every migrated episode starts unstarred.
+                assertEquals(false, repos.episodes.get(10)!!.starred)
+                assertEquals(emptyList<Any>(), repos.starred.starred().first())
+            },
+        ),
+        3 to Seed(
+            sql = listOf(
+                "INSERT INTO feeds (id, url, title, subscribedAt, consecutiveFailures) VALUES (1, 'https://f.example.com/rss', 'Show', 1, 0)",
+                "INSERT INTO episodes (id, feedId, guid, title, publishedAt, firstSeenAt, enclosureUrl, fingerprint, inFeed, starred, starredAt) " +
+                    "VALUES (10, 1, 'g1', 'One', 100, 100, 'https://f.example.com/1.mp3', 'fp', 1, 1, 500)",
+                "INSERT INTO episodes (id, feedId, guid, title, publishedAt, firstSeenAt, enclosureUrl, fingerprint, inFeed, starred, starredAt) " +
+                    "VALUES (11, 1, 'g2', 'Two', 200, 200, 'https://f.example.com/2.mp3', 'fp', 1, 1, 900)",
+                "INSERT INTO episodes (id, feedId, guid, title, publishedAt, firstSeenAt, enclosureUrl, fingerprint, inFeed) " +
+                    "VALUES (12, 1, 'g3', 'Three', 300, 300, 'https://f.example.com/3.mp3', 'fp', 1)",
+                "INSERT INTO episode_actions (id, episodeId, kind, at, deviceId, synced) VALUES (1, 11, 'Starred', 900, 'd', 0)",
+            ),
+            check = { repos ->
+                assertEquals(listOf(11L, 10L), repos.starred.starred().first().map { it.id })
+                assertEquals(500L, repos.episodes.get(10)!!.starredAt)
+                assertEquals(false, repos.episodes.get(12)!!.starred)
+                assertEquals(listOf(EpisodeActionKind.Starred), repos.actions.unsynced(10).map { it.kind })
             },
         ),
     )

@@ -42,6 +42,12 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <!-- M1-S9a: a list of shows shared in as text opens Discover › Import a list (nothing subscribes until confirmed). -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
         </activity>
 
         <!-- WorkManager starts on demand with PodplayerApp's configuration (our worker factory). -->

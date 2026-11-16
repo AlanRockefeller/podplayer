@@ -16,11 +16,17 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -42,8 +48,13 @@ import us.dikarya.podplayer.R
 import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.ui.DataStateDialogs
 import us.dikarya.podplayer.ui.browse.BrowseDeps
+import us.dikarya.podplayer.ui.browse.LocalSnackbars
 import us.dikarya.podplayer.ui.discover.DiscoverScreen
 import us.dikarya.podplayer.ui.discover.DiscoverViewModel
+import us.dikarya.podplayer.ui.discover.importlist.ListImportScreen
+import us.dikarya.podplayer.ui.discover.importlist.ListImportViewModel
+import us.dikarya.podplayer.ui.starred.StarredScreen
+import us.dikarya.podplayer.ui.starred.StarredViewModel
 import us.dikarya.podplayer.ui.episode.EpisodeScreen
 import us.dikarya.podplayer.ui.episode.EpisodeViewModel
 import us.dikarya.podplayer.ui.home.HomeScreen
@@ -100,6 +111,14 @@ data object LogsRoute
 @Serializable
 data object LicensesRoute
 
+/** Library › Starred. */
+@Serializable
+data object StarredRoute
+
+/** Discover › Import a list of shows (also where shared text lands). */
+@Serializable
+data object ImportListRoute
+
 /** Only registered when the build has a [DebugScreen] (debug builds). */
 @Serializable
 data object DebugRoute
@@ -138,8 +157,11 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
     val onDebug = debugScreen != null && destination.isOn(DebugRoute::class)
     val onShow = destination.isOn(ShowRoute::class)
     val onEpisode = destination.isOn(EpisodeRoute::class)
+    val onStarred = destination.isOn(StarredRoute::class)
+    val onImportList = destination.isOn(ImportListRoute::class)
     val onSubScreen = onSettings || onLogs || onLicenses || onPlayer || onDebug
-    val canGoBack = onSubScreen || onShow || onEpisode
+    val canGoBack = onSubScreen || onShow || onEpisode || onStarred || onImportList
+    val snackbars = remember { SnackbarHostState() }
     val current = TopLevelDestination.entries.firstOrNull { destination.isOn(it.routeClass) }
     val miniPlayer = viewModel { MiniPlayerViewModel(browse) }
     DataStateDialogs()
@@ -149,8 +171,21 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
     val openDiscover: () -> Unit = { navController.navigateToTab(TopLevelDestination.DISCOVER) }
     val openPlayer: () -> Unit = { navController.navigate(PlayerRoute) { launchSingleTop = true } }
     val openQueue: () -> Unit = { navController.navigateToTab(TopLevelDestination.QUEUE) }
+    val openStarred: () -> Unit = { navController.navigate(StarredRoute) { launchSingleTop = true } }
+    val openImportList: () -> Unit = { navController.navigate(ImportListRoute) { launchSingleTop = true } }
 
+    // Text shared into the app goes to the list importer, which takes it from BrowseDeps.sharedText.
+    val shared by browse.sharedText.collectAsState()
+    LaunchedEffect(shared) {
+        if (shared != null) {
+            navController.navigateToTab(TopLevelDestination.DISCOVER)
+            openImportList()
+        }
+    }
+
+    CompositionLocalProvider(LocalSnackbars provides snackbars) {
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbars) },
         topBar = {
             TopAppBar(
                 title = {
@@ -162,6 +197,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
                         onDebug && debugScreen != null -> debugScreen.title
                         onShow -> R.string.show_title
                         onEpisode -> R.string.episode_title
+                        onStarred -> R.string.starred_title
+                        onImportList -> R.string.import_list_title
                         current != null -> current.label
                         else -> R.string.app_name
                     }
@@ -207,10 +244,25 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
             modifier = Modifier.padding(padding),
         ) {
             composable<HomeRoute> {
-                HomeScreen(viewModel { HomeViewModel(browse) }, onOpenEpisode = openEpisode, onOpenShow = openShow, onDiscover = openDiscover)
+                HomeScreen(
+                    viewModel { HomeViewModel(browse) },
+                    onOpenEpisode = openEpisode,
+                    onOpenShow = openShow,
+                    onDiscover = openDiscover,
+                    onOpenStarred = openStarred,
+                )
             }
-            composable<DiscoverRoute> { DiscoverScreen(viewModel { DiscoverViewModel(browse) }, onOpenShow = openShow) }
-            composable<LibraryRoute> { LibraryScreen(viewModel { LibraryViewModel(browse) }, onOpenShow = openShow, onDiscover = openDiscover) }
+            composable<DiscoverRoute> { DiscoverScreen(viewModel { DiscoverViewModel(browse) }, onOpenShow = openShow, onImportList = openImportList) }
+            composable<LibraryRoute> {
+                LibraryScreen(viewModel { LibraryViewModel(browse) }, onOpenShow = openShow, onDiscover = openDiscover, onOpenStarred = openStarred)
+            }
+            composable<StarredRoute> { StarredScreen(viewModel { StarredViewModel(browse) }, onOpenEpisode = openEpisode) }
+            composable<ImportListRoute> {
+                val vm = viewModel { ListImportViewModel(browse) }
+                // A second share while the importer is open replaces what it holds.
+                LaunchedEffect(shared) { vm.takeSharedText() }
+                ListImportScreen(vm, onOpenShow = openShow, onDone = { navController.popBackStack() })
+            }
             composable<QueueRoute> { QueueScreen(viewModel { QueueViewModel(browse) }, onOpenEpisode = openEpisode) }
             composable<PlayerRoute> {
                 PlayerScreen(viewModel { PlayerViewModel(browse) }, onOpenEpisode = openEpisode, onOpenQueue = openQueue)
@@ -239,6 +291,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
                 composable<DebugRoute> { debugScreen.content() }
             }
         }
+    }
     }
 }
 

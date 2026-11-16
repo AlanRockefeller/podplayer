@@ -119,17 +119,17 @@ class PlaybackEngineTest {
     }
 
     @Test
-    fun reaching99PercentCountsAsPlayedWhileTheEpisodeStaysLoaded() {
+    fun reaching98PercentCountsAsPlayedWhileTheEpisodeStaysLoaded() {
         val h = harness().apply { store.add(1, durationMs = 100_000); store.add(2); store.queue.value = listOf(1, 2) }.start()
         h.engine.playEpisode(1)
         h.pauseAfter(5_000)
-        // Seeks are exact, unlike playing to a position: just under 99%, then exactly 99%.
-        h.engine.sessionPlayer.seekTo(98_900)
+        // Seeks are exact, unlike playing to a position: just under 98%, then exactly 98% (owner, 2026-11-15).
+        h.engine.sessionPlayer.seekTo(97_900)
         idle()
         assertFalse(1L in h.store.played)
-        h.engine.sessionPlayer.seekTo(99_000)
+        h.engine.sessionPlayer.seekTo(98_000)
         idle()
-        assertTrue("99% of an episode counts as played", 1L in h.store.played)
+        assertTrue("98% of an episode counts as played", 1L in h.store.played)
         assertEquals(1L, h.store.current)
         assertEquals(listOf(1L, 2L), h.store.queue.value)
     }

@@ -27,6 +27,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -48,6 +49,7 @@ import us.dikarya.podplayer.ui.browse.LibraryClosed
 import us.dikarya.podplayer.ui.browse.Loading
 import us.dikarya.podplayer.ui.browse.OfflineBanner
 import us.dikarya.podplayer.ui.browse.SectionHeading
+import us.dikarya.podplayer.ui.browse.StarUndoBar
 import us.dikarya.podplayer.ui.browse.episodeMeta
 import us.dikarya.podplayer.ui.browse.rememberDownloadStarter
 import us.dikarya.podplayer.ui.theme.PodplayerTheme
@@ -59,9 +61,11 @@ fun HomeScreen(
     onOpenEpisode: (Long) -> Unit,
     onOpenShow: (Long) -> Unit,
     onDiscover: () -> Unit,
+    onOpenStarred: () -> Unit = {},
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val download = rememberDownloadStarter(viewModel.actions)
+    StarUndoBar(viewModel.actions)
     when {
         state.loading -> return Loading()
         state.libraryClosed -> return LibraryClosed()
@@ -86,6 +90,15 @@ fun HomeScreen(
                 }
             }
             ShowsRow(state.shows, onOpenShow)
+        }
+        if (state.starred.isNotEmpty()) {
+            item(key = "starred") {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    SectionHeading(R.string.home_starred, Modifier.weight(1f))
+                    TextButton(onClick = onOpenStarred) { Text(stringResource(R.string.home_starred_all)) }
+                }
+                StarredRow(state.starred, onOpenEpisode)
+            }
         }
         item(key = "new-heading") { SectionHeading(R.string.home_new_episodes) }
         if (state.newEpisodes.isEmpty()) {
@@ -117,6 +130,27 @@ private fun ContinueCard(item: EpisodeItem, onOpen: () -> Unit, onPlay: () -> Un
                 Icon(painterResource(if (item.playing) R.drawable.ic_pause else R.drawable.ic_play), contentDescription = null)
                 Spacer(Modifier.width(4.dp))
                 Text(stringResource(if (item.playing) R.string.action_pause else if (item.positionMs > 0) R.string.action_resume else R.string.action_play))
+            }
+        }
+    }
+}
+
+@Composable
+private fun StarredRow(items: List<EpisodeItem>, onOpenEpisode: (Long) -> Unit) {
+    LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        items(items, key = { it.id }) { item ->
+            Column(Modifier.width(120.dp).clickable(role = Role.Button) { onOpenEpisode(item.id) }) {
+                Artwork(item.imageUrl, item.approvedHost, 120.dp)
+                Text(
+                    item.episode.title ?: stringResource(R.string.untitled_episode),
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 4.dp),
+                )
+                item.showTitle?.let {
+                    Text(it, style = MaterialTheme.typography.labelSmall, color = PodplayerTheme.colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
     }

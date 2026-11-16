@@ -5,8 +5,8 @@ a reviewer reads it to see what was really done.
 
 ## Current state
 - Milestone: M1
-- Next session: M1-S10
-- Build status: `./gradlew check` green locally after M1-S9 (2026-11-12). The CI result is on the M1-S9 PR.
+- Next session: M1-S9b
+- Build status: `./gradlew check` green locally after M1-S9a (2026-11-15). The CI result is on the M1-S9a PR.
 
 ## Session log
 <!-- Newest first. Copy this block for each session. -->
@@ -18,6 +18,87 @@ a reviewer reads it to see what was really done.
 - Manual checks for the owner:
 - PR:
 -->
+
+### M1-S9a Starred episodes, 98% played, import a list of shows (2026-11-15)
+- Plan (written before any code; run unattended, so not approved by the owner):
+  - 98%: one rule in `:core:model` (`PlaybackRecord.PLAYED_FRACTION = 0.98`, `countsAsPlayed`), used by
+    `PlaybackEngine` and by `EpisodeItem.progress` (no progress bar or "left" text from 98% on). The engine test
+    that pins 99% moves to 98% first, with a just-under case.
+  - Schema v3: `episodes.starred` (default 0) and `episodes.starredAt`, an index on both; migration 2→3, exported
+    `3.json`, a v3 seed in `MigrationSeeds` (the v1 and v2 seeds now also check that nothing is starred). A
+    refresh can't touch the columns (`EpisodeFeedFields` doesn't list them). New `EpisodeActionKind.Starred` /
+    `Unstarred` for M2 sync (enum names only, no schema change).
+  - `StarredRepository` (`Repositories.starred`): `setStarred` (no-op when already so; returns what Undo needs),
+    `restore` (Undo puts the old time back, so the list order is kept), `starred(query)` (newest starred first,
+    episode or show title, LIKE wildcards escaped), `forFeed`. Each change appends an action in the same
+    transaction. `Episode.starredAt` / `starred` in the model.
+  - UI: a star `IconButton` on episode rows, the episode page and the full player (not on the notification or lock
+    screen: nothing in `:playback` changes). `EpisodeActions.toggleStar` emits a `StarChange`; `StarUndoBar`
+    shows the snackbar (AppShell's `SnackbarHost` through `LocalSnackbars`) and Undo calls `actions.undo`.
+    Library gets a "Starred" button → `StarredRoute` (search field, list, share); Home a Starred row (only when
+    something is starred); the show page a "Starred only" filter chip.
+  - Share starred: `StarredShare.text(items)`: title, show, and the item link only when it is http(s) (userinfo
+    stripped); enclosure URLs never appear. Sent with `ACTION_SEND` text/plain through a chooser.
+  - List import (`:app` `ui/discover/importlist`): `ImportLines.parse` (text ≤ 256 KiB, ≤ 500 lines, each
+    ≤ 300 chars after cleaning; bullets and numbering stripped, control/format characters removed, blank and
+    duplicate lines dropped; overflow counted, never silently lost). Name lines are matched by
+    `ListMatcher` through `AppleSearch` with a `Pacer` (one request per 3 s; Apple allows ~20 a minute); up to
+    5 hits are kept so the owner can pick another or skip. URL lines are not fetched before confirmation (SPEC:
+    no fetches but the searches): they show the redacted address. Nothing is subscribed until "Subscribe to N".
+    Every subscribe from the list uses `ownerTyped = false`, URL lines included (see deviations).
+  - Entry points: "Import a list" in Discover (paste field or pick a text file) and text shared into the app
+    (`ACTION_SEND` text/plain on `MainActivity`, held in `AppGraph.sharedText` until the import screen takes it).
+  - Import file (`:core:data` `importing`): `ImportFile.parse` — JSON `{"format":"podplayer-import","version":1,
+    "shows":[{"title","feedUrl"?,"episodes":[{"title","published"?,"starred"?,"played"?,"positionMs"?}]}]}`,
+    ≤ 4 MiB, ≤ 500 shows, ≤ 20 000 episodes, strings cleaned and capped, unknown version or format refused.
+    `EpisodeMatcher` (show, then normalized title, date as tie-break and within 2 days when given) and
+    `ImportApplier` (stars, marks played, sets a position only where the library has none). The list importer
+    accepts this file in place of text: its shows go into the same preview; on confirm, shows with episode marks
+    are fetched through the gate, applied as a preview (`Subscriptions.subscribe(…, preview)`), then marked.
+  - Tests first for each: 98% boundary; migration seed; star/unstar/undo and the action log; backup round trip
+    keeps stars; Starred order and search (wildcards); share text without enclosure URLs; line parsing limits;
+    matching, pacing, skip, pick another, confirm-only subscribing (no request beyond searches before confirm);
+    import file hostile/oversized/wrong-version cases; episode matching by title and date; a Compose test that
+    starring from a row shows Undo and Undo unstars.
+- Done: everything in the plan. Also Apple Podcasts links (`podcasts.apple.com/…/id123`) in a list are looked up by
+  id (`AppleSearch.lookup`, same host, gate, limits and pacing as search); `FeedPreviewer.preview(…, ownerTyped)`;
+  a show page's speed still goes to the session when its loaded episode is hidden by the Starred filter.
+- Tests added: `PlayedRuleTest` (2); `PlaybackEngineTest.reaching98Percent…` (was 99%); `StarredRepositoryTest` (9:
+  flag and time, no-op twice, unstar + Undo keeps order, Undo of a star, played stays played, a refresh keeps the
+  star, search by episode/show with `%` and `_` literal, per-show ids, unsubscribe); `MigrationTest` v3 seed (v2
+  seed checks nothing is starred); `BackupRoundTripTest` keeps stars and their order; `ImportFileTest` (8: good
+  file, wrong format/newer version, broken JSON, > 4 MiB, too many shows/episodes, 100 000-deep nesting, hostile
+  values); `EpisodeMatcherTest` (5); `ImportApplierTest` (3: applied, library progress never overwritten,
+  idempotent); `ImportLinesTest` (7); `PacerTest` (3); `AppleSearchTest.anAppleLinkIsLookedUpByItsIdOnly`;
+  `StarredShareTest` (2); `StarredViewModelTest` (5: row star + Undo, Starred order and search, share text,
+  Home row, show filter); `ListImportViewModelTest` (9: paced searches and nothing subscribed before confirm, pick
+  another + skip + confirm with `ownerApprovedHost` null, addresses never fetched before confirm and shown
+  redacted, Apple lookup, no match / 429 slows pacing / retry, > 500 lines refused with no request, shared text
+  taken once, import file with stars and played marks, newer file refused); `EpisodeItemTest` (progress stops at
+  98%); `StarUiTest` (Compose: tap the star, Undo bar, Undo unstars).
+- Deviations from the spec, and why:
+  - Feed addresses in a pasted list subscribe with `ownerTyped = false`, like search matches. SPEC says only that
+    search matches are false; but a list can arrive from another app by sharing, which is not the owner typing that
+    exact URL (CLAUDE.md), so no private host is approved. A private feed still works through Discover's own
+    field. Addresses are not fetched for the preview (SPEC: no fetches before confirming but the searches), so they
+    show as a redacted address, "checked when you subscribe"; a bad one shows its refresh error on the show page.
+  - A list over 500 shows is refused as a whole rather than cut to 500 (CLAUDE.md: on a breach, reject and say
+    why). Overlong lines (> 300 characters) are skipped and counted, not cut (a cut link would be wrong).
+  - The import file's shows that carry episode marks are fetched once on confirm (through the gate, no private
+    host) so the marks can be applied at once; marks for a show whose fetch fails are applied to whatever episodes
+    it has, and the rest are listed as "didn't match" in the summary.
+  - Starred search uses SQLite `LIKE`, which ignores case for ASCII letters only ("é" vs "É" differ).
+- Manual checks for the owner:
+  - Install the debug build: it migrates the library to schema 3 (a backup is taken first). Your stars start empty.
+  - Star from a Home row, the episode page and the full player: the star fills at once and an Undo bar appears;
+    Undo takes it back. Nothing new on the lock screen or notification.
+  - Library › Starred: newest first, search by episode or show name, Share sends a plain list (check it has no
+    `.mp3` addresses). Home shows a Starred row once something is starred; a show page's "Starred only" chip.
+  - On your 360 dp phone: episode rows now have four buttons (star, play, queue, download) and the player's lower
+    row six; check titles still have room and nothing is squeezed.
+  - Discover › Import a list: paste a few show names (and an Apple Podcasts link); matches arrive about one every
+    3 s; change one, skip one, subscribe. Also share a list from another app (e.g. a note) into Podplayer.
+- PR: see the `m1-s9a-starred-import` pull request.
 
 ### Second follow-up: the M1-S9 checks run on the phone over adb (2026-11-12)
 - Done on the owner's phone by driving it over adb (taps from the UI dump, screenshots, the app's debug database):
@@ -1453,7 +1534,7 @@ Result:
   - Two `AudioProbeTest` cases pin both properties, so any future switch would have to keep them.
 
 - Playback (M1-S7, owner answers during planning, 2026-11-11):
-  - 99% of an episode counts as played. It stays loaded until it ends or the owner moves on; at the real end it
+  - 99% of an episode counts as played (98% since 2026-11-15, owner; SPEC §10). It stays loaded until it ends or the owner moves on; at the real end it
     leaves the queue and the next one starts.
   - Streams buffer 10 to 15 minutes ahead and 5 minutes behind (byte cap 96 MiB), for driving through dead zones.
   - A downloaded episode always plays from its file. A download that finishes while its episode streams takes
@@ -1483,6 +1564,12 @@ Result:
 - 2026-11-12, owner: artwork for Discover search results may be fetched from Apple's image servers
   (`*.mzstatic.com`); it counts as part of "Apple's podcast search when the owner searches" (CLAUDE.md). It goes
   through the gate and the image sandbox like all artwork, and only for results the owner is looking at.
+- Starred and import (M1-S9a): stars change only through `Repositories.starred` (`StarredRepository`), which
+  writes the flag, the time and a Starred/Unstarred episode action together; screens call
+  `EpisodeActions.toggleStar` and show `StarUndoBar(actions)`, which uses the shell's `LocalSnackbars`. The 98% rule
+  is `PlaybackRecord.countsAsPlayed` in `:core:model`; nothing else may hard-code the fraction. The import file
+  format is `ImportFile` (`:core:data` `importing`, version 1); M1-S9c writes it and `ListImportViewModel` reads it.
+  List imports pace Apple requests with `BrowseDeps.importPacer` and never subscribe with `ownerTyped = true`.
 
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
@@ -1495,6 +1582,9 @@ Result:
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
+- List import: an optional per-line "Check" that previews a pasted feed address (owner-tapped fetch), and a way to
+  type a new search term for one line instead of only choosing among its five matches.
+- S10: Android Auto's Starred node can use `StarredRepository.starred()`.
 - A pull-to-refresh gesture on Home, Library and the show page (today a refresh button).
 - `feed://` / `pcast://` addresses typed in Discover are refused with "Only http and https addresses work";
   converting them to https could come with the OPML item below.
@@ -1540,4 +1630,6 @@ Result:
 
 ## Known issues
 <!-- Bugs found but not yet fixed, with how to reproduce. -->
-- None known.
+- `LogExportTest.theExportHoldsEveryLogWithEveryUrlRedacted` failed once locally during M1-S9a (the first app-log
+  line was missing from the export) and passed on three reruns. It looks like the export reading the app log before
+  the first write landed; not investigated (outside the session).

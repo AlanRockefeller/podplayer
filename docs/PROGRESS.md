@@ -19,6 +19,25 @@ a reviewer reads it to see what was really done.
 - PR:
 -->
 
+### M1-S9c Podbean import, attended (2026-11-16), and a share fix
+- Podbean's data, checked on the owner's phone (all read-only):
+  - Its private storage can't be read: not debuggable (`run-as` refused), no `ALLOW_BACKUP`; its key-value
+    cache in shared storage is permission-denied. Its app log has no favorites.
+  - Its screens can be read over adb (`uiautomator dump`): Library (followed shows with publisher), Favorites
+    (title, date, length, "played"), History (title, date, length, "played" / "N% left"), Playlists, Downloads.
+    Rows don't name their show; History holds only the last week or so (27 episodes).
+  - Its downloads live in `Android/data/com.podbean.app.podcast/media_files/dir<id>/` (43 GB, 171 folders, at
+    most 10 recent files each, named by id; ID3 tags often missing). No long-kept archive.
+  - The owner's old DT Radio Shows stars weren't in the app's Favorites (11 items back to April 2024, only one
+    DT) nor on podbean.com's account pages; the DT feed itself only carries its newest 500 episodes.
+- Import done: 230 followed shows read from Podbean's Library, shared into Discover › Import a list.
+- Bug found and fixed: a list shared into the app opened Home with an empty importer. On a cold start the shell's
+  share effect navigated before NavHost had set its graph ("You must call setGraph() before calling getGraph()"),
+  and each share stacked a new MainActivity, so every share took that path. The effect now waits for
+  `currentBackStackEntryFlow.first()`; `MainActivity` is `singleTop`. `ShareIntoAppUiTest` (2) drives the whole
+  shell with the real Application: a list shared before the app starts and while it's open.
+- PR: see the `fix-share-into-import` pull request.
+
 ### M1-S9b Auto-download and clean-up (2026-11-15)
 - Plan (written before any code; run unattended, so not approved by the owner):
   - Schema v4: `feed_settings.autoDownloadSince` (null: off; the time it was turned on) and
@@ -1673,6 +1692,9 @@ Result:
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
+- Import a list: Apple throttled a 230-show import (21 lines "The search didn't work"). Retry a failed search on its
+  own with a growing wait instead of giving up, and keep matching going when the screen turns off (background work
+  that resumes where it stopped).
 - Auto-download: a "Downloads" list that shows which downloads were automatic, and a per-show "keep the newest N"
   rule if 3/14-day clean-up isn't enough.
 - A Compose layout test of Settings › Downloads and storage at 360 dp (S9b checked the show page's new row only;

@@ -22,6 +22,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
+import kotlinx.coroutines.flow.first
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -178,6 +179,9 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
     val shared by browse.sharedText.collectAsState()
     LaunchedEffect(shared) {
         if (shared != null) {
+            // On a cold start the effect can run before NavHost has set its graph (seen on the owner's phone: every
+            // share opened Home with an empty importer). Wait for the first back-stack entry, then navigate.
+            navController.currentBackStackEntryFlow.first()
             navController.navigateToTab(TopLevelDestination.DISCOVER)
             openImportList()
         }

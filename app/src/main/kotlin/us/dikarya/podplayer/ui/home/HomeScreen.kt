@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import us.dikarya.podplayer.R
+import us.dikarya.podplayer.ui.browse.showNameOrUntitled
 import us.dikarya.podplayer.core.model.Feed
 import us.dikarya.podplayer.ui.artwork.Artwork
 import us.dikarya.podplayer.ui.browse.CenteredMessage
@@ -170,7 +171,7 @@ private fun ShowsRow(shows: List<Feed>, onOpenShow: (Long) -> Unit) {
             Column(Modifier.width(96.dp).clickable(role = Role.Button) { onOpenShow(feed.id) }) {
                 Artwork(feed.imageUrl, feed.ownerApprovedHost, 96.dp)
                 Text(
-                    feed.title ?: stringResource(R.string.untitled_show),
+                    showNameOrUntitled(feed),
                     style = MaterialTheme.typography.labelMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,

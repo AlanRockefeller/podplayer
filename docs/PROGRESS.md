@@ -19,6 +19,22 @@ a reviewer reads it to see what was really done.
 - PR:
 -->
 
+### http feeds, show names, tighter Home rows (2026-11-16)
+- Bug: http feeds never loaded. Android refuses cleartext unless the app opts in, so The Moth and The Field Guides
+  failed every refresh ("CLEARTEXT communication … not permitted") and showed as "Untitled show". Added
+  `res/xml/network_security_config.xml`: cleartext permitted (SPEC §3), system certificates only, no user CAs.
+  The address filter in :core:net still decides where requests go. Lint's `InsecureBaseConfiguration` is
+  suppressed there, with the reason. Test: `CleartextConfigTest` (2). Checked on the phone: both shows loaded.
+- A show without a title is named by its feed's host, never "Untitled show" unless there's no host
+  (`showName`, host only since private feed paths carry tokens). Test: `ShowNameTest` (3).
+- Home rows: Play and Download sit closer together (touch targets overlap 12 dp; each stays 48 dp).
+- Podbean import, second pass: Podbean's history (27 rows) and the DT Radio Shows "Better Late Curates… Episode
+  11" star applied through Import a list › an import file shared in. 27 of 28 marks applied; Podbean lists two
+  "Episode 376" rows for Sword and Scale, whose feed has one (the other is probably Episode 375; left alone).
+- The method is written up in `docs/IMPORTING.md`, with `tools/podbean_export.py` (stdlib Python; reads Podbean's
+  screens over adb, writes show names and an import file of marks). Checked: on the saved data it reproduces the
+  names and the 28 marks used in the owner's import.
+
 ### Fixes from the owner's use after the Podbean import (2026-11-16)
 - Home's new episodes stopped at 20. They now load a page (30) at a time as the list nears its end
   (`HomeViewModel.loadMore`, `canLoadMore`). Test: `HomeViewModelTest.scrollingToTheEndLoadsOlderEpisodes`.

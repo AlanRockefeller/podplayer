@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+-->
+<!--
+  SPEC §3: http feeds and media are allowed (shown as "not secure"). Android refuses cleartext unless the app opts
+  in here. Where requests may go is still decided by the address filter in :core:net. Only the system's
+  certificates are trusted, never user-installed ones.
+-->
+<!-- InsecureBaseConfiguration: deliberate (SPEC §3, owner 2026-11-16); podcasts are often served over http. -->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config
+        cleartextTrafficPermitted="true"
+        tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

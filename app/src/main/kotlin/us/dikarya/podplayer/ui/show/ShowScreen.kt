@@ -55,6 +55,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import us.dikarya.podplayer.ui.player.SPEED_CHOICES
+import us.dikarya.podplayer.ui.browse.showNameOrUntitled
 import us.dikarya.podplayer.ui.player.speedText
 import us.dikarya.podplayer.R
 import us.dikarya.podplayer.core.feed.notes.RichStyle
@@ -90,7 +91,7 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
                     Artwork(feed.imageUrl, feed.ownerApprovedHost, 96.dp)
                     Spacer(Modifier.width(16.dp))
                     Column(Modifier.weight(1f)) {
-                        Text(feed.title ?: stringResource(R.string.untitled_show), style = MaterialTheme.typography.titleLarge)
+                        Text(showNameOrUntitled(feed), style = MaterialTheme.typography.titleLarge)
                         feed.author?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary) }
                         if (!feed.isSecure) Text(stringResource(R.string.not_secure_feed), style = MaterialTheme.typography.bodySmall, color = colors.warning)
                     }
@@ -157,7 +158,7 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
     if (confirmUnsubscribe) {
         AlertDialog(
             onDismissRequest = { confirmUnsubscribe = false },
-            title = { Text(stringResource(R.string.unsubscribe_title, feed.title ?: stringResource(R.string.untitled_show))) },
+            title = { Text(stringResource(R.string.unsubscribe_title, showNameOrUntitled(feed))) },
             text = { Text(stringResource(R.string.unsubscribe_body)) },
             confirmButton = {
                 TextButton(onClick = {

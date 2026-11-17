@@ -156,10 +156,19 @@ fun EpisodeRow(
                 )
                 Text(episodeMeta(item, withShow), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if (!compact) StarButton(item, actions)
-            PlayButton(item, actions)
-            if (!compact) QueueButton(item, actions)
-            DownloadButton(item, actions, onDownload)
+            if (compact) {
+                // Play and Download only, drawn closer together: the 48 dp touch targets overlap a little, the icons
+                // keep 12 dp apart (owner, 2026-11-16).
+                Row(horizontalArrangement = Arrangement.spacedBy(-COMPACT_OVERLAP)) {
+                    PlayButton(item, actions)
+                    DownloadButton(item, actions, onDownload)
+                }
+            } else {
+                StarButton(item, actions)
+                PlayButton(item, actions)
+                QueueButton(item, actions)
+                DownloadButton(item, actions, onDownload)
+            }
         }
         item.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
     }
@@ -240,3 +249,6 @@ fun rememberDownloadStarter(actions: EpisodeActions): (Long) -> Unit {
 fun FindShowsButton(onDiscover: () -> Unit) {
     OutlinedButton(onClick = onDiscover) { Text(stringResource(R.string.find_shows)) }
 }
+
+/** How far the compact row's two buttons overlap. */
+private val COMPACT_OVERLAP = 12.dp

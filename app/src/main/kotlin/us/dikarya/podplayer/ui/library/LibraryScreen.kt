@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.text.format.DateUtils
 import us.dikarya.podplayer.R
+import us.dikarya.podplayer.ui.browse.showNameOrUntitled
 import us.dikarya.podplayer.core.data.settings.LibraryLayout
 import us.dikarya.podplayer.core.data.settings.LibrarySort
 import us.dikarya.podplayer.ui.artwork.Artwork
@@ -149,7 +150,7 @@ private fun GridTile(show: ShowItem, onOpenShow: (Long) -> Unit) {
             Artwork(show.feed.imageUrl, show.feed.ownerApprovedHost, 160.dp, Modifier.fillMaxSize())
         }
         Text(
-            show.feed.title ?: stringResource(R.string.untitled_show),
+            showNameOrUntitled(show.feed),
             style = MaterialTheme.typography.labelLarge,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis,
@@ -168,7 +169,7 @@ private fun ListRow(show: ShowItem, onOpenShow: (Long) -> Unit) {
         Artwork(show.feed.imageUrl, show.feed.ownerApprovedHost, 56.dp)
         Spacer(Modifier.width(12.dp))
         Column(Modifier.weight(1f)) {
-            Text(show.feed.title ?: stringResource(R.string.untitled_show), style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(showNameOrUntitled(show.feed), style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
             show.feed.author?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = PodplayerTheme.colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             show.newestEpisodeAt?.let {
                 Text(

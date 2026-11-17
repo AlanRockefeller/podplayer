@@ -19,6 +19,43 @@ a reviewer reads it to see what was really done.
 - PR:
 -->
 
+### Fix: a stream cut short played on in silence (2026-11-17)
+- Owner's report: from 11:13 an episode advanced with no sound; other apps played fine. Read on the phone over
+  adb (`dumpsys audio`/`media_session`, the app's database, a heap dump of the live player):
+  - The system side was healthy: podplayer held audio focus and its AudioTrack started unmuted, on Bluetooth
+    and later on the speaker. Player volume 1.0, speed 1.0, no sleep timer involved.
+  - The audio renderer's last sample was at 26:09 of a 57-minute *streamed* episode, with its stream read to the
+    end (`readingPositionUs = C.TIME_END_OF_SOURCE`); the sink was last fed at 10:42:04, exactly 301.5 s of audio
+    after the 10:37:02 resume from 21:07. From then on ExoPlayer ran its standalone clock to the period's
+    duration: the position advanced, nothing played, and Play/Pause couldn't recover it.
+  - Cause: the enclosure (Podtrac › Omny › Triton, dynamic ad insertion) is served over HTTP/2, and the response
+    ended early. OkHttp 5.5.1 rejects a short body over HTTP/1.1 ("unexpected end of stream") but not over
+    HTTP/2, and Media3 1.11.1's `OkHttpDataSource.readInternal` returns `RESULT_END_OF_INPUT` on -1 without
+    comparing `bytesRead` to `bytesToRead` (both checked in the shipped bytecode). The extractor took the cut as
+    the end of the file.
+- Fix: `WholeBodyDataSource` wraps the streaming `OkHttpDataSource`; a read that ends before the announced
+  length throws `HttpDataSourceException` (network, read). The loader treats it as a retryable error and asks
+  for the rest with a range request from its last position. Unknown-length streams pass unchanged. Downloads
+  already caught this (`RangeDownloader.shortBody`).
+- Owner's request: a brief notice when a stream reconnects. The engine watches loads (`AnalyticsListener.
+  onLoadStarted` with `retryCount >= 1`, http/https only) and calls `onStreamReconnecting`, at most once per 30 s
+  (`RECONNECT_NOTICE_GAP_MS`), so an outage's retries give one notice; the service shows a short toast "The
+  stream dropped. Reconnecting…" and the app log gets "Episode N: the stream dropped; reconnecting (attempt n)"
+  (no URL). Any dropped stream that retries counts, not only a cut one.
+- Tests added: `WholeBodyDataSourceTest` (6: cut body fails without the URL in the message, whole body, unknown
+  length, a fresh count per open, empty reads, the factory).
+  `GatedMediaSourceFactoryTest.aStreamCutShortOfItsLengthResumesFromWhereItStopped`: through the real gate and
+  player, the first response keeps its Content-Length but ends early; playback must resume with a `Range`
+  request and reach the end. Without the fix it ends after one request (checked by reverting the wiring).
+  `GatedMediaSourceFactoryTest.aReconnectingStreamShowsOneBriefNoticeAndLogsIt`: the real engine over a stream cut
+  twice in a few seconds: three requests, one notice, one log line without the URL or its token.
+- Deviation: none. Note for later: the ad-inserted file's total length changes between requests (54.9 MB this
+  morning, 60.6 MB at 12:35), so a resumed or seeked request can land on a differently stitched copy. A jump of
+  some seconds at the resume is possible; silence for the rest of the episode is not.
+- Manual check for the owner: stream an episode (not downloaded) for a long session with pauses; it should never
+  run silent. To recover an episode stuck silent on the old build, seek past the point where sound stopped (or
+  force-stop the app and reopen it), then seek back.
+
 ### http feeds, show names, tighter Home rows (2026-11-16)
 - Bug: http feeds never loaded. Android refuses cleartext unless the app opts in, so The Moth and The Field Guides
   failed every refresh ("CLEARTEXT communication … not permitted") and showed as "Untitled show". Added
@@ -1719,6 +1756,11 @@ Result:
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
+- `dumpsys media_session` showed 98 controllers on our session after ~15 h (other apps' sessions: 11). Our UI
+  client releases its controller; check whether the count grows with app opens, the notification or Bluetooth
+  before calling it a leak.
+- A watchdog for silent playback: if the player is playing but the audio renderer has read its stream to the end
+  well before the duration, log it (and maybe reload at the position). Today's fix covers the one cause seen.
 - Import a list: Apple throttled a 230-show import (21 lines "The search didn't work"). Retry a failed search on its
   own with a growing wait instead of giving up, and keep matching going when the screen turns off (background work
   that resumes where it stopped).

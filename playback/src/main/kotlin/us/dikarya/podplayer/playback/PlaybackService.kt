@@ -10,6 +10,7 @@ package us.dikarya.podplayer.playback
 
 import android.app.PendingIntent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.media3.common.util.Clock
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
@@ -57,6 +58,9 @@ class PlaybackService : MediaLibraryService() {
         val player = PlayerFactory.create(this, GatedMediaSourceFactory(deps.callFactoryFor))
         val engine = PlaybackEngine(player, deps.store, scope, Clock.DEFAULT, deps.processScope)
         engine.playGate = deps.playGate
+        engine.onStreamReconnecting = {
+            Toast.makeText(this, R.string.playback_stream_reconnecting, Toast.LENGTH_SHORT).show()
+        }
         val session = MediaLibrarySession.Builder(this, engine.sessionPlayer, SessionCallback(engine, scope))
             .setBitmapLoader(ArtworkBitmapLoader(deps.artwork, deps.processScope))
             .setMediaButtonPreferences(SessionCallback.buttons(this, engine.settings))

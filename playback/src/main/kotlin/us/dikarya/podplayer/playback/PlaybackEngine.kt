@@ -17,6 +17,9 @@ import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.util.Clock
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.session.MediaSession
 import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
@@ -76,6 +79,28 @@ class PlaybackEngine(
     /** The controller whose request is being handled (the session's), or null for our own calls. */
     var currentController: () -> MediaSession.ControllerInfo? = { null }
 
+    /**
+     * Called on the main thread when a stream that dropped (or was cut short) starts loading again, at most once
+     * per [RECONNECT_NOTICE_GAP_MS]. The service shows a brief notice.
+     */
+    var onStreamReconnecting: () -> Unit = {}
+
+    private var lastReconnectNoticeAt: Long? = null
+
+    private val loads = object : AnalyticsListener {
+        override fun onLoadStarted(eventTime: AnalyticsListener.EventTime, loadEventInfo: LoadEventInfo, mediaLoadData: MediaLoadData, retryCount: Int) {
+            if (retryCount < 1) return
+            val scheme = loadEventInfo.dataSpec.uri.scheme
+            if (scheme != "http" && scheme != "https") return
+            val now = clock.elapsedRealtime()
+            lastReconnectNoticeAt?.let { if (now - it < RECONNECT_NOTICE_GAP_MS) return }
+            lastReconnectNoticeAt = now
+            // Never the URL: it may carry a private token (CLAUDE.md).
+            store.log("Episode ${currentId ?: "?"}: the stream dropped; reconnecting (attempt $retryCount)")
+            onStreamReconnecting()
+        }
+    }
+
     private val sleep = MutableStateFlow<SleepTimerState>(SleepTimerState.Off)
     val sleepTimer: StateFlow<SleepTimerState> = sleep
 
@@ -113,6 +138,7 @@ class PlaybackEngine(
         check(!started) { "start() once" }
         started = true
         player.addListener(listener)
+        player.addAnalyticsListener(loads)
         scope.launch { store.settings().collect(::onSettings) }
         scope.launch { store.downloaded().collect(::onDownloaded) }
         scope.launch {
@@ -128,6 +154,7 @@ class PlaybackEngine(
         released = true
         handler.removeCallbacksAndMessages(null)
         player.removeListener(listener)
+        player.removeAnalyticsListener(loads)
         sleep.value = SleepTimerState.Off
     }
 
@@ -725,5 +752,8 @@ class PlaybackEngine(
         const val FADE_MS = 10_000L
         const val MIN_SLEEP_MINUTES = 5
         const val MAX_SLEEP_MINUTES = 120
+
+        /** A stream dropping again and again shows one reconnect notice per this long, not one per attempt. */
+        const val RECONNECT_NOTICE_GAP_MS = 30_000L
     }
 }

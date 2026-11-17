@@ -55,7 +55,7 @@ class GatedMediaSourceFactory(private val callFactoryFor: (approvedHost: String?
         }
         val url = (UrlPolicy.checkFeedUrl(source.streamUrl) as? UrlCheck.Allowed)?.url
             ?: return refused(mediaItem, "a stream URL the policy refuses")
-        val http = OkHttpDataSource.Factory(callFactoryFor(source.approvedHost))
+        val http = WholeBodyDataSource.Factory(OkHttpDataSource.Factory(callFactoryFor(source.approvedHost)))
         return configure(ProgressiveMediaSource.Factory(http, DefaultExtractorsFactory().setConstantBitrateSeekingEnabled(true)))
             .createMediaSource(mediaItem.buildUpon().setUri(url.toString()).build())
     }

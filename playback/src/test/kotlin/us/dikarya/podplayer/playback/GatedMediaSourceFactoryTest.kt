@@ -14,10 +14,21 @@ import androidx.media3.test.utils.FakeClock
 import androidx.media3.test.utils.robolectric.TestPlayerRunHelper.run
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
+import java.io.IOException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import mockwebserver3.Dispatcher
 import mockwebserver3.MockResponse
 import mockwebserver3.MockWebServer
+import mockwebserver3.RecordedRequest
+import okhttp3.Call
+import okhttp3.Callback
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.asResponseBody
 import okio.Buffer
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -137,9 +148,119 @@ class GatedMediaSourceFactoryTest {
         assertEquals(0, server.requestCount)
     }
 
-    /** One second of 8 kHz mono 16-bit silence. */
-    private fun wav(): ByteArray {
-        val samples = 8_000
+    /**
+     * The owner's phone, 2026-11-17: an HTTP/2 stream ended 26 minutes into a 57-minute episode. OkHttp doesn't
+     * check HTTP/2 bodies against their Content-Length, so Media3 took the cut for the end of the file and played
+     * the rest of the duration as silence, the position still advancing. The first response here keeps its
+     * Content-Length but ends early, as that one did; playback must ask for the rest and reach the real end.
+     */
+    @Test
+    fun aStreamCutShortOfItsLengthResumesFromWhereItStopped() {
+        val whole = wav(seconds = 2)
+        val cut = 10_000
+        server.dispatcher = rangesOf(whole)
+        player.release()
+        val clock = FakeClock(true)
+        player = PlayerFactory.create(appContext(), cutShortSources(keep = cut, times = 1), clock, fakeRenderers(clock))
+        val url = server.url("/a.wav")
+        play(episode(url.toString(), approvedHost = url.host).toMediaItem(useFile = false))
+        player.play()
+
+        // The cut is reported as a non-fatal load error: that's the retry. A fatal one would still fail here.
+        run(player).ignoringNonFatalErrors().untilState(Player.STATE_ENDED)
+
+        assertEquals("the cut first response, then one for the rest", 2, server.requestCount)
+        assertEquals(null, server.takeRequest().headers["Range"])
+        val resumedAt = server.takeRequest().headers["Range"]?.removePrefix("bytes=")?.removeSuffix("-")?.toLongOrNull()
+        assertTrue("resumed inside the part already received, at $resumedAt", resumedAt != null && resumedAt in 44L..cut)
+    }
+
+    /**
+     * The owner asked for a brief notice when a stream reconnects. Two drops a few seconds apart give one notice
+     * (no toast per attempt) and one log line, which never holds the URL.
+     */
+    @Test
+    fun aReconnectingStreamShowsOneBriefNoticeAndLogsIt() {
+        server.dispatcher = rangesOf(wav(seconds = 2))
+        player.release()
+        val clock = FakeClock(true)
+        player = PlayerFactory.create(appContext(), cutShortSources(keep = 10_000, times = 2), clock, fakeRenderers(clock))
+        val store = FakePlaybackStore()
+        val url = server.url("/shows/a.wav?token=secret")
+        store.episodes[1] = episode(url.toString(), approvedHost = url.host)
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val engine = PlaybackEngine(player, store, scope, clock)
+        var notices = 0
+        engine.onStreamReconnecting = { notices++ }
+        try {
+            engine.start()
+            engine.playEpisode(1)
+            player.play()
+            run(player).ignoringNonFatalErrors().untilState(Player.STATE_ENDED)
+
+            assertEquals("cut twice, then the rest", 3, server.requestCount)
+            assertEquals(1, notices)
+            val lines = store.logLines.filter { "reconnecting" in it }
+            assertEquals(listOf("Episode 1: the stream dropped; reconnecting (attempt 1)"), lines)
+            assertTrue(store.logLines.none { "secret" in it || "a.wav" in it })
+        } finally {
+            engine.release()
+            scope.cancel()
+        }
+    }
+
+    /** The gate's client, with the first [times] responses cut to [keep] bytes but keeping their full length. */
+    private fun cutShortSources(keep: Int, times: Int): GatedMediaSourceFactory {
+        var cutsLeft = times
+        return GatedMediaSourceFactory { host ->
+            val gated = gate.callFactory(if (host == null) AddressPolicy.Default else AddressPolicy.approvingHosts(host))
+            Call.Factory { request ->
+                val call = gated.newCall(request)
+                if (cutsLeft > 0) {
+                    cutsLeft--
+                    CutShortCall(call, keep)
+                } else {
+                    call
+                }
+            }
+        }
+    }
+
+    /** Serves [body] whole, or the part a `Range: bytes=n-` header asks for. */
+    private fun rangesOf(body: ByteArray) = object : Dispatcher() {
+        override fun dispatch(request: RecordedRequest): MockResponse {
+            val from = request.headers["Range"]?.removePrefix("bytes=")?.removeSuffix("-")?.toInt()
+                ?: return MockResponse.Builder().addHeader("Content-Type", "audio/wav").body(Buffer().write(body)).build()
+            return MockResponse.Builder()
+                .code(206)
+                .addHeader("Content-Type", "audio/wav")
+                .addHeader("Content-Range", "bytes $from-${body.size - 1}/${body.size}")
+                .body(Buffer().write(body, from, body.size - from))
+                .build()
+        }
+    }
+
+    /** Delivers only the first [keep] bytes of the response but keeps its full length, like a cut HTTP/2 stream. */
+    private class CutShortCall(private val real: Call, private val keep: Int) : Call by real {
+        override fun enqueue(responseCallback: Callback) = real.enqueue(
+            object : Callback {
+                override fun onFailure(call: Call, e: IOException) = responseCallback.onFailure(this@CutShortCall, e)
+
+                override fun onResponse(call: Call, response: Response) {
+                    val type = response.body.contentType()
+                    val whole = response.body.bytes()
+                    val short = Buffer().write(whole, 0, keep).asResponseBody(type, whole.size.toLong())
+                    responseCallback.onResponse(this@CutShortCall, response.newBuilder().body(short).build())
+                }
+            },
+        )
+
+        override fun clone(): Call = CutShortCall(real.clone(), keep)
+    }
+
+    /** [seconds] of 8 kHz mono 16-bit silence. */
+    private fun wav(seconds: Int = 1): ByteArray {
+        val samples = 8_000 * seconds
         val data = samples * 2
         return ByteBuffer.allocate(44 + data).order(ByteOrder.LITTLE_ENDIAN).apply {
             put("RIFF".toByteArray()); putInt(36 + data); put("WAVE".toByteArray())

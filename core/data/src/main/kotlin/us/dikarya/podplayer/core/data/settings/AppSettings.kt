@@ -207,6 +207,38 @@ class AppSettings(private val store: DataStore<Preferences>) {
         }
     }
 
+    /**
+     * Bluetooth audio devices whose automatic Play is ignored (owner, 2026-11-15: per device, off by default). A car
+     * that sends Play when it connects is ticked here; nothing else is affected.
+     */
+    val ignoreAutoPlayDevices: Flow<Set<String>> = data
+        .map { prefs -> decodeNames(prefs.read<String>(IGNORE_AUTOPLAY)).toSet() }
+        .distinctUntilChanged()
+
+    suspend fun setIgnoreAutoPlay(deviceName: String, ignore: Boolean) {
+        val name = cleanDeviceName(deviceName) ?: return
+        store.edit { prefs ->
+            val current = decodeNames(prefs.read<String>(IGNORE_AUTOPLAY)).toMutableList()
+            current.remove(name)
+            if (ignore) current += name
+            prefs[IGNORE_AUTOPLAY] = encodeNames(current.takeLast(MAX_DEVICES))
+        }
+    }
+
+    /** Bluetooth audio devices this phone has connected, oldest first, so the owner can pick the car by name. */
+    val bluetoothDevices: Flow<List<String>> = data
+        .map { prefs -> decodeNames(prefs.read<String>(BLUETOOTH_DEVICES)) }
+        .distinctUntilChanged()
+
+    suspend fun rememberBluetoothDevice(deviceName: String) {
+        val name = cleanDeviceName(deviceName) ?: return
+        store.edit { prefs ->
+            val current = decodeNames(prefs.read<String>(BLUETOOTH_DEVICES))
+            if (name in current) return@edit
+            prefs[BLUETOOTH_DEVICES] = encodeNames((current + name).takeLast(MAX_DEVICES))
+        }
+    }
+
     /** Every setting, for a backup. */
     suspend fun snapshot(): String = PreferencesSnapshot.encode(data.first())
 
@@ -229,6 +261,24 @@ class AppSettings(private val store: DataStore<Preferences>) {
         private inline fun <reified T> Preferences.read(key: Preferences.Key<T>): T? = asMap()[key] as? T
 
         const val FILE_NAME = "settings.preferences_pb"
+        private val IGNORE_AUTOPLAY = stringPreferencesKey("ignore_autoplay_devices")
+        private val BLUETOOTH_DEVICES = stringPreferencesKey("bluetooth_devices")
+        const val MAX_DEVICES = 30
+        const val MAX_DEVICE_NAME = 100
+
+        /**
+         * A device name is untrusted (it comes from nearby hardware): control characters and line breaks become
+         * spaces, runs of spaces collapse, the length is capped. Null if nothing is left.
+         */
+        fun cleanDeviceName(raw: String): String? =
+            raw.map { if (it.isISOControl()) ' ' else it }.joinToString("")
+                .replace(Regex("\\s+"), " ").trim().take(MAX_DEVICE_NAME).ifEmpty { null }
+
+        // One name per line: names can't contain line breaks after cleaning. Plain strings, so backups carry them.
+        private fun encodeNames(names: List<String>) = names.joinToString("\n")
+
+        private fun decodeNames(stored: String?): List<String> =
+            stored.orEmpty().split('\n').mapNotNull(::cleanDeviceName).distinct().take(MAX_DEVICES)
         private val THEME_MODE = stringPreferencesKey("theme_mode")
         private val LIBRARY_LAYOUT = stringPreferencesKey("library_layout")
         private val LIBRARY_SORT = stringPreferencesKey("library_sort")

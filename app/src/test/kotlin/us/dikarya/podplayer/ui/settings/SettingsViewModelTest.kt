@@ -174,6 +174,23 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun theOwnerTicksTheCarAmongTheBluetoothDevicesTheAppHasSeen() {
+        val opened = open()
+        val settings = opened.deps.settings
+        runBlocking {
+            settings.rememberBluetoothDevice("Sony CAR AUDIO")
+            settings.rememberBluetoothDevice("Pixel Buds")
+        }
+        val vm = SettingsViewModel(opened.deps)
+        awaitState(vm.state) { it.bluetoothDevices.size == 2 }
+        assertEquals(listOf("Sony CAR AUDIO" to false, "Pixel Buds" to false), vm.state.value.bluetoothDevices.map { it.name to it.ignoreAutoPlay })
+
+        vm.setIgnoreAutoPlay("Sony CAR AUDIO", true)
+        awaitState(vm.state) { s -> s.bluetoothDevices.any { it.name == "Sony CAR AUDIO" && it.ignoreAutoPlay } }
+        assertEquals(setOf("Sony CAR AUDIO"), runBlocking { settings.ignoreAutoPlayDevices.first() })
+    }
+
+    @Test
     fun storageLimitsReadAsWholeGigabytes() {
         // The owner's phone showed "11 GB" and choices like "5.4 GB" (2026-11-12): the limits were binary
         // gigabytes shown in Android's decimal units. They are decimal now, like "35 GB free on this phone".

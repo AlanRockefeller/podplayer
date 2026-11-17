@@ -46,7 +46,11 @@ data class SettingsUiState(
     val cleanUp: CleanUpSettings = CleanUpSettings(),
     /** When auto-downloads stopped at the storage limit, or null while they run. */
     val autoDownloadStoppedAt: Long? = null,
+    /** Bluetooth audio devices this phone has connected, and whether their automatic Play is ignored. */
+    val bluetoothDevices: List<BluetoothDeviceUi> = emptyList(),
 )
+
+data class BluetoothDeviceUi(val name: String, val ignoreAutoPlay: Boolean)
 
 /** Settings › Playback and Downloads and storage (SPEC §9, §10, §12). Every value lives in `AppSettings`. */
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -62,27 +66,43 @@ class SettingsViewModel(private val deps: SettingsDeps) : ViewModel() {
         } ?: flowOf(Usage(0, 0, deps.freeBytes()))
     }.flowOn(Dispatchers.IO)
 
-    private class Auto(val newShows: Boolean, val wifiOnly: Boolean, val cleanUp: CleanUpSettings, val stoppedAt: Long?)
+    private val devices = combine(deps.settings.bluetoothDevices, deps.settings.ignoreAutoPlayDevices) { seen, ignored ->
+        // A ticked device stays listed even if the seen list was trimmed, so it can be unticked.
+        (seen + ignored.filter { it !in seen }).map { BluetoothDeviceUi(it, it in ignored) }
+    }
 
-    private val auto = combine(
+    /** Auto-download settings and the Bluetooth devices, grouped: `combine` takes at most five flows typed. */
+    private class More(
+        val newShows: Boolean,
+        val wifiOnly: Boolean,
+        val cleanUp: CleanUpSettings,
+        val stoppedAt: Long?,
+        val devices: List<BluetoothDeviceUi>,
+    )
+
+    private val more = combine(
         deps.settings.autoDownloadNewShows,
         deps.settings.autoDownloadWifiOnly,
         deps.settings.cleanUp,
         deps.autoDownloadStoppedAt,
-    ) { newShows, wifiOnly, cleanUp, stoppedAt -> Auto(newShows, wifiOnly, cleanUp, stoppedAt) }
+        devices,
+    ) { newShows, wifiOnly, cleanUp, stoppedAt, devices -> More(newShows, wifiOnly, cleanUp, stoppedAt, devices) }
 
     val state: StateFlow<SettingsUiState> = combine(
         deps.settings.playback,
         deps.settings.downloadsWifiOnly,
         deps.settings.storageCapBytes,
         usage,
-        auto,
-    ) { playback, wifiOnly, cap, usage, auto ->
+        more,
+    ) { playback, wifiOnly, cap, usage, more ->
         SettingsUiState(
             false, playback, wifiOnly, cap, usage.usedBytes, usage.downloads, usage.freeBytes,
-            auto.newShows, auto.wifiOnly, auto.cleanUp, auto.stoppedAt,
+            more.newShows, more.wifiOnly, more.cleanUp, more.stoppedAt, more.devices,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_AFTER_MS), SettingsUiState())
+
+    /** Per device, opt-in (owner, 2026-11-15): ignore the automatic Play a car sends when it connects. */
+    fun setIgnoreAutoPlay(deviceName: String, ignore: Boolean) = write { deps.settings.setIgnoreAutoPlay(deviceName, ignore) }
 
     fun setSpeed(speed: Float) = write { deps.settings.setPlaybackSpeed(speed) }
 

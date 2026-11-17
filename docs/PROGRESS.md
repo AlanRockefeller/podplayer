@@ -267,6 +267,36 @@ a reviewer reads it to see what was really done.
     3 s; change one, skip one, subscribe. Also share a list from another app (e.g. a note) into Podplayer.
 - PR: see the `m1-s9a-starred-import` pull request.
 
+### Fix: the car still started playback (2026-11-13)
+- Reported by the owner: the car (an old Sony Bluetooth stereo, no Android Auto) still started playback.
+- Evidence from the phone: Android's audio history shows the car's A2DP connection at 15:15:38; the app's log
+  shows a cold start at 15:16:00 (Android had killed it for memory), and that episode played to the end. No
+  "Ignored Play" line: the gate let it through. The old rule ignored a Play only within 5 s of a cold start or
+  10 s of a connection; a cold start opens and integrity-checks the library first, and some cars wait longer.
+  The app was also frozen in the background ("BG freezed"), which can delay the connection callback past the Play.
+- First fix (installed 2026-11-13): ignore the first outside Play within 2 minutes of any Bluetooth audio output
+  connecting. It ignored the car's Play once (22:54 that day, a cold start). The owner then asked for it per
+  device and opt-in, since a blanket 2-minute rule could make other people's headphones seem broken; only two car
+  starts were on record, too few to tune a shorter global window.
+- Done (2026-11-15): `BluetoothPlayGate` arms every Bluetooth output when it connects (or at process start if
+  already connected; connected devices are read directly at each Play, so a connection we weren't told about yet
+  still counts) but ignores a Play only for devices the owner ticked, by name, in Settings › Playback. Our
+  screens always play; opening the app (`MainActivity.onStart` → `ownerIsHere`) cancels what's armed. Every
+  device name seen is remembered for the list (`AppSettings.bluetoothDevices`, cleaned and capped: names come
+  from nearby hardware); ticked names are `AppSettings.ignoreAutoPlayDevices` (both go into backups). Every
+  outside Play is logged with the device and the delay ("Play from …: ignored (automatic Play 7 s after … )"),
+  so the window can be tuned from real data later.
+- Tests: `BluetoothPlayGateTest` (14): the ticked car's Play 3 s and 30 s after connecting; an unticked device;
+  nothing ticked; a cold start that takes 20 s; a connection not yet reported; a car connected over 2 minutes
+  ago; own screens; opening the app; a spoofed hint; a disconnected car; names remembered; logging with name
+  and delay; through the engine. `AppSettingsTest` +2 (off by default per device; names cleaned, deduplicated
+  and capped). `SettingsViewModelTest` +1 (ticking the car among the devices seen).
+- Brought up to date with main on 2026-11-17 (settings screen state now also carries the auto-download settings).
+- Manual check: connect the car once with this build, then Settings › Playback › tick it. Next car start:
+  playback must not start, and Settings › Logs › Playback shows "Play from …: ignored (automatic Play … after
+  <car> connected)". Press play on the stereo: it plays. Headphones (unticked) play on the first press.
+- PR: see the `fix-car-autoplay` pull request.
+
 ### Second follow-up: the M1-S9 checks run on the phone over adb (2026-11-12)
 - Done on the owner's phone by driving it over adb (taps from the UI dump, screenshots, the app's debug database):
   - Queue: drag by the handle (order kept after leaving the tab), Play next, Move up, Move down, Remove; the
@@ -1706,9 +1736,13 @@ Result:
   - Streams buffer 10 to 15 minutes ahead and 5 minutes behind (byte cap 96 MiB), for driving through dead zones.
   - A downloaded episode always plays from its file. A download that finishes while its episode streams takes
     over at the next pause or seek, never mid-play; a file that fails falls back to the stream at the same spot.
-  - The owner's car sends Play whenever it connects. A Play from anything but our own screens is ignored within
-    10 s of Bluetooth audio appearing, or within 5 s of a cold start while Bluetooth audio is connected; a second
-    press plays. No Bluetooth permission is used.
+  - The owner's car sends Play whenever it connects. Owner, 2026-11-15: ignoring it is **per device and opt-in**
+    (Settings › Playback › "Ignore automatic Play from", devices listed by their Bluetooth name), so nobody's
+    headphones seem broken; this is how CLAUDE.md's "never auto-start on Bluetooth connect" applies to Plays a
+    device sends. For a ticked device, the first Play from anything but our own screens within 2 minutes of it
+    connecting (or of a process start while it's connected) is ignored; a second press plays; opening the app
+    cancels it. No Bluetooth permission: the name comes from `AudioDeviceInfo.getProductName()`. (The first
+    version's 10 s / 5 s windows let the car's Play through; see the 2026-11-13 entry.)
   - Playing an episode puts it at the top of the queue; the player holds it plus the next queued episode.
   - A car's or headset's next/previous buttons skip forward/back within the episode.
 - Playback code (M1-S7): only `PlaybackEngine` changes playback state. `PodPlayer` is what the session exposes;

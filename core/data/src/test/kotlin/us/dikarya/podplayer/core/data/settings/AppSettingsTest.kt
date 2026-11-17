@@ -260,6 +260,34 @@ class AppSettingsTest {
     }
 
     @Test
+    fun ignoringAutomaticPlayIsOffForEveryDeviceUntilTheOwnerTicksOne() {
+        assertEquals(emptySet<String>(), withSettings { it.ignoreAutoPlayDevices.first() })
+        withSettings {
+            it.setIgnoreAutoPlay("Sony CAR AUDIO", true)
+            it.setIgnoreAutoPlay("Pixel Buds", true)
+            it.setIgnoreAutoPlay("Pixel Buds", false)
+        }
+        assertEquals(setOf("Sony CAR AUDIO"), withSettings { it.ignoreAutoPlayDevices.first() })
+    }
+
+    @Test
+    fun bluetoothDeviceNamesAreRememberedOnceCleanedAndCapped() {
+        withSettings {
+            it.rememberBluetoothDevice("Sony CAR AUDIO")
+            it.rememberBluetoothDevice("Sony CAR AUDIO")
+            // Names come from nearby hardware: untrusted. No line breaks, no control characters, bounded.
+            it.rememberBluetoothDevice("Evil\nName" + Char(7))
+            it.rememberBluetoothDevice("x".repeat(500))
+            it.rememberBluetoothDevice("   ")
+        }
+        val seen = withSettings { it.bluetoothDevices.first() }
+        assertEquals(listOf("Sony CAR AUDIO", "Evil Name", "x".repeat(AppSettings.MAX_DEVICE_NAME)), seen)
+        withSettings { s -> repeat(AppSettings.MAX_DEVICES + 5) { s.rememberBluetoothDevice("Device $it") } }
+        assertEquals(AppSettings.MAX_DEVICES, withSettings { it.bluetoothDevices.first() }.size)
+        assertTrue("the newest are kept", "Device ${AppSettings.MAX_DEVICES + 4}" in withSettings { it.bluetoothDevices.first() })
+    }
+
+    @Test
     fun aBadSnapshotChangesNothing() {
         withSettings { it.setThemeMode(ThemeMode.LIGHT) }
         assertFalse(withSettings { it.restore("{\"format\": 99}") })

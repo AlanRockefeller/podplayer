@@ -46,6 +46,13 @@ class MainActivity : ComponentActivity() {
     private var themeWaitOver = false
     private var appliedDark: Boolean? = null
 
+    override fun onStart() {
+        super.onStart()
+        // The owner opened the app: Bluetooth audio connected now was connected on purpose, so a headset press
+        // after this plays (the car's automatic Play is ignored only when the owner isn't here).
+        appGraph.playGate.ownerIsHere()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val graph = appGraph

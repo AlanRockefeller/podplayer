@@ -24,6 +24,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Switch
@@ -150,6 +151,39 @@ private fun PlaybackSection(state: SettingsUiState, viewModel: SettingsViewModel
             label = { minutesText(it) },
             onPick = viewModel::setRewindAfterMinutes,
         )
+    }
+    AutoPlayDevices(state.bluetoothDevices, viewModel::setIgnoreAutoPlay)
+}
+
+/**
+ * Per device, opt-in: some cars send Play every time they connect. A ticked device's first Play after connecting is
+ * ignored; the next press plays. Names come from the devices themselves and are only shown.
+ */
+@Composable
+private fun AutoPlayDevices(devices: List<BluetoothDeviceUi>, onChange: (String, Boolean) -> Unit) {
+    Text(
+        stringResource(R.string.settings_autoplay_title),
+        style = MaterialTheme.typography.bodyLarge,
+        modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 16.dp),
+    )
+    Text(
+        stringResource(if (devices.isEmpty()) R.string.settings_autoplay_empty else R.string.settings_autoplay_body),
+        style = MaterialTheme.typography.bodyMedium,
+        color = PodplayerTheme.colors.textSecondary,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    )
+    for (device in devices) {
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                .toggleable(value = device.ignoreAutoPlay, role = Role.Checkbox) { onChange(device.name, it) }
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+        ) {
+            // The whole row is the control; the checkbox only shows the state.
+            Checkbox(checked = device.ignoreAutoPlay, onCheckedChange = null)
+            Text(device.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
+        }
     }
 }
 

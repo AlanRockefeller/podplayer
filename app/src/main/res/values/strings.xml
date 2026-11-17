@@ -293,6 +293,9 @@
     <string name="settings_keep_starred_body">Starred episodes that aren’t downloaded are downloaded automatically, once each.</string>
     <string name="settings_logs">Logs</string>
     <string name="settings_view_logs">View logs</string>
+    <string name="settings_autoplay_title">Ignore automatic Play from</string>
+    <string name="settings_autoplay_body">Some cars send Play every time they connect. Tick yours: its first Play after connecting is ignored, and pressing Play again plays. Other devices are not affected.</string>
+    <string name="settings_autoplay_empty">Bluetooth audio devices appear here once they have connected to this phone. Connect your car, then come back to tick it.</string>
     <!-- A storage limit in whole gigabytes, e.g. "10 GB". -->
     <string name="settings_storage_gb">%1$d GB</string>
     <string name="settings_logs_body">The app, playback, download, refresh and crash logs. They stay on this phone unless you export them.</string>

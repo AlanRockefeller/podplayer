@@ -97,7 +97,21 @@ class AppGraph(context: Context) {
      * CLAUDE.md: never auto-start on Bluetooth connect (the owner's car sends Play when it connects). It watches
      * Bluetooth audio for the life of the process, so it is created in [start], before any service runs.
      */
-    val playGate: BluetoothPlayGate by lazy { BluetoothPlayGate.watching(appContext) }
+    val playGate: BluetoothPlayGate by lazy {
+        BluetoothPlayGate.watching(
+            appContext,
+            ignoreAutoPlayFrom = { ignoreAutoPlayDevices.value },
+            onDeviceSeen = { name -> appScope.launch { settings.rememberBluetoothDevice(name) } },
+            log = { log.i("Playback", it) },
+        )
+    }
+
+    /**
+     * The devices whose automatic Play is ignored (Settings › Playback), read when a Play arrives. Loaded at process
+     * start; a car's Play is handled seconds later, after the library opens.
+     */
+    private val ignoreAutoPlayDevices: StateFlow<Set<String>> =
+        settings.ignoreAutoPlayDevices.stateIn(appScope, SharingStarted.Eagerly, emptySet())
 
     /** What the playback service (`:playback`) needs; it is built by Android, so it asks the app for these. */
     val playbackDependencies: PlaybackDependencies by lazy {

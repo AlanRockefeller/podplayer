@@ -63,6 +63,26 @@ class SettingsViewModelTest {
         assertEquals(RefreshSchedule(wifiMinutes = 30, mobileMinutes = null), awaitState(vm.state) { it.refresh.mobileMinutes == null }.refresh)
     }
 
+    /** LESSONS "Refresh": show the last and next refresh. Last: the latest show checked; next: the scheduled run. */
+    @Test
+    fun theLastAndNextCheckForNewEpisodesAreShown() {
+        val env = open()
+        val vm = SettingsViewModel(env.deps)
+        val none = awaitState(vm.state) { !it.loading }
+        assertEquals(null, none.lastRefreshAt)
+        assertEquals(null, none.nextRefreshAt)
+        val a = env.browse.show("Alpha")
+        val b = env.browse.show("Beta")
+        runBlocking {
+            env.browse.repos.feeds.recordRefreshSuccess(a, null, at = 1_800_000_000_000L)
+            env.browse.repos.feeds.recordRefreshSuccess(b, null, at = 1_800_000_900_000L)
+        }
+        env.nextRefreshAt.value = 1_800_001_800_000L
+        val shown = awaitState(vm.state) { it.lastRefreshAt != null && it.nextRefreshAt != null }
+        assertEquals(1_800_000_900_000L, shown.lastRefreshAt)
+        assertEquals(1_800_001_800_000L, shown.nextRefreshAt)
+    }
+
     @Test
     fun everyPlaybackAndDownloadSettingPersistsAcrossARestart() {
         val first = open()

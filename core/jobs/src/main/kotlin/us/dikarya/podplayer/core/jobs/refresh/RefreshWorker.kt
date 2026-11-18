@@ -19,6 +19,8 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import us.dikarya.podplayer.core.data.settings.RefreshSchedule
 
 /**
@@ -68,6 +70,17 @@ class RefreshWorker(context: Context, params: WorkerParameters, private val refr
             enqueue(workManager, PERIODIC_WIFI_NAME, schedule.wifiMinutes, unmetered)
             val mobile = schedule.mobileMinutes
             if (mobile == null) workManager.cancelUniqueWork(PERIODIC_ANY_NAME) else enqueue(workManager, PERIODIC_ANY_NAME, mobile, network)
+        }
+
+        /**
+         * When the next background refresh is due: the earlier of the two schedules, or null when neither is set.
+         * A run can start later than this when its network isn't there (LESSONS "Refresh": show last/next refresh).
+         */
+        fun nextScheduledRun(workManager: WorkManager): Flow<Long?> = combine(
+            workManager.getWorkInfosForUniqueWorkFlow(PERIODIC_WIFI_NAME),
+            workManager.getWorkInfosForUniqueWorkFlow(PERIODIC_ANY_NAME),
+        ) { wifi, any ->
+            (wifi + any).filter { !it.state.isFinished }.map { it.nextScheduleTimeMillis }.filter { it in 1 until Long.MAX_VALUE }.minOrNull()
         }
 
         private fun enqueue(workManager: WorkManager, name: String, minutes: Int, constraints: Constraints) {

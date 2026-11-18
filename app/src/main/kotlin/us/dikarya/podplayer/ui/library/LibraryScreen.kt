@@ -19,6 +19,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -33,6 +35,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -77,6 +80,22 @@ fun LibraryScreen(viewModel: LibraryViewModel, onOpenShow: (Long) -> Unit, onDis
             CenteredMessage(stringResource(R.string.library_empty)) { FindShowsButton(onDiscover) }
             return@Column
         }
+        val gridState = rememberLazyGridState()
+        val listState = rememberLazyListState()
+        // A new sort starts at the top (found on the phone, 2026-11-17: the list kept its place mid-way). Only a
+        // change: coming back from a show keeps the place.
+        var shownSort by rememberSaveable { mutableStateOf(state.sort) }
+        LaunchedEffect(state.sort) {
+            if (state.sort != shownSort) {
+                shownSort = state.sort
+                // Only the layout on screen: scrolling the other suspends until its first layout, which never
+                // comes, so the second scroll would never run (Codex review, PR #27).
+                when (state.layout) {
+                    LibraryLayout.Grid -> gridState.scrollToItem(0)
+                    LibraryLayout.List -> listState.scrollToItem(0)
+                }
+            }
+        }
         val refreshing by viewModel.refreshing.collectAsStateWithLifecycle(false)
         // Pull down to check every show for new episodes (owner, 2026-11-18).
         PullToRefresh(refreshing, onRefresh = viewModel::refreshAll, modifier = Modifier.fillMaxSize()) {
@@ -87,11 +106,12 @@ fun LibraryScreen(viewModel: LibraryViewModel, onOpenShow: (Long) -> Unit, onDis
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.fillMaxSize(),
+                    state = gridState,
                 ) {
                     items(state.shows, key = { it.feed.id }) { show -> GridTile(show, onOpenShow) }
                     item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier) }
                 }
-                LibraryLayout.List -> LazyColumn(contentPadding = PaddingValues(vertical = 8.dp), modifier = Modifier.fillMaxSize()) {
+                LibraryLayout.List -> LazyColumn(contentPadding = PaddingValues(vertical = 8.dp), modifier = Modifier.fillMaxSize(), state = listState) {
                     items(state.shows, key = { it.feed.id }) { show -> ListRow(show, onOpenShow) }
                 }
             }

@@ -189,6 +189,7 @@ class AppGraph(context: Context) {
             exportDir = { File(files.cacheDir, "exports") },
             log = log,
             appVersion = BuildConfig.VERSION_NAME,
+            nextRefreshAt = jobs.nextRefreshAt(),
         )
     }
 

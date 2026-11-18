@@ -70,6 +70,11 @@ class PlaybackEngine(
     private val scope: CoroutineScope,
     private val clock: Clock,
     private val persistScope: CoroutineScope = scope,
+    /**
+     * How many audio buffers the renderer has handed to the output so far, or null when unknown; [SilenceWatch]
+     * reads it. Tests whose fake media holds a single sample pass `{ null }`.
+     */
+    private val renderedAudioBuffers: () -> Int? = { player.audioDecoderCounters?.apply { ensureUpdated() }?.renderedOutputBufferCount },
 ) {
     /** The player the session exposes: commands from controllers go through here. */
     val sessionPlayer: PodPlayer = PodPlayer(player, this)
@@ -130,6 +135,29 @@ class PlaybackEngine(
      * the player's thread without a chance to ask the store, and it must start where it was left.
      */
     private var nextSaved: Pair<Long, Long>? = null
+
+    private val silence = SilenceWatch()
+
+    /** Where a silent episode was last loaded again (episode, position): a second silence there pauses instead. */
+    private var silentReloadAt: Pair<Long, Long>? = null
+
+    /** Controllers connected to the session (cars, the notification, our screens), for the log. */
+    private var controllersConnected = 0
+
+    /**
+     * PROGRESS "Later": the system once listed 98 controllers on our session after ~15 h, and nothing tried on the
+     * phone made the count grow. Each one that connects or leaves is logged by package (an app name, nothing
+     * private) with the running count, so the owner's logs show who piles up.
+     */
+    fun controllerConnected(packageName: String) {
+        controllersConnected++
+        store.log("Controller connected: $packageName ($controllersConnected connected)")
+    }
+
+    fun controllerLeft(packageName: String) {
+        controllersConnected = (controllersConnected - 1).coerceAtLeast(0)
+        store.log("Controller left: $packageName ($controllersConnected connected)")
+    }
     private var markedPlayed = false
     private var switchToFilePending = false
     private val brokenFiles = mutableSetOf<Long>()
@@ -472,18 +500,43 @@ class PlaybackEngine(
         }
     }
 
-    private fun replaceCurrent(item: MediaItem, cause: PositionCause) {
+    private fun replaceCurrent(item: MediaItem, cause: PositionCause, at: Long = player.currentPosition) {
         val position = player.currentPosition
         val next = (1 until player.mediaItemCount).map { player.getMediaItemAt(it) }
         rebuilding = true
         try {
-            player.setMediaItems(listOf(item) + next, 0, position)
+            player.setMediaItems(listOf(item) + next, 0, at)
             player.prepare()
         } finally {
             rebuilding = false
         }
-        logPosition(currentId ?: return, position, position, cause)
+        silence.reset()
+        logPosition(currentId ?: return, position, at, cause)
         updateWakeMode()
+    }
+
+    /**
+     * Playing without sound since [stoppedAtMs] (see [SilenceWatch]): log it and load the episode again from where
+     * the sound stopped, so nothing is skipped.
+     */
+    private fun recoverFromSilence(stoppedAtMs: Long) {
+        val id = currentId ?: return
+        val tried = silentReloadAt
+        if (tried != null && tried.first == id && kotlin.math.abs(tried.second - stoppedAtMs) <= SILENT_SAME_SPOT_MS) {
+            // Loading it again didn't help: pause there rather than reload every 15 s.
+            store.log("Episode $id: still without sound at ${stoppedAtMs / 1000} s after loading it again; pausing")
+            player.playWhenReady = false
+            return
+        }
+        silentReloadAt = id to stoppedAtMs
+        store.log("Episode $id: playing without sound since ${stoppedAtMs / 1000} s; loading it again from there")
+        scope.launch {
+            playlist.withLock {
+                if (released || currentId != id || player.mediaItemCount == 0) return@withLock
+                val episode = store.episode(id) ?: return@withLock
+                replaceCurrent(itemFor(episode), PositionCause.SilentRecovery, at = stoppedAtMs)
+            }
+        }
     }
 
     // --- Episode boundaries ---
@@ -656,6 +709,7 @@ class PlaybackEngine(
                     currentId?.let { logPosition(it, previous.positionMs, player.currentPosition, PositionCause.Unexplained) }
                 }
                 resample()
+                silence.check(player.currentPosition, renderedAudioBuffers())?.let(::recoverFromSilence)
                 if (now - lastSaveAt >= SAVE_EVERY_MS) {
                     persist()
                 } else {
@@ -727,6 +781,7 @@ class PlaybackEngine(
 
         override fun onIsPlayingChanged(isPlaying: Boolean) {
             resample()
+            silence.reset()
             // The sleep timer counts listening time: up to a stop, and again from a start.
             val now = clock.elapsedRealtime()
             if (isPlaying) {
@@ -742,6 +797,8 @@ class PlaybackEngine(
         override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) = onTransition(mediaItem, reason)
 
         override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
+            // A jump moves the position without audio: the silence watch starts again from here.
+            silence.reset()
             val id = currentId
             if (!rebuilding && id != null && oldPosition.mediaItemIndex == newPosition.mediaItemIndex) {
                 when (reason) {
@@ -803,5 +860,8 @@ class PlaybackEngine(
 
         /** A stream dropping again and again shows one reconnect notice per this long, not one per attempt. */
         const val RECONNECT_NOTICE_GAP_MS = 30_000L
+
+        /** A silence this close to where the last reload started counts as the same spot. */
+        const val SILENT_SAME_SPOT_MS = 2_000L
     }
 }

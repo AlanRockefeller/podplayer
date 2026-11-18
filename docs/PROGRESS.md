@@ -21,6 +21,34 @@ a reviewer reads it to see what was really done.
 - PR:
 -->
 
+### M1-S13 Four items from "Later" (2026-11-18)
+Asked for by the owner ("yes" to: Library sort, the controller count, a silent-playback watchdog, last/next refresh).
+Branch `m1-s13-later-fixes`.
+- Plan (tests first): (1) Library starts at the top after a sort change (only a change, so coming back from a show
+  keeps the place); (2) find out whether our session leaks controllers, and log them by package if the phone
+  doesn't show it; (3) a watchdog that notices playing without sound and loads the episode again from where the
+  sound stopped, once per spot; (4) Settings shows when shows were last checked and when the next check is due.
+- Done:
+  1. `LibraryScreen` remembers the sort it showed; a different one scrolls the grid and the list to the top.
+  2. On the phone: 8 controllers after 69 min, and opening and closing the app 10 times (home and back) left it at
+     8, so our screens don't leak. The system's dump doesn't name them, so the engine now logs each controller
+     that connects or leaves by package with the running count ("Controller connected: … (n connected)").
+  3. `SilenceWatch`: while playing, the audio renderer's count of buffers handed to the output
+     (`audioDecoderCounters.renderedOutputBufferCount`) must move; 15 s of position without one is silence. The
+     engine logs it and loads the episode again from where the sound stopped (position log cause
+     `SilentRecovery`, "Reloaded: it was playing without sound"). Silent again at the same spot (within 2 s):
+     it pauses and logs instead of reloading every 15 s. The watch restarts on every jump, start and episode.
+  4. Settings › Checking for new episodes: "Last checked 9:39 PM · next check about 9:54 PM" (the latest show's
+     last successful refresh; the earlier of the two scheduled runs, `RefreshWorker.nextScheduledRun`).
+- Tests added: `LibrarySortUiTest`; `SessionCallbackTest.controllersComingAndGoingAreLoggedByPackageWithTheCount`;
+  `SilenceWatchTest` (5); `PlaybackEngineTest.playingWithoutSoundReloadsFromWhereTheSoundStopped`,
+  `stillSilentAfterReloadingPausesInsteadOfLooping`; `WorkersTest.theNextRefreshIsTheEarlierOfTheTwoScheduledRuns`;
+  `SettingsViewModelTest.theLastAndNextCheckForNewEpisodesAreShown`.
+- Deviations: the engine takes the rendered-buffer count as a function, because the tests' fake media holds a single
+  sample (its count stops at once); the standard test harness reports "unknown" and two tests drive it.
+- Manual checks for the owner: after a few days, Settings › Logs › App: look for "Controller connected" lines
+  piling up from one package. Settings › Checking for new episodes shows the last and next check.
+
 ### M1-S12 Owner feedback and phone-check fixes (2026-11-18)
 Asked for by the owner after the M1-S11 phone checks (not a session in `M1.md`). Branch `m1-s12-owner-feedback`,
 on top of `m1-s11-hardening` (PR #24).
@@ -2119,15 +2147,11 @@ Result:
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
-- Library: changing the sort keeps the grid's scroll position, so the new order's top isn't shown (found on the
-  phone, 2026-11-17). Scroll to the top when the sort changes.
-- `dumpsys media_session` showed 98 controllers on our session after ~15 h (other apps' sessions: 11). Our UI
-  client releases its controller; check whether the count grows with app opens, the notification or Bluetooth
-  before calling it a leak.
-- A watchdog for silent playback: if the player is playing but the audio renderer has read its stream to the end
-  well before the duration, log it (and maybe reload at the position). Today's fix covers the one cause seen.
-- LESSONS rules not built in M1 (not in SPEC or M1): show the last and next refresh time (Library or Settings);
-  check the audio output route before resuming after a Bluetooth device reconnects.
+- `dumpsys media_session` showed 98 controllers on our session after ~15 h (other apps' sessions: 11). M1-S13
+  found no growth from our screens and now logs every controller by package; read the app log after a few days
+  and fix whoever piles up.
+- LESSONS rule not built in M1 (not in SPEC or M1): check the audio output route before resuming after a
+  Bluetooth device reconnects.
 - Import a list: matching runs while the screen is on (M1-S11). If that isn't enough, background work that
   resumes where it stopped.
 - Android Auto (M1-S10, deferred by the owner): the S10 items below wait for it.

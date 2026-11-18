@@ -263,6 +263,9 @@
     <string name="settings_minutes">%1$d min</string>
     <string name="settings_hours">%1$d h</string>
     <string name="settings_refresh">Checking for new episodes</string>
+    <string name="settings_refresh_last">Last checked %1$s</string>
+    <string name="settings_refresh_never">Not checked yet</string>
+    <string name="settings_refresh_next">next check about %1$s</string>
     <string name="settings_refresh_wifi">On Wi-Fi</string>
     <string name="settings_refresh_mobile">On mobile data</string>
     <string name="settings_refresh_body">Most checks are tiny, but some shows send their whole feed every time, so frequent checks on mobile data can add up. Pull down on Home, Library or a show to check now.</string>
@@ -342,6 +345,7 @@
     <string name="logs_cause_to_stream">Download failed; back to the stream</string>
     <string name="logs_cause_player">Adjusted by the player</string>
     <string name="logs_cause_unexplained">Unexplained jump</string>
+    <string name="logs_cause_silent_recovery">Reloaded: it was playing without sound</string>
     <string name="logs_event_queued">Queued</string>
     <string name="logs_event_started">Started</string>
     <string name="logs_event_resumed">Resumed</string>

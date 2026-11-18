@@ -19,7 +19,6 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -182,6 +181,52 @@ class PlaybackEngineTest {
         assertFalse(h.player.playWhenReady)
     }
 
+    /**
+     * The owner's phone, 2026-11-17: the position ran on with no sound. When no audio reaches the output while the
+     * position moves 15 s, the episode is loaded again from where the sound stopped, and it keeps playing.
+     */
+    @Test
+    fun playingWithoutSoundReloadsFromWhereTheSoundStopped() {
+        val h = harness().apply { store.add(1); store.queue.value = listOf(1) }.start()
+        var buffers = 0
+        var frozen = false
+        h.renderedAudioBuffers = { if (!frozen) ++buffers else buffers }
+        h.engine.playEpisode(1)
+        h.playUntil(5_000)
+        frozen = true
+        val soundStopped = h.player.currentPosition
+        // The reload puts the position back, so wait for the recovery itself.
+        androidx.media3.test.utils.robolectric.RobolectricUtil.runMainLooperUntil {
+            h.store.positionLog.any { it.cause == PositionCause.SilentRecovery }
+        }
+        idle()
+        val recovery = h.store.positionLog.single { it.cause == PositionCause.SilentRecovery }
+        // Within a tick or so of where the sound stopped (the watch looks every TICK_MS).
+        assertTrue("reloaded at ${recovery.toMs}, sound stopped near $soundStopped", recovery.toMs in soundStopped - 1_000..soundStopped + 1_000)
+        // The reload brought the sound back: it plays on.
+        frozen = false
+        h.playUntil(soundStopped + 40_000)
+        assertEquals(1, h.store.positionLog.count { it.cause == PositionCause.SilentRecovery })
+        assertTrue(h.player.playWhenReady)
+        assertTrue(h.store.logLines.any { "without sound" in it })
+    }
+
+    /** If loading it again doesn't bring the sound back, it pauses there instead of reloading every 15 s. */
+    @Test
+    fun stillSilentAfterReloadingPausesInsteadOfLooping() {
+        val h = harness().apply { store.add(1); store.queue.value = listOf(1) }.start()
+        var buffers = 0
+        var frozen = false
+        h.renderedAudioBuffers = { if (!frozen) ++buffers else buffers }
+        h.engine.playEpisode(1)
+        h.playUntil(5_000)
+        frozen = true
+        run(h.player).untilPlayWhenReadyIs(false)
+        idle()
+        assertEquals(1, h.store.positionLog.count { it.cause == PositionCause.SilentRecovery })
+        assertTrue(h.store.logLines.any { "still without sound" in it })
+    }
+
     @Test
     fun theLastEpisodeEndingStaysLoaded() {
         // Owner, 2026-11-16: when the last episode ends, the player stays on it instead of "Nothing is playing".
@@ -202,11 +247,14 @@ class PlaybackEngineTest {
         h.engine.playEpisode(1)
         run(h.player).untilPlayWhenReadyIs(false)
         idle()
+        assertEquals(Player.STATE_ENDED, h.player.playbackState)
         h.engine.sessionPlayer.play()
-        idle()
+        // Checked before idling: Play seeks synchronously, while idling lets the auto-advancing fake clock play on for
+        // a varying stretch (this flaked on CI when it read the position afterwards).
         assertTrue(h.player.playWhenReady)
-        assertNotEquals(Player.STATE_ENDED, h.player.playbackState)
-        assertTrue("starts again near the beginning", h.player.currentPosition < 5_000)
+        assertTrue("starts again from the beginning", h.player.currentPosition < 1_000)
+        idle()
+        assertEquals(1L, h.store.current)
     }
 
     @Test
@@ -551,8 +599,9 @@ class PlaybackEngineTest {
         val h = harness(store).start()
         h.engine.playEpisode(1)
         idle()
-        // It is already playing, so allow for the moment that has passed; the saved 500 s were not used.
-        assertTrue(h.player.currentPosition < 5_000)
+        // It is already playing, and idling lets the auto-advancing fake clock run on for a varying stretch (a 5 s
+        // bound flaked on CI), so the check is only that the saved 500 s were not used.
+        assertTrue("at ${h.player.currentPosition}", h.player.currentPosition < 400_000)
         assertFalse(h.store.positionLog.any { it.cause == PositionCause.Restore })
     }
 

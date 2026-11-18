@@ -51,6 +51,10 @@ data class SettingsUiState(
     val bluetoothDevices: List<BluetoothDeviceUi> = emptyList(),
     /** How often shows are checked for new episodes in the background (owner, 2026-11-18). */
     val refresh: RefreshSchedule = RefreshSchedule(),
+    /** When a show was last checked successfully (the latest of all), or null before any check. */
+    val lastRefreshAt: Long? = null,
+    /** When the next background check is due, or null when none is scheduled. */
+    val nextRefreshAt: Long? = null,
 )
 
 data class BluetoothDeviceUi(val name: String, val ignoreAutoPlay: Boolean)
@@ -81,10 +85,21 @@ class SettingsViewModel(private val deps: SettingsDeps) : ViewModel() {
         val cleanUp: CleanUpSettings,
         val stoppedAt: Long?,
         val devices: List<BluetoothDeviceUi>,
-        val refresh: RefreshSchedule,
+        val refresh: RefreshInfo,
     )
 
-    private val devicesAndRefresh = combine(devices, deps.settings.refreshSchedule) { devices, refresh -> devices to refresh }
+    private class RefreshInfo(val schedule: RefreshSchedule, val lastAt: Long?, val nextAt: Long?)
+
+    /** LESSONS "Refresh": show the last and next refresh. */
+    private val lastRefreshAt = flow { emit(deps.repositories()) }.flatMapLatest { repos ->
+        repos?.feeds?.feeds()?.map { feeds -> feeds.mapNotNull { it.lastRefreshSuccessAt }.maxOrNull() } ?: flowOf(null)
+    }
+
+    private val refreshInfo = combine(deps.settings.refreshSchedule, lastRefreshAt, deps.nextRefreshAt) { schedule, last, next ->
+        RefreshInfo(schedule, last, next)
+    }
+
+    private val devicesAndRefresh = combine(devices, refreshInfo) { devices, refresh -> devices to refresh }
 
     private val more = combine(
         deps.settings.autoDownloadNewShows,
@@ -103,7 +118,8 @@ class SettingsViewModel(private val deps: SettingsDeps) : ViewModel() {
     ) { playback, wifiOnly, cap, usage, more ->
         SettingsUiState(
             false, playback, wifiOnly, cap, usage.usedBytes, usage.downloads, usage.freeBytes,
-            more.newShows, more.wifiOnly, more.cleanUp, more.stoppedAt, more.devices, more.refresh,
+            more.newShows, more.wifiOnly, more.cleanUp, more.stoppedAt, more.devices,
+            refresh = more.refresh.schedule, lastRefreshAt = more.refresh.lastAt, nextRefreshAt = more.refresh.nextAt,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_AFTER_MS), SettingsUiState())
 

@@ -113,6 +113,18 @@ class WorkersTest {
     }
 
     @Test
+    fun theNextRefreshIsTheEarlierOfTheTwoScheduledRuns() = runBlocking {
+        assertNull(RefreshWorker.nextScheduledRun(workManager).first())
+        val before = System.currentTimeMillis()
+        RefreshWorker.schedulePeriodic(workManager, RefreshSchedule())
+        val next = RefreshWorker.nextScheduledRun(workManager).first { it != null }!!
+        val wifi = active(RefreshWorker.PERIODIC_WIFI_NAME).single().nextScheduleTimeMillis
+        val any = active(RefreshWorker.PERIODIC_ANY_NAME).single().nextScheduleTimeMillis
+        assertEquals(minOf(wifi, any), next)
+        assertTrue(next >= before)
+    }
+
+    @Test
     fun theOldFourHourRefreshGoesAndAChangedScheduleReplacesTheWork() {
         // An install from before the setting has the single 4-hour schedule.
         workManager.enqueueUniquePeriodicWork(

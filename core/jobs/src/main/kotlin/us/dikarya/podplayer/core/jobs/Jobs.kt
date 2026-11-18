@@ -175,6 +175,9 @@ class Jobs(
     /** The owner asked: refresh [feedId], or every feed when null, as soon as there is a network. */
     fun refreshNow(feedId: Long?) = RefreshWorker.refreshNow(workManager, feedId)
 
+    /** When the next background refresh is due, or null when none is scheduled. */
+    fun nextRefreshAt(): Flow<Long?> = RefreshWorker.nextScheduledRun(workManager)
+
     /** Whether the refresh [refreshNow] asked for ([feedId], or all for null) is running now. */
     fun refreshRunning(feedId: Long?): Flow<Boolean> =
         workManager.getWorkInfosForUniqueWorkFlow(RefreshWorker.nowName(feedId)).map { infos -> infos.any { it.state == WorkInfo.State.RUNNING } }

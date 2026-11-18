@@ -70,6 +70,25 @@ class SessionCallbackTest {
         assertTrue("other controllers keep play/pause and seeking", other.availablePlayerCommands.contains(Player.COMMAND_PLAY_PAUSE))
     }
 
+    /**
+     * PROGRESS "Later": the system once listed 98 controllers on our session after ~15 h. Each controller that
+     * connects or leaves is logged by package with the running count, so the owner's logs show who piles up.
+     */
+    @Test
+    fun controllersComingAndGoingAreLoggedByPackageWithTheCount() {
+        callback.onConnect(session, otherApp)
+        callback.onConnect(session, ownUi)
+        callback.onDisconnected(session, otherApp)
+        assertEquals(
+            listOf(
+                "Controller connected: some.package (1 connected)",
+                "Controller connected: some.package (2 connected)",
+                "Controller left: some.package (1 connected)",
+            ),
+            h.store.logLines.filter { it.startsWith("Controller") },
+        )
+    }
+
     @Test
     fun customCommandsFromAnotherAppAreRefused() {
         val result = await(

@@ -70,6 +70,9 @@ enum class PositionCause {
 
     /** The position moved without any event explaining it: the jumps LESSONS "Position jumps" is about. */
     Unexplained,
+
+    /** It was playing without sound, so the episode was loaded again from where the sound stopped. */
+    SilentRecovery,
 }
 
 /** One row of the position log. [episodeId] has no foreign key: the log outlives an unsubscribe. */

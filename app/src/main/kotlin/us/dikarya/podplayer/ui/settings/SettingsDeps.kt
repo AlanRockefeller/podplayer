@@ -11,6 +11,7 @@ import us.dikarya.podplayer.core.data.logs.AppLog
 import us.dikarya.podplayer.core.data.logs.LogExport
 import us.dikarya.podplayer.core.data.repo.Repositories
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flowOf
 import us.dikarya.podplayer.core.data.settings.AppSettings
 import us.dikarya.podplayer.core.data.settings.CleanUpSettings
 
@@ -33,4 +34,6 @@ class SettingsDeps(
     val exportDir: () -> File,
     val log: AppLog,
     val appVersion: String,
+    /** When the next background refresh is due, or null (`Jobs.nextRefreshAt`). */
+    val nextRefreshAt: Flow<Long?> = flowOf(null),
 )

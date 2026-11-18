@@ -49,7 +49,12 @@ class SessionCallback(
     fun isOwnUi(controller: MediaSession.ControllerInfo): Boolean =
         controller.uid == ownUid && controller.connectionHints.getBoolean(PlaybackClient.HINT_OWN_UI, false)
 
+    override fun onDisconnected(session: MediaSession, controller: MediaSession.ControllerInfo) {
+        engine.controllerLeft(controller.packageName)
+    }
+
     override fun onConnect(session: MediaSession, controller: MediaSession.ControllerInfo): MediaSession.ConnectionResult {
+        engine.controllerConnected(controller.packageName)
         val builder = MediaSession.ConnectionResult.AcceptedResultBuilder(session)
         if (isOwnUi(controller)) {
             val commands: SessionCommands = MediaSession.ConnectionResult.DEFAULT_SESSION_AND_LIBRARY_COMMANDS.buildUpon()

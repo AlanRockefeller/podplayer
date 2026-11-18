@@ -230,7 +230,13 @@ internal class Harness(
     val sources = TestSources(store)
     val player: ExoPlayer = testPlayer(sources, clock)
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-    val engine = PlaybackEngine(player, store, scope, clock)
+
+    /**
+     * The audio buffers handed to the output, as the engine's silence watch sees them. The fake media holds a
+     * single sample, so the real count would stop at once: null (unknown) unless a test sets it.
+     */
+    var renderedAudioBuffers: () -> Int? = { null }
+    val engine = PlaybackEngine(player, store, scope, clock, renderedAudioBuffers = { renderedAudioBuffers() })
 
     init {
         activePlayer = player

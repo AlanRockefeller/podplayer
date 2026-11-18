@@ -7,6 +7,7 @@
 package us.dikarya.podplayer.ui.settings
 
 import android.content.Context
+import android.text.format.DateUtils
 import android.text.format.Formatter
 import us.dikarya.podplayer.core.data.settings.AppSettings
 import us.dikarya.podplayer.core.data.settings.CleanUpSettings
@@ -194,6 +195,17 @@ private fun AutoPlayDevices(devices: List<BluetoothDeviceUi>, onChange: (String,
 @Composable
 private fun RefreshSection(state: SettingsUiState, viewModel: SettingsViewModel) {
     Heading(R.string.settings_refresh)
+    // LESSONS "Refresh": show the last and next refresh.
+    val now = System.currentTimeMillis()
+    val time: (Long) -> String = { DateUtils.formatSameDayTime(it, now, java.text.DateFormat.MEDIUM, java.text.DateFormat.SHORT).toString() }
+    val last = state.lastRefreshAt?.let { stringResource(R.string.settings_refresh_last, time(it)) } ?: stringResource(R.string.settings_refresh_never)
+    val next = state.nextRefreshAt?.let { stringResource(R.string.settings_refresh_next, time(it)) }
+    Text(
+        listOfNotNull(last, next).joinToString(" · "),
+        style = MaterialTheme.typography.bodyMedium,
+        color = PodplayerTheme.colors.textSecondary,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+    )
     val every: @Composable (Int) -> String = { stringResource(R.string.settings_every, minutesText(it)) }
     ChoiceSetting(
         title = R.string.settings_refresh_wifi,

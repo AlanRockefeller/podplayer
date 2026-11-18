@@ -23,6 +23,7 @@ class SettingsTestEnv(val root: File) {
     /** Under the real cache folder: the FileProvider only shares files from there (res/xml/log_export_paths.xml). */
     val exportDir = File(ApplicationProvider.getApplicationContext<Context>().cacheDir, "exports")
     var freeBytes: Long? = 50L * 1024 * 1024 * 1024
+    val nextRefreshAt = kotlinx.coroutines.flow.MutableStateFlow<Long?>(null)
 
     val deps = SettingsDeps(
         settings = browse.data.settings,
@@ -45,6 +46,7 @@ class SettingsTestEnv(val root: File) {
         exportDir = { exportDir },
         log = browse.log,
         appVersion = "1.0-test",
+        nextRefreshAt = nextRefreshAt,
     )
 
     fun close() = browse.close()

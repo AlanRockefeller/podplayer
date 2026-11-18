@@ -77,6 +77,7 @@ private fun PositionCause.label(): Int = when (this) {
     PositionCause.FallBackToStream -> R.string.logs_cause_to_stream
     PositionCause.Player -> R.string.logs_cause_player
     PositionCause.Unexplained -> R.string.logs_cause_unexplained
+    PositionCause.SilentRecovery -> R.string.logs_cause_silent_recovery
 }
 
 @StringRes

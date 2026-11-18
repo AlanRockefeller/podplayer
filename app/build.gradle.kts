@@ -4,8 +4,11 @@
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
 
+import com.android.build.api.artifact.ScopedArtifact
 import com.android.build.api.variant.HostTestBuilder
+import com.android.build.api.variant.ScopedArtifacts
 import java.util.Properties
+import java.util.zip.ZipFile
 
 plugins {
     id("podplayer.android.application")
@@ -62,6 +65,59 @@ androidComponents {
     beforeVariants(selector().withBuildType("release")) { variant ->
         variant.hostTests[HostTestBuilder.UNIT_TEST_TYPE]?.enable = true
     }
+    // Each variant's own classes (what goes into its APK from this project), for `DebugSourceSetAbsentTest`.
+    onVariants { variant ->
+        val list = tasks.register<ListVariantClasses>("list${variant.name.replaceFirstChar(Char::uppercase)}Classes") {
+            output.set(layout.buildDirectory.file("classLists/${variant.name}.txt"))
+        }
+        variant.artifacts.forScope(ScopedArtifacts.Scope.PROJECT)
+            .use(list)
+            .toGet(ScopedArtifact.CLASSES, ListVariantClasses::jars, ListVariantClasses::dirs)
+    }
+}
+
+/** Writes the binary names of every class in a variant's project classes, one per line. */
+abstract class ListVariantClasses : DefaultTask() {
+    @get:InputFiles
+    abstract val jars: ListProperty<RegularFile>
+
+    @get:InputFiles
+    abstract val dirs: ListProperty<Directory>
+
+    @get:OutputFile
+    abstract val output: RegularFileProperty
+
+    @TaskAction
+    fun write() {
+        val names = sortedSetOf<String>()
+        for (dir in dirs.get().map { it.asFile }) {
+            dir.walkTopDown().filter { it.isFile && it.name.endsWith(".class") }.forEach { file ->
+                names += file.relativeTo(dir).invariantSeparatorsPath.removeSuffix(".class").replace('/', '.')
+            }
+        }
+        for (jar in jars.get().map { it.asFile }) {
+            ZipFile(jar).use { zip ->
+                zip.entries().asSequence().filter { it.name.endsWith(".class") }.forEach { entry ->
+                    names += entry.name.removeSuffix(".class").replace('/', '.')
+                }
+            }
+        }
+        output.get().asFile.writeText(names.joinToString("\n", postfix = "\n"))
+    }
+}
+
+// The release unit tests compare the debug source set with both variants' classes and the release resources.
+tasks.withType<Test>().matching { it.name == "testReleaseUnitTest" }.configureEach {
+    val debugList = layout.buildDirectory.file("classLists/debug.txt")
+    val releaseList = layout.buildDirectory.file("classLists/release.txt")
+    dependsOn("listDebugClasses", "listReleaseClasses")
+    inputs.files(debugList, releaseList).withPropertyName("classLists")
+    inputs.dir("src/debug").withPropertyName("debugSources")
+    inputs.dir("src/release").withPropertyName("releaseSources")
+    systemProperty("podplayer.classes.debug", debugList.get().asFile.absolutePath)
+    systemProperty("podplayer.classes.release", releaseList.get().asFile.absolutePath)
+    systemProperty("podplayer.src.debug", file("src/debug").absolutePath)
+    systemProperty("podplayer.src.release", file("src/release").absolutePath)
 }
 
 dependencies {

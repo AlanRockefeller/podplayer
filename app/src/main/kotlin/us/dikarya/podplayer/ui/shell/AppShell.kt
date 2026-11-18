@@ -19,6 +19,12 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.foundation.text.TextAutoSize
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.isSpecified
+import androidx.compose.ui.unit.sp
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
@@ -206,7 +212,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
                         current != null -> current.label
                         else -> R.string.app_name
                     }
-                    Text(stringResource(title))
+                    // One line, shrunk to fit (it broke as "Episo / de" at font size 200%).
+                    OneLine(stringResource(title), TITLE_MIN)
                 },
                 navigationIcon = {
                     if (canGoBack) {
@@ -316,8 +323,28 @@ private fun BottomNavigation(navController: NavHostController, current: TopLevel
                 onClick = { navController.navigateToTab(item) },
                 // The label below is the accessible name, so the icon itself is decorative.
                 icon = { Icon(painter = painterResource(item.icon), contentDescription = null) },
-                label = { Text(stringResource(item.label)) },
+                // One line, shrunk to fit: at font size 200% "Discover" broke as "Discov / er" on the owner's phone.
+                label = { OneLine(stringResource(item.label), BAR_LABEL_MIN) },
             )
         }
     }
 }
+
+/** [text] on one line at the surrounding style's size, shrunk down to [min] when it doesn't fit, then cut with "…". */
+@Composable
+private fun OneLine(text: String, min: TextUnit) {
+    val size = LocalTextStyle.current.fontSize
+    if (!size.isSpecified || size.value <= min.value) {
+        Text(text, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        return
+    }
+    Text(
+        text,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+        autoSize = TextAutoSize.StepBased(minFontSize = min, maxFontSize = size, stepSize = 0.5.sp),
+    )
+}
+
+private val BAR_LABEL_MIN = 8.sp
+private val TITLE_MIN = 14.sp

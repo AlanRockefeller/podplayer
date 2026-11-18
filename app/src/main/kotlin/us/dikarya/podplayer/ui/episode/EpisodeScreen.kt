@@ -42,7 +42,11 @@ import us.dikarya.podplayer.R
 import us.dikarya.podplayer.core.feed.notes.RichStyle
 import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.ui.artwork.Artwork
+import androidx.compose.foundation.layout.Box
+import us.dikarya.podplayer.ui.browse.ArtworkBeside
 import us.dikarya.podplayer.ui.browse.CenteredMessage
+import us.dikarya.podplayer.ui.browse.MIN_TITLE_EMS
+import us.dikarya.podplayer.ui.browse.textRoom
 import us.dikarya.podplayer.ui.browse.EpisodeItem
 import us.dikarya.podplayer.ui.browse.Loading
 import us.dikarya.podplayer.ui.browse.OfflineBanner
@@ -67,22 +71,27 @@ fun EpisodeScreen(viewModel: EpisodeViewModel, onOpenShow: (Long) -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         OfflineBanner(state.online)
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Artwork(item.imageUrl, item.approvedHost, 96.dp)
-                Spacer(Modifier.width(16.dp))
-                Column(Modifier.weight(1f)) {
-                    Text(item.episode.title ?: stringResource(R.string.untitled_episode), style = MaterialTheme.typography.titleLarge)
-                    item.showTitle?.let { show ->
-                        Text(
-                            show,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = colors.accent,
-                            modifier = Modifier.clickable(role = Role.Button) { onOpenShow(item.episode.feedId) }.padding(vertical = 4.dp),
-                        )
+            // At large font sizes the artwork moves above the title rather than squeeze it (see ArtworkBeside).
+            val titleStyle = MaterialTheme.typography.titleLarge
+            ArtworkBeside(
+                minTextWidth = textRoom(titleStyle.fontSize, MIN_TITLE_EMS, extra = 48.dp),
+                artwork = { Box(Modifier.padding(end = 16.dp, bottom = 8.dp)) { Artwork(item.imageUrl, item.approvedHost, 96.dp) } },
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(item.episode.title ?: stringResource(R.string.untitled_episode), style = titleStyle)
+                        item.showTitle?.let { show ->
+                            Text(
+                                show,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = colors.accent,
+                                modifier = Modifier.clickable(role = Role.Button) { onOpenShow(item.episode.feedId) }.padding(vertical = 4.dp),
+                            )
+                        }
+                        Text(episodeMeta(item, withShow = false), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
                     }
-                    Text(episodeMeta(item, withShow = false), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+                    StarButton(item, viewModel.actions)
                 }
-                StarButton(item, viewModel.actions)
             }
             item.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth()) }
             Actions(item, viewModel, state.downloadsWifiOnly)

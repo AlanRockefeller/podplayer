@@ -143,33 +143,43 @@ fun EpisodeRow(
 ) {
     val colors = PodplayerTheme.colors
     Column(modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onOpen)) {
-        Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Artwork(item.imageUrl, item.approvedHost, 48.dp)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    item.episode.title ?: stringResource(R.string.untitled_episode),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = if (item.played) colors.textQuiet else colors.textPrimary,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(episodeMeta(item, withShow), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
-            if (compact) {
-                // Play and Download only, drawn closer together: the 48 dp touch targets overlap a little, the icons
-                // keep 12 dp apart (owner, 2026-11-16).
-                Row(horizontalArrangement = Arrangement.spacedBy(-COMPACT_OVERLAP)) {
+        val title = MaterialTheme.typography.bodyLarge
+        // At large font sizes the buttons move under the title rather than squeeze it (see ActionsBeside).
+        ActionsBeside(
+            minMainWidth = textRoom(title.fontSize, MIN_TITLE_EMS, extra = ROW_ARTWORK + 16.dp + 12.dp),
+            modifier = Modifier.padding(end = 4.dp, top = 8.dp, bottom = 8.dp),
+            main = {
+                Row(Modifier.padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Artwork(item.imageUrl, item.approvedHost, ROW_ARTWORK)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            item.episode.title ?: stringResource(R.string.untitled_episode),
+                            style = title,
+                            color = if (item.played) colors.textQuiet else colors.textPrimary,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(episodeMeta(item, withShow), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            },
+            actions = {
+                if (compact) {
+                    // Play and Download only, drawn closer together: the 48 dp touch targets overlap a little, the icons
+                    // keep 12 dp apart (owner, 2026-11-16).
+                    Row(horizontalArrangement = Arrangement.spacedBy(-COMPACT_OVERLAP)) {
+                        PlayButton(item, actions)
+                        DownloadButton(item, actions, onDownload)
+                    }
+                } else {
+                    StarButton(item, actions)
                     PlayButton(item, actions)
+                    QueueButton(item, actions)
                     DownloadButton(item, actions, onDownload)
                 }
-            } else {
-                StarButton(item, actions)
-                PlayButton(item, actions)
-                QueueButton(item, actions)
-                DownloadButton(item, actions, onDownload)
-            }
-        }
+            },
+        )
         item.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) }
     }
 }
@@ -252,3 +262,4 @@ fun FindShowsButton(onDiscover: () -> Unit) {
 
 /** How far the compact row's two buttons overlap. */
 private val COMPACT_OVERLAP = 12.dp
+private val ROW_ARTWORK = 48.dp

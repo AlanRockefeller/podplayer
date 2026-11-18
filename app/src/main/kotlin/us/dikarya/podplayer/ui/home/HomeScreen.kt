@@ -41,7 +41,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import us.dikarya.podplayer.R
+import us.dikarya.podplayer.ui.browse.ActionsBeside
+import us.dikarya.podplayer.ui.browse.MIN_TITLE_EMS
 import us.dikarya.podplayer.ui.browse.showNameOrUntitled
+import us.dikarya.podplayer.ui.browse.textRoom
 import us.dikarya.podplayer.core.model.Feed
 import us.dikarya.podplayer.ui.artwork.Artwork
 import us.dikarya.podplayer.ui.browse.CenteredMessage
@@ -125,21 +128,30 @@ private fun ContinueCard(item: EpisodeItem, onOpen: () -> Unit, onPlay: () -> Un
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).clickable(role = Role.Button, onClick = onOpen),
         colors = CardDefaults.cardColors(containerColor = colors.surfaceElevated),
     ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Artwork(item.imageUrl, item.approvedHost, 72.dp)
-            Spacer(Modifier.width(12.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(item.episode.title ?: stringResource(R.string.untitled_episode), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(episodeMeta(item, withShow = true), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                item.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth()) }
-            }
-            Spacer(Modifier.width(8.dp))
-            Button(onClick = onPlay) {
-                Icon(painterResource(if (item.playing) R.drawable.ic_pause else R.drawable.ic_play), contentDescription = null)
-                Spacer(Modifier.width(4.dp))
-                Text(stringResource(if (item.playing) R.string.action_pause else if (item.positionMs > 0) R.string.action_resume else R.string.action_play))
-            }
-        }
+        val title = MaterialTheme.typography.titleSmall
+        // At large font sizes Resume moves under the title rather than squeeze it (see ActionsBeside).
+        ActionsBeside(
+            minMainWidth = textRoom(title.fontSize, MIN_TITLE_EMS, extra = CONTINUE_ARTWORK + 12.dp),
+            modifier = Modifier.padding(12.dp),
+            main = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Artwork(item.imageUrl, item.approvedHost, CONTINUE_ARTWORK)
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(item.episode.title ?: stringResource(R.string.untitled_episode), style = title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(episodeMeta(item, withShow = true), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        item.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth()) }
+                    }
+                }
+            },
+            actions = {
+                Button(onClick = onPlay, modifier = Modifier.padding(start = 8.dp, top = 4.dp)) {
+                    Icon(painterResource(if (item.playing) R.drawable.ic_pause else R.drawable.ic_play), contentDescription = null)
+                    Spacer(Modifier.width(4.dp))
+                    Text(stringResource(if (item.playing) R.string.action_pause else if (item.positionMs > 0) R.string.action_resume else R.string.action_play))
+                }
+            },
+        )
     }
 }
 
@@ -184,3 +196,5 @@ private fun ShowsRow(shows: List<Feed>, onOpenShow: (Long) -> Unit) {
 
 /** How many rows before the end Home asks for older episodes. */
 private const val LOAD_MORE_AHEAD = 5
+
+private val CONTINUE_ARTWORK = 72.dp

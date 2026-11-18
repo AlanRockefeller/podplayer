@@ -10,8 +10,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.IOException
 import java.io.InputStream
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -49,6 +51,10 @@ data class ImportRow(
     val chosen: Int? = null,
     val skipped: Boolean = false,
     val problem: DiscoverProblem? = null,
+    /** Searches that failed in a row; resets on "Search again". */
+    val failures: Int = 0,
+    /** When a failed search is tried again on its own (the importer's clock); null: no retry pending. */
+    val retryAt: Long? = null,
 ) {
     val chosenHit: SearchHit? get() = chosen?.let(hits::getOrNull)
 
@@ -182,42 +188,86 @@ class ListImportViewModel(private val deps: BrowseDeps) : ViewModel() {
         matchWaiting()
     }
 
-    /** Matches every waiting row in order, one paced request at a time. */
-    private fun matchWaiting() {
-        if (matcher?.isActive == true) return
+    /** True while the matcher only waits for a failed row's retry time, so "Search again" may wake it. */
+    @Volatile
+    private var waitingForRetry = false
+
+    /**
+     * Matches every waiting row in order, one paced request at a time. A failed search is tried again on its own
+     * after each of [RETRY_WAITS_MS] (other rows go on meanwhile; a retry that is due goes first), then the row
+     * keeps "Search again". [restart] replaces a matcher that is only waiting for a retry.
+     */
+    private fun matchWaiting(restart: Boolean = false) {
+        val previous = matcher
+        if (previous?.isActive == true && !(restart && waitingForRetry)) return
         local.update { it.copy(matching = true) }
-        matcher = viewModelScope.launch {
+        lateinit var job: Job
+        job = viewModelScope.launch(start = CoroutineStart.LAZY) {
+            previous?.cancelAndJoin()
             try {
-                while (true) {
-                    val row = local.value.rows.firstOrNull { it.status == RowStatus.Waiting } ?: break
-                    if (!deps.online.value) {
-                        setRow(row.key) { it.copy(status = RowStatus.Failed, problem = DiscoverProblem.Offline) }
-                        continue
-                    }
-                    pacer.await()
-                    setRow(row.key) { it.copy(status = RowStatus.Searching) }
-                    val outcome = when (val line = row.line) {
-                        is ImportLine.Name -> deps.search.search(line.text)
-                        is ImportLine.AppleId -> deps.search.lookup(line.id)
-                        is ImportLine.Address -> continue
-                    }
-                    when (outcome) {
-                        is SearchOutcome.Results -> {
-                            val hits = outcome.hits.take(MAX_HITS)
-                            setRow(row.key) {
-                                if (hits.isEmpty()) it.copy(status = RowStatus.NoMatch) else it.copy(status = RowStatus.Matched, hits = hits, chosen = 0)
-                            }
-                        }
-                        is SearchOutcome.Failed -> {
-                            val code = ((outcome.problem as? DiscoverProblem.Net)?.error as? NetError.HttpStatus)?.code
-                            if (code == TOO_MANY_REQUESTS || code == FORBIDDEN) pacer.slowDown()
-                            setRow(row.key) { it.copy(status = RowStatus.Failed, problem = outcome.problem) }
-                        }
+                matchLoop()
+            } finally {
+                // A replaced matcher leaves `matching` to the one that took over.
+                if (matcher === job) local.update { it.copy(matching = false) }
+            }
+        }
+        matcher = job
+        job.start()
+    }
+
+    private suspend fun matchLoop() {
+        while (true) {
+            val rows = local.value.rows
+            val now = pacer.now()
+            val row = rows.firstOrNull { it.retryAt != null && it.retryAt <= now && !it.skipped }
+                ?: rows.firstOrNull { it.status == RowStatus.Waiting }
+            if (row == null) {
+                val next = rows.filter { !it.skipped }.mapNotNull { it.retryAt }.minOrNull() ?: return
+                waitingForRetry = true
+                try {
+                    pacer.waitUntil(next)
+                } finally {
+                    waitingForRetry = false
+                }
+                continue
+            }
+            if (!deps.online.value) {
+                failed(row.key, DiscoverProblem.Offline)
+                continue
+            }
+            pacer.await()
+            setRow(row.key) { it.copy(status = RowStatus.Searching, retryAt = null) }
+            val outcome = when (val line = row.line) {
+                is ImportLine.Name -> deps.search.search(line.text)
+                is ImportLine.AppleId -> deps.search.lookup(line.id)
+                is ImportLine.Address -> continue
+            }
+            when (outcome) {
+                is SearchOutcome.Results -> {
+                    pacer.relax()
+                    val hits = outcome.hits.take(MAX_HITS)
+                    setRow(row.key) {
+                        val done = it.copy(failures = 0, retryAt = null, problem = null)
+                        if (hits.isEmpty()) done.copy(status = RowStatus.NoMatch) else done.copy(status = RowStatus.Matched, hits = hits, chosen = 0)
                     }
                 }
-            } finally {
-                local.update { it.copy(matching = false) }
+                is SearchOutcome.Failed -> {
+                    val code = ((outcome.problem as? DiscoverProblem.Net)?.error as? NetError.HttpStatus)?.code
+                    // A retry that is throttled again doesn't slow the whole list down further.
+                    if ((code == TOO_MANY_REQUESTS || code == FORBIDDEN) && row.failures == 0) pacer.slowDown()
+                    failed(row.key, outcome.problem)
+                }
             }
+        }
+    }
+
+    /** Marks a row failed and, unless its retries are used up, when it is tried again. */
+    private fun failed(key: Int, problem: DiscoverProblem) {
+        val now = pacer.now()
+        setRow(key) {
+            val failures = it.failures + 1
+            val wait = RETRY_WAITS_MS.getOrNull(failures - 1)
+            it.copy(status = RowStatus.Failed, problem = problem, failures = failures, retryAt = wait?.let { w -> now + w })
         }
     }
 
@@ -233,8 +283,10 @@ class ListImportViewModel(private val deps: BrowseDeps) : ViewModel() {
 
     /** Searches a failed or unmatched row again. */
     fun retry(key: Int) {
-        setRow(key) { if (it.status == RowStatus.Failed || it.status == RowStatus.NoMatch) it.copy(status = RowStatus.Waiting, problem = null) else it }
-        matchWaiting()
+        setRow(key) {
+            if (it.status == RowStatus.Failed || it.status == RowStatus.NoMatch) it.copy(status = RowStatus.Waiting, problem = null, failures = 0, retryAt = null) else it
+        }
+        matchWaiting(restart = true)
     }
 
     /** Back to the text field, keeping the text. */
@@ -308,14 +360,17 @@ class ListImportViewModel(private val deps: BrowseDeps) : ViewModel() {
         null
     }
 
-    private companion object {
-        const val MAX_HITS = 5
-        const val TOO_MANY_REQUESTS = 429
-        const val FORBIDDEN = 403
-        const val BUFFER = 64 * 1024
-        const val TAG = "Import"
+    companion object {
+        /** How long a failed search waits before each automatic retry; after the last one it gives up. */
+        val RETRY_WAITS_MS: List<Long> = listOf(10_000L, 30_000L, 90_000L)
+
+        private const val MAX_HITS = 5
+        private const val TOO_MANY_REQUESTS = 429
+        private const val FORBIDDEN = 403
+        private const val BUFFER = 64 * 1024
+        private const val TAG = "Import"
 
         /** A marker compared by identity: the file was over the limit. */
-        val TOO_LARGE = ByteArray(0)
+        private val TOO_LARGE = ByteArray(0)
     }
 }

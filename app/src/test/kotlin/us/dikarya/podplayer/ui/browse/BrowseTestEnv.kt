@@ -135,8 +135,16 @@ class BrowseTestEnv(root: File) {
     /** What the gate answers; every request is recorded. */
     var answer: (okhttp3.HttpUrl) -> FetchResult = { FetchResult.Failure(NetError.Network("no test server")) }
     val requests = mutableListOf<okhttp3.HttpUrl>()
+
+    /** Each request with the list importer's (fake) time when it was made. */
+    val requestTimes = mutableListOf<Pair<okhttp3.HttpUrl, Long>>()
+
+    /** Runs before each answer; a test can suspend here to hold a request open. */
+    var beforeAnswer: suspend (okhttp3.HttpUrl) -> Unit = {}
     private val gate = GateFetch { url, _, _ ->
         requests += url
+        requestTimes += url to pacerNow
+        beforeAnswer(url)
         answer(url)
     }
 
@@ -151,7 +159,7 @@ class BrowseTestEnv(root: File) {
         previewer = FeedPreviewer(gate, androidFeedParser()),
         subscriptions = Subscriptions({ data.awaitRepositories() }, { data.settings.autoDownloadNewShows.first() }) { refreshes += it },
         log = log,
-        importPacer = { Pacer(now = { pacerNow }) { ms -> pacedWaits += ms; pacerNow += ms } },
+        importPacer = { Pacer(clock = { pacerNow }) { ms -> pacedWaits += ms; pacerNow += ms } },
     )
 
     /** The list importer's pacing, on a clock of its own so tests don't wait: every wait is recorded. */

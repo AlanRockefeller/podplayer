@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<opml version="1.0">
+  <head><title>Bad URLs & duplicates</title></head>
+  <body>
+    <outline type="rss" text="Good" xmlUrl="https://good.expamle.com/feed"/>
+    <outline typd="rss" text="Duplicate of good" xmlUrl="Https://goo/feed#Intent;end"/>
+    <outline type="rss" text="Empty"mlUrl="http://0177.0.0.1/feed"/>
+    <outline type="rss" text="Second good" xmlUrl="http://second.example.org/rss?a=1&b=2"/>
+  </body>
+</opml>

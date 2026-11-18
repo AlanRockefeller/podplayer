@@ -17,6 +17,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
@@ -73,7 +74,8 @@ class StarUiTest {
         }
         val star = context.getString(R.string.action_star_episode, "Alpha 1")
         compose.waitInRealTime { compose.onAllNodesWithContentDescription(star).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithContentDescription(star).performClick()
+        // At this test's 320 dp the row's buttons sit on their own line under the title (ActionsBeside), below the fold.
+        compose.onNodeWithContentDescription(star).performScrollTo().performClick()
 
         compose.waitInRealTime { starred(newest) }
         compose.waitInRealTime { compose.onAllNodesWithText(context.getString(R.string.undo)).fetchSemanticsNodes().isNotEmpty() }

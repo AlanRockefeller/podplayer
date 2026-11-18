@@ -3,11 +3,14 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at https://mozilla.org/MPL/2.0/.
  */
+@file:OptIn(ExperimentalLayoutApi::class)
 
 package us.dikarya.podplayer.ui.player
 
 import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -141,7 +144,8 @@ private fun Player(state: PlayerUiState, viewModel: PlayerViewModel, onOpenEpiso
             }
         }
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+        // Wraps at large font sizes, so the speed label can grow without squeezing the buttons under 48 dp.
+        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, itemVerticalAlignment = Alignment.CenterVertically) {
             val speedDescription = stringResource(R.string.player_speed, speedText(state.speed))
             TextButton(
                 onClick = { onSheet(Sheet.Speed) },

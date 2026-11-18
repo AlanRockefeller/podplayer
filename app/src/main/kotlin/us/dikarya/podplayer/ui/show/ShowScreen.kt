@@ -55,7 +55,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import us.dikarya.podplayer.ui.player.SPEED_CHOICES
+import us.dikarya.podplayer.ui.browse.ArtworkBeside
+import us.dikarya.podplayer.ui.browse.MIN_TITLE_EMS
 import us.dikarya.podplayer.ui.browse.showNameOrUntitled
+import us.dikarya.podplayer.ui.browse.textRoom
 import us.dikarya.podplayer.ui.player.speedText
 import us.dikarya.podplayer.R
 import us.dikarya.podplayer.core.feed.notes.RichStyle
@@ -87,11 +90,14 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
         item { OfflineBanner(state.online) }
         item {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Artwork(feed.imageUrl, feed.ownerApprovedHost, 96.dp)
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(showNameOrUntitled(feed), style = MaterialTheme.typography.titleLarge)
+                // At large font sizes the artwork moves above the title rather than squeeze it (see ArtworkBeside).
+                val titleStyle = MaterialTheme.typography.titleLarge
+                ArtworkBeside(
+                    minTextWidth = textRoom(titleStyle.fontSize, MIN_TITLE_EMS),
+                    artwork = { Box(Modifier.padding(end = 16.dp, bottom = 8.dp)) { Artwork(feed.imageUrl, feed.ownerApprovedHost, 96.dp) } },
+                ) {
+                    Column {
+                        Text(showNameOrUntitled(feed), style = titleStyle)
                         feed.author?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary) }
                         if (!feed.isSecure) Text(stringResource(R.string.not_secure_feed), style = MaterialTheme.typography.bodySmall, color = colors.warning)
                     }

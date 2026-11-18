@@ -49,6 +49,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.text.format.DateUtils
 import us.dikarya.podplayer.R
+import us.dikarya.podplayer.ui.browse.ActionsBeside
 import us.dikarya.podplayer.ui.browse.showNameOrUntitled
 import us.dikarya.podplayer.core.data.settings.LibraryLayout
 import us.dikarya.podplayer.core.data.settings.LibrarySort
@@ -94,14 +95,26 @@ fun LibraryScreen(viewModel: LibraryViewModel, onOpenShow: (Long) -> Unit, onDis
 
 @Composable
 private fun Toolbar(state: LibraryUiState, viewModel: LibraryViewModel, onOpenStarred: () -> Unit) {
+    // At large font sizes the buttons move under the count rather than break it ("227 sho / ws" on the phone).
+    ActionsBeside(
+        minMainWidth = null,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp),
+        main = {
+            Text(
+                pluralStringResource(R.plurals.library_count, state.shows.size, state.shows.size),
+                style = MaterialTheme.typography.labelLarge,
+                color = PodplayerTheme.colors.textSecondary,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+        },
+        actions = { ToolbarActions(state, viewModel, onOpenStarred) },
+    )
+}
+
+@Composable
+private fun ToolbarActions(state: LibraryUiState, viewModel: LibraryViewModel, onOpenStarred: () -> Unit) {
     var sorting by rememberSaveable { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            pluralStringResource(R.plurals.library_count, state.shows.size, state.shows.size),
-            style = MaterialTheme.typography.labelLarge,
-            color = PodplayerTheme.colors.textSecondary,
-            modifier = Modifier.weight(1f).padding(start = 8.dp),
-        )
+    Row(verticalAlignment = Alignment.CenterVertically) {
         TextButton(onClick = onOpenStarred) {
             Icon(painterResource(R.drawable.ic_star), contentDescription = null, tint = PodplayerTheme.colors.accent)
             Spacer(Modifier.width(4.dp))

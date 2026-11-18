@@ -43,6 +43,11 @@ jobs:
       - name: Check
         run: ./gradlew check
 
+      # A short Jazzer run per parser (`check` above only replays the seeds and saved findings).
+      # A finding fails the job; its input is in the uploaded reports (core/feed/build/fuzz/crash-*).
+      - name: Fuzz feed and OPML parsers
+        run: ./gradlew :core:feed:fuzz -PfuzzDuration=60s
+
       - name: Build release variant
         run: ./gradlew assembleRelease
 
@@ -54,4 +59,5 @@ jobs:
           path: |
             **/build/reports/
             **/build/test-results/
+            core/feed/build/fuzz/crash-*
           retention-days: 7

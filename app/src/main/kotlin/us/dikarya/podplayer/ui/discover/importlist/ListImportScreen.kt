@@ -36,6 +36,7 @@ import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,6 +44,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -64,6 +66,8 @@ fun ListImportScreen(viewModel: ListImportViewModel, onOpenShow: (Long) -> Unit,
         if (uri != null) viewModel.filePicked { context.contentResolver.openInputStream(uri) }
     }
     val summary = state.summary
+    // Matching a long list takes minutes; the screen stays on so it isn't stopped when it would turn off.
+    KeepScreenOn(state.matching)
     Column(Modifier.fillMaxSize()) {
         OfflineBanner(state.online)
         when {
@@ -71,6 +75,16 @@ fun ListImportScreen(viewModel: ListImportViewModel, onOpenShow: (Long) -> Unit,
             state.rows.isEmpty() -> Input(state, viewModel, onPickFile = { pickFile.launch(arrayOf("text/*", "application/json", "*/*")) })
             else -> Review(state, viewModel, onOpenShow)
         }
+    }
+}
+
+/** Keeps the screen on while [on] and this screen is shown (the window flag, through the view). */
+@Composable
+internal fun KeepScreenOn(on: Boolean) {
+    val view = LocalView.current
+    DisposableEffect(view, on) {
+        if (on) view.keepScreenOn = true
+        onDispose { if (on) view.keepScreenOn = false }
     }
 }
 
@@ -145,6 +159,7 @@ private fun RowCard(row: ImportRow, subscribed: Map<String, Long>, viewModel: Li
                 row.status == RowStatus.Waiting -> Text(stringResource(R.string.import_list_waiting), color = colors.textQuiet)
                 row.status == RowStatus.Searching -> Text(stringResource(R.string.import_list_searching_one), color = colors.textSecondary)
                 row.status == RowStatus.NoMatch -> Text(stringResource(R.string.import_list_no_match), color = colors.warning)
+                row.status == RowStatus.Failed && row.retryAt != null -> Text(stringResource(R.string.import_list_failed_retrying), color = colors.warning)
                 row.status == RowStatus.Failed -> Text(stringResource(R.string.import_list_failed), color = colors.error)
                 hit != null -> {
                     Text(hit.title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)

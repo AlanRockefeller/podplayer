@@ -115,14 +115,17 @@ object ShowNotes {
         return NotesResult.Ok(out.build())
     }
 
-    /** Notes without markup: keep the publisher's lines, a blank line starts a paragraph. */
+    /**
+     * Notes without markup: keep the publisher's lines, a blank line starts a paragraph. Entities are still HTML's
+     * (`&nbsp;`, `&amp;`): the field is HTML even when it has no tags.
+     */
     private fun plainText(text: String, out: RichTextBuilder) {
         for (line in text.replace("\r\n", "\n").replace('\r', '\n').split('\n')) {
             if (line.isBlank()) {
                 out.requestBreak(2)
             } else {
                 out.requestBreak(1)
-                out.text(line)
+                out.text(if ('&' in line) Parser.unescapeEntities(line, false) else line)
             }
         }
     }

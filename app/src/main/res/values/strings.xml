@@ -381,6 +381,7 @@
     <string name="import_list_waiting">Waiting to search</string>
     <string name="import_list_no_match">No match found</string>
     <string name="import_list_failed">The search didn\'t work</string>
+    <string name="import_list_failed_retrying">The search didn\'t work. Trying again shortly…</string>
     <string name="import_list_skipped">Skipped</string>
     <string name="import_list_address">Feed address: checked when you subscribe</string>
     <string name="import_list_change">Change</string>

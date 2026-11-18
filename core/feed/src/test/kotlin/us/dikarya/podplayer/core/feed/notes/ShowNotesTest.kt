@@ -154,6 +154,14 @@ class ShowNotesTest {
     }
 
     @Test
+    fun `entities are decoded in notes without markup too`() {
+        // Seen on the owner's phone: ABC's 20/20 description has no tags but ends "subscribe now.&nbsp; Terms apply."
+        assertEquals("subscribe now.  Terms apply. Q&A", rich("subscribe now.&nbsp; Terms apply. Q&amp;A").text)
+        // A bare ampersand is just an ampersand.
+        assertEquals("AT&T and R&D, 5 & 6", rich("AT&T and R&D, 5 & 6").text)
+    }
+
+    @Test
     fun `plain text notes keep their lines and get links and timestamps`() {
         val notes = rich("Line one.\nLine two at 12:34, see https://example.org/page.\n\nNew paragraph (https://example.org/x).")
         assertEquals("Line one.\nLine two at 12:34, see https://example.org/page.\n\nNew paragraph (https://example.org/x).", notes.text)

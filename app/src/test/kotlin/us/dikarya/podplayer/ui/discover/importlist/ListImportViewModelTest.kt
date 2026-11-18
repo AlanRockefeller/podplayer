@@ -8,6 +8,7 @@ package us.dikarya.podplayer.ui.discover.importlist
 
 import android.app.Application
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -23,6 +24,7 @@ import us.dikarya.podplayer.core.net.FetchResult
 import us.dikarya.podplayer.core.net.NetError
 import us.dikarya.podplayer.ui.browse.BrowseTestEnv
 import us.dikarya.podplayer.ui.browse.awaitState
+import us.dikarya.podplayer.ui.discover.DiscoverProblem
 import us.dikarya.podplayer.ui.discover.rss
 import us.dikarya.podplayer.ui.discover.success
 
@@ -134,20 +136,101 @@ class ListImportViewModelTest {
         assertEquals(listOf("lookup"), env.requests.single().pathSegments)
     }
 
+    /** When (on the importer's fake clock) each search term was asked. */
+    private fun askedAt(term: String): List<Long> =
+        env.requestTimes.filter { (url, _) -> url.queryParameter("term") == term }.map { it.second }
+
     @Test
-    fun noMatchAndFailedSearchesAreShownAndCanBeRetried() = runBlocking {
+    fun aFailedSearchIsTriedAgainAfter10_30And90SecondsThenGivesUp() = runBlocking {
         appleAnswers(empty = setOf("Nothing Like It"), status = mapOf("Busy" to 429))
         val vm = ListImportViewModel(env.deps)
         vm.onTextChange("Nothing Like It\nBusy\nFine")
         vm.findShows()
         val rows = vm.matched().rows
         assertEquals(listOf(RowStatus.NoMatch, RowStatus.Failed, RowStatus.Matched), rows.map { it.status })
-        assertEquals("a 429 slows the pacing down", Pacer.DEFAULT_INTERVAL_MS * 2, env.pacedWaits.last())
+        val times = askedAt("Busy")
+        assertEquals("the first try and three retries", 4, times.size)
+        val gaps = times.zipWithNext { a, b -> b - a }
+        ListImportViewModel.RETRY_WAITS_MS.zip(gaps).forEach { (wait, gap) -> assertTrue("waited $gap for $wait", gap >= wait) }
+        assertNull("it gave up: no retry is pending", rows[1].retryAt)
+        assertEquals("a search that wasn't throttled isn't retried", 1, askedAt("Nothing Like It").size)
 
         appleAnswers()
         vm.retry(rows[1].key)
         assertEquals(RowStatus.Matched, awaitState(vm.state) { s -> s.rows[1].status == RowStatus.Matched && !s.matching }.rows[1].status)
         assertEquals(2, vm.state.value.toSubscribe)
+    }
+
+    @Test
+    fun aSearchThatWorksOnARetryMatchesWithoutTheOwnerAndDoesNotHoldUpTheOthers() = runBlocking {
+        var busyLeft = 2
+        appleAnswers()
+        val apple = env.answer
+        env.answer = { url ->
+            if (url.queryParameter("term") == "Busy" && busyLeft-- > 0) FetchResult.Failure(NetError.HttpStatus(503)) else apple(url)
+        }
+        val vm = ListImportViewModel(env.deps)
+        vm.onTextChange("Busy\nGardening\nThe Daily")
+        vm.findShows()
+        val state = vm.matched()
+        assertEquals(listOf(RowStatus.Matched, RowStatus.Matched, RowStatus.Matched), state.rows.map { it.status })
+        assertEquals("Busy 1", state.rows[0].chosenHit?.title)
+        val terms = env.requests.map { it.queryParameter("term") }
+        assertEquals("the other lines went on while Busy waited", listOf("Busy", "Gardening", "The Daily", "Busy", "Busy"), terms)
+    }
+
+    @Test
+    fun matchingStaysOnWhileARetryIsPending() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        appleAnswers()
+        val apple = env.answer
+        env.answer = { url -> if (env.requests.size == 1) FetchResult.Failure(NetError.HttpStatus(429)) else apple(url) }
+        env.beforeAnswer = { if (env.requests.size == 2) gate.await() }
+        val vm = ListImportViewModel(env.deps)
+        vm.onTextChange("Busy")
+        vm.findShows()
+        val waiting = awaitState(vm.state) { s -> s.rows.firstOrNull()?.status == RowStatus.Searching && env.requests.size == 2 }
+        assertTrue("still matching during the retry", waiting.matching)
+        gate.complete(Unit)
+        assertEquals(RowStatus.Matched, vm.matched().rows.single().status)
+    }
+
+    @Test
+    fun aLongListThroughAThrottlingBurstAllMatchesInBoundedTime() = runBlocking {
+        appleAnswers()
+        val apple = env.answer
+        var throttledFrom: Long? = null
+        env.answer = { url ->
+            // Apple refuses everything for 2 minutes from the 20th request, like the owner's 230-show import
+            // (21 lines "The search didn't work"). The retries (10 s, 30 s, 90 s) outlast such a window.
+            val now = env.requestTimes.last().second
+            if (env.requests.size == 20) throttledFrom = now
+            val from = throttledFrom
+            if (from != null && now - from < 2 * 60_000L) FetchResult.Failure(NetError.HttpStatus(429)) else apple(url)
+        }
+        val vm = ListImportViewModel(env.deps)
+        vm.onTextChange((1..230).joinToString("\n") { "Show $it" })
+        vm.findShows()
+        val state = awaitState(vm.state, timeoutMs = 60_000) { s -> s.rows.isNotEmpty() && !s.matching }
+        assertEquals(230, state.rows.count { it.status == RowStatus.Matched })
+        val took = env.requestTimes.last().second - env.requestTimes.first().second
+        assertTrue("took $took ms of (fake) time", took < 30 * 60_000L)
+    }
+
+    @Test
+    fun linesFoundOfflineAreRetriedAndGiveUpWithoutAnyRequest() = runBlocking {
+        appleAnswers()
+        env.online.value = false
+        val vm = ListImportViewModel(env.deps)
+        vm.onTextChange("Science Hour\nGardening")
+        vm.findShows()
+        val state = vm.matched()
+        assertTrue(state.rows.all { it.status == RowStatus.Failed && it.problem == DiscoverProblem.Offline && it.retryAt == null })
+        assertTrue("no request while offline", env.requests.isEmpty())
+
+        env.online.value = true
+        state.rows.forEach { vm.retry(it.key) }
+        assertEquals(2, awaitState(vm.state) { s -> !s.matching && s.toSubscribe == 2 }.toSubscribe)
     }
 
     @Test

@@ -41,6 +41,7 @@ object UrlPolicy {
 
     private val schemePrefix = Regex("^([A-Za-z][A-Za-z0-9+.-]*):")
     private val numericHost = Regex("^[0-9.]+$")
+    private val plainHost = Regex("^[A-Za-z0-9._-]+$")
     private val dottedQuadPart = Regex("^(0|[1-9][0-9]{0,2})$")
     private val linkSchemes = setOf("http", "https", "mailto")
 
@@ -52,6 +53,8 @@ object UrlPolicy {
         val scheme = schemePrefix.find(trimmed)?.groupValues?.get(1)?.lowercase()
             ?: return UrlCheck.Rejected(UrlProblem.Malformed)
         if (scheme != "http" && scheme != "https") return UrlCheck.Rejected(UrlProblem.DisallowedScheme)
+        // OkHttp, like a browser, also reads `https:/host` and `https:\\host`; a feed's URL must say `//`.
+        if (!trimmed.startsWith("//", startIndex = scheme.length + 1)) return UrlCheck.Rejected(UrlProblem.Malformed)
         val url = trimmed.toHttpUrlOrNull() ?: return UrlCheck.Rejected(UrlProblem.Malformed)
         hostProblem(url)?.let { return UrlCheck.Rejected(it) }
         return UrlCheck.Allowed(url)
@@ -61,6 +64,9 @@ object UrlPolicy {
     fun hostProblem(url: HttpUrl): UrlProblem? {
         val host = url.host
         if (host.isEmpty()) return UrlProblem.Malformed
+        // OkHttp keeps punctuation such as `'` in a host name; real ones are letters, digits, `-`, `_` and dots
+        // (IDNs arrive as xn-- punycode), or an IPv6 literal.
+        if (':' !in host && !plainHost.matches(host)) return UrlProblem.Malformed
         if (numericHost.matches(host) && !isPlainDottedQuad(host)) return UrlProblem.AmbiguousNumericHost
         return null
     }

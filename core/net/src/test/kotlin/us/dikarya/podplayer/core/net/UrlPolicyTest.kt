@@ -46,6 +46,30 @@ class UrlPolicyTest {
         }
     }
 
+    /**
+     * Found by the M1-S11 fuzzer (`core/feed/src/fuzz/findings`): OkHttp, like a browser, reads `https:/host` as
+     * `https://host` and accepts `'` as a host name. A feed's URL must say `//` and name a real host, so what is
+     * stored is what is fetched.
+     */
+    @Test
+    fun urlsWithoutTwoSlashesOrWithAPunctuationHostAreMalformed() {
+        val raws = listOf(
+            "https:/xample.com/unique.mp3", "https:'/good.example.com/feed", "http:example.com/feed",
+            "https:\\\\example.com/feed", "https://'/feed", "https://exa\"mple.com/", "https://<x>/", "https://a!b.com/",
+        )
+        for (raw in raws) assertEquals(raw, UrlProblem.Malformed, problem(raw))
+    }
+
+    @Test
+    fun ordinaryHostsStillPass() {
+        val raws = listOf(
+            "https://feeds.example.com/x", "http://my_cdn.example.com/a.mp3", "https://xn--bcher-kva.example/feed",
+            "https://bücher.example/feed", "http://[2606:4700::1111]/feed", "https://93.184.215.14:8443/feed",
+            "HTTPS://Example.COM/a",
+        )
+        for (raw in raws) assertTrue(raw, UrlPolicy.checkFeedUrl(raw) is UrlCheck.Allowed)
+    }
+
     @Test
     fun controlCharactersInsideTheUrlAreRefused() {
         assertEquals(UrlProblem.Malformed, problem("https://example.com/fe\ned"))

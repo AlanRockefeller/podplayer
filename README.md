@@ -4,12 +4,11 @@ An open-source (MPL-2.0) Android podcast player built first for one owner's dail
 fast, offline-first and private. It has no analytics, no Google Play services and no closed-source
 dependencies, and it never needs a server for ordinary listening.
 
-Status: Milestone 1, session 5. The project skeleton, the guardrail checks, a dark app shell,
-the gated network layer (`:core:net`), the feed, OPML and show-notes parsers (`:core:feed`), the
-data layer (`:core:data`: database, backups, logs) and feed refresh and downloads (`:core:jobs`) exist;
-podcasts don't play yet. Debug builds have a Developer screen (the "Developer" button in the top bar) to
-add feeds, refresh them and download episodes until the real screens arrive. See `docs/PROGRESS.md` for
-where things stand and `docs/milestones/M1.md` for what comes next.
+Status: Milestone 1 is built and in the owner's daily use (M1-S11, hardening and handoff, 2026-11-17).
+Subscribe by search, feed address, OPML or a pasted list; refresh, download and auto-download with clean-up;
+play with a queue, per-show speed, sleep timer and resumption; stars, backups and logs. Android Auto (M1-S10)
+is deferred by the owner. Debug builds also have a Developer screen (the "Developer" button in the top bar).
+`docs/PROGRESS.md` has the M1 acceptance checklist results and the manual checks left for the owner.
 
 ## Build
 
@@ -35,8 +34,9 @@ adb shell am start -n us.dikarya.podplayer/.MainActivity
 
 Debug builds run with StrictMode on, and they crash on purpose when an internal invariant is
 violated, so problems get noticed early. They also have the Developer screen, which lives in the `debug`
-source set only: release builds don't contain it (`app/src/testRelease` checks that, and the forbidden-API
-check refuses any mention of it in `app/src/main` or `app/src/release`).
+source set only: release builds don't contain it (`app/src/testRelease` checks that every class and resource
+declared under `app/src/debug` is missing from the release variant, and the forbidden-API check refuses any
+mention of the screen in `app/src/main` or `app/src/release`).
 
 ## Run the checks
 
@@ -54,10 +54,32 @@ This runs on every push and pull request in GitHub Actions (`.github/workflows/c
 | Forbidden APIs | `checkForbiddenApis` | WebView, `MediaExtractor`, `MediaMetadataRetriever`, image decoders outside `:core:imagesandbox`'s isolated-process `sandbox` package, a second Coil image loader, Media3 artwork bytes or Media3's own bitmap loaders, other HTTP clients, `OkHttpClient` outside `:core:net`, jsoup's HTTP client, jsoup outside `:core:feed`, Coil networking, `android.*` in plain Kotlin modules, hex colors in screens, the Developer screen named outside the debug source set |
 | Closed dependencies | `checkClosedDependencies` | Anything from the SPEC §2 "Never" list (Google Play services, Firebase, crash, analytics and ad SDKs, WebView libraries, FFmpeg and native media libraries) on any classpath, direct or transitive |
 | Dependency verification | (every build) | A downloaded artifact whose SHA-256 doesn't match `gradle/verification-metadata.xml` |
+| Fuzz regression | `:core:feed:fuzzRegression` | The feed or OPML parser throwing, or breaking a limit, on a seed or a saved finding |
 
 The guardrails live in `build-logic/src/main/kotlin/us/dikarya/podplayer/buildlogic/guardrails/`.
 Each one has tests that run it against bad samples (`build-logic/src/test/resources/samples/`) and
 against throwaway Gradle projects, proving that it fails the build.
+
+CI also fuzzes each parser for 60 s after `check` (see "Fuzzing").
+
+## Fuzzing
+
+The feed parser (RSS, Atom, Podcasting 2.0) and the OPML parser have Jazzer fuzz targets in `:core:feed`'s
+`fuzz` source set (`core/feed/src/fuzz/`, JUnit 5; every other test is JUnit 4). Each target feeds arbitrary
+bytes to the parser and fails if it throws, returns more items than its limit, or lets a non-http(s) URL
+through. Seeds are the hostile corpus and samples in `core/testing/src/main/resources`, plus saved findings.
+
+```sh
+./gradlew :core:feed:fuzzFeed                       # fuzz the feed parser for 60 s
+./gradlew :core:feed:fuzzOpml -PfuzzDuration=30m    # a longer local run
+./gradlew :core:feed:fuzz -PfuzzDuration=2h         # both, one after the other
+./gradlew :core:feed:fuzzRegression                 # replay seeds and findings only (part of check)
+```
+
+Jazzer fuzzes one target per JVM, so each target has its own task. The corpus it grows is kept in `core/feed/build/fuzz/.cifuzz-corpus/` between local runs (delete it
+to start over). A finding fails the task and writes the input to `core/feed/build/fuzz/crash-<hash>`; in CI
+it is in the uploaded "reports" artifact. To keep it as a regression test, copy the file to
+`core/feed/src/fuzz/findings/feed/` or `.../opml/`, fix the bug with a named unit test, and commit both.
 
 ## Dependency verification
 

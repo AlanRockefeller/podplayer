@@ -4,9 +4,10 @@ Claude Code updates this file at the end of every session. Keep entries short an
 a reviewer reads it to see what was really done.
 
 ## Current state
-- Milestone: M1
-- Next session: M1-S9c
-- Build status: `./gradlew check` green locally after M1-S9b (2026-11-15). The CI result is on the M1-S9b PR.
+- Milestone: M1, built (M1-S11 done 2026-11-17); Android Auto (M1-S10) deferred by the owner.
+- Next: the owner's phone checks and a week of daily use (M1-S11 entry), then the M1 milestone review.
+- Build status: `./gradlew check` green locally and in CI (with the 60 s fuzz runs) on the M1-S11 PR (#24),
+  2026-11-17.
 
 ## Session log
 <!-- Newest first. Copy this block for each session. -->
@@ -18,6 +19,249 @@ a reviewer reads it to see what was really done.
 - Manual checks for the owner:
 - PR:
 -->
+
+### M1-S11 phone checks over adb (2026-11-17)
+Run by Claude on the owner's phone (Galaxy S24 Ultra, Android 17, display 360 dp wide) with this branch's
+debug build installed over the existing one (data kept). Phone settings changed for a check were put back:
+font scale 1.0, screen timeout 10 min, system dark mode on, the app's theme on "Use system setting".
+- Import a list, 227 lines (the owner's show titles from the app's database, shared in as text): all 227 matched
+  in 11 min with no input. Screen timeout was set to 30 s for the run; the screen stayed on throughout
+  (`FLAG_KEEP_SCREEN_ON` on the window) and the flag cleared when matching ended. Apple didn't throttle this
+  run, so the retry path wasn't exercised on the phone (tests cover it). Nothing was subscribed (227 shows
+  before and after).
+- Font size 200%: walked Home, a show, an episode, the player, Settings, Queue, Library, Discover. Controls
+  stay ≥ 48 dp and labelled, and the player's controls wrap as intended. Text problems the Robolectric audit
+  missed (it only flags overflow, and these are ellipsized or broken mid-word):
+  - Bottom bar: "Discover" breaks as "Discov / er" on every screen.
+  - Home › Continue: the title is squeezed to "Th / e …" and the show to "W…" beside Resume.
+  - Show › episode rows: four icon buttons leave the title "True Crim…" and the date "Nov 1…".
+  - Library: the count reads "227 sho / ws" beside the Starred chip and three icons.
+  - Episode top bar: "Episo / de" (beside the debug-only Developer link).
+- Button names (what TalkBack reads), from the accessibility tree on Home, the queue and the player: every
+  clickable has a name. Minor: the speed button reads "Playback speed, 1.0×" then "1.0×" again. TalkBack
+  itself wasn't switched on; swiping through with it stays an owner check.
+- Theme: Light persists after a force-stop with the system in dark mode; "Use system setting" follows the
+  system both ways live. First launch dark not rechecked (it needs the app's data cleared).
+- Logs: no stored log line (app log, refresh and download logs) contains a URL query; the three feeds whose
+  address has a query appear in the app log by host name only.
+- Seen in passing: the 20/20 show description shows a literal `&nbsp;` (an entity left undecoded).
+- Fixed after the first pass (owner: "yes"), commit "Text at 200% font…":
+  - `ActionsBeside` / `ArtworkBeside`: an episode row's buttons, Resume on the Continue card, the Library
+    toolbar's buttons and the episode/show artwork move to their own line when the text beside them would get
+    less than about five characters' room or its longest word. At the normal font size on 360 dp nothing
+    moves (`EpisodeRowLayoutUiTest`). Room is computed from the font size converted first, then multiplied:
+    Android's nonlinear font scaling barely grows 80 sp, so multiplying first made the rule a no-op at 200%.
+  - The bottom bar labels and the top bar title stay on one line, shrinking to fit (Material 3 `autoSize`).
+  - Show notes without any markup still have their HTML entities decoded (`&nbsp;`, `&amp;`).
+  - The audit (`AccessibilityAuditUiTest`) now also fails on a word broken across lines (unless the box is at
+    least two thirds of the screen, where only an overlong word can break) and on ellipsized text with under
+    four characters' width; its self-test covers both. It reproduced every phone finding before the fix.
+  - Rechecked on the phone at 200%: Home, show, episode, Library and the bottom bar all read cleanly; at the
+    normal size the show's rows look as before. The 20/20 description now reads "subscribe now.  Terms apply."
+- Second pass (owner: "It is fine if it plays audio or move a real listening position"):
+  - Subscribe by search ("The Memory Palace", an http feed, marked "Not secure"), by typed URL (Planet Money,
+    previewed with 355 episodes) and by OPML (Hardcore History, picked in the system file picker: "Added 1").
+  - Per-show speed: Planet Money set to 1.5× played at speed 1.5; an episode of another show then played at 1.0.
+  - Resume after force-stop: paused at 17 s, `am force-stop`, headset Play key (`KEYCODE_MEDIA_PLAY`): the same
+    episode resumed from 17 s.
+  - Download, then play in airplane mode: downloaded in under 3 s; with airplane mode on and Wi-Fi also off
+    (Samsung keeps Wi-Fi on in airplane mode; no active network), force-stopped and resumed by the Play key:
+    the download played on. Airplane mode and Wi-Fi put back.
+  - Audio focus, standing in for a call: a timer alarm (Clock, `GAIN_TRANSIENT_EXCLUSIVE`, like a ringing call)
+    paused playback at once; stopping the alarm (focus abandoned) resumed it. A navigation prompt
+    (`MAY_DUCK`) couldn't be triggered over adb; owner check.
+  - Sleep timer, 5 minutes, screen off: counted listening time only. The owner happened to pause it from the
+    lock screen after 3:41 (power button at 23:45:57); resumed, it faded out over the last 10 s and paused
+    after 1:17 more, 4:58 in all. The pause didn't use up the timer.
+  - Logs again: Hardcore History's address carries `?format=xml`; it appears nowhere in the app log, the
+    refresh and download logs or logcat (the log names `feeds.feedburner.com` only).
+  - StrictMode: no violation from our code; three disk reads in Samsung's own `IdsController` on activity
+    resume. No crash.
+  - Library sorted by "Recently subscribed" puts the three new shows first, but changing the sort keeps the
+    old scroll position (mid-list) instead of returning to the top. Minor; noted under "Later".
+- Third pass (2026-11-18, phone unlocked, the owner's soundcore P31i earbuds connected):
+  - Bluetooth: playing went to `AUDIO_DEVICE_OUT_BLUETOOTH_A2DP`. Bluetooth off: paused at once, nothing on
+    the speaker. On again and the earbuds reconnected (from Settings; they didn't on their own): still paused
+    after 33 s. Play: back on the earbuds, not the speaker.
+  - Sleep timer, end of episode, screen off: played to the end, stopped, and the next queued episode loaded
+    paused; the finished one marked played and left the queue.
+  - Private address: a feed the owner typed (`http://127.0.0.1:8765/feed.xml`, served from the computer over
+    `adb reverse`) was accepted with its "Not secure" note. Its enclosure on `192.168.1.1` was refused before any
+    request: the download log says "192.168.1.1 is on a private network address. Only a feed whose address you
+    typed may use one." Its enclosure on the approved host downloaded.
+  - Cleanup: the four test shows unsubscribed (227 shows again), port forward and test server stopped.
+- Found in the third pass (not fixed; for the owner to choose):
+  1. **Debug-build crash on every stream reconnect** (PR #23's notice, also on main). `PlaybackService` shows a
+     Toast from `onLoadStarted`; Samsung's `Toast.show` reads a file on the main thread
+     (`PackageManager.isSpeg`), and the StrictMode filter crashes because a Podplayer frame is in the stack.
+     Crashed twice on the phone. Fix: exempt that Samsung frame in `StrictModeFilter` (as `IdsController` is),
+     with a test; or post the notice without a Toast.
+  2. **A refused address is retried as a dropped stream**: playing the 192.168.1.1 episode logged "the stream
+     dropped; reconnecting (attempt 1)" and showed the reconnect notice. A policy refusal should fail at once
+     with its own message, not retry.
+  3. A refused download shows nothing on screen: the row just goes back to Download (the reason is only in
+     Settings › Logs).
+  4. After unsubscribing from the show whose episode is loaded, the player keeps that episode (mini player);
+     Play then tries it.
+  5. The next queued episode always starts at 0 (natural end and the end-of-episode timer), even when it has a
+     saved position: "The Future of Capitalism" was saved at 34 s, and Play after the timer started it at 0
+     (`onPausedAtEndOfItem` seeks `(1, 0)`; the playlist's next item has no start position). Every other way
+     in (open, resumption, a car's choice) uses the saved position. Recorded at M1-S6 as "next episode loaded
+     at 0", without a partly played next episode in mind.
+- Still open for the owner: a navigation prompt and a real call, TalkBack itself, resume after a reboot, first
+  launch dark, the week of daily use.
+
+### M1-S11 Hardening and handoff (2026-11-17)
+- Plan (written before any code; run unattended, so not approved by the owner):
+  1. Import retries (from "Later"). A line whose search fails is tried again on its own after 10 s, 30 s and
+     90 s, then it gives up and keeps "Search again". The waits go through the importer's clock (`Pacer`), so
+     tests run on fake time. Other lines keep matching meanwhile; `matching` stays true while a retry is
+     pending. A retry doesn't slow the pacing further, and a success lets it relax again. A line found offline
+     waits for the retries too, instead of failing at once with the rest of the list. The screen stays on
+     while matching runs (the window flag through the view, cleared on leaving), so matching doesn't stop when
+     the screen would turn off. No wake lock, no permission, no background work. Tests first: the schedule,
+     giving up, other lines not blocked, a 230-line list through a throttling fake search all matching in
+     bounded fake time, keep-screen-on on and off.
+  2. Jazzer fuzz targets for the feed parser (RSS/Atom/Podcasting 2.0) and OPML, in their own `fuzz` source
+     set in `:core:feed` on the JUnit Platform. Seeds come from the hostile corpus. `check` replays the seeds;
+     separate tasks fuzz for real (CI: a short run per target; README: a longer local run). Each target
+     asserts the parser returns a typed result, never throws. Checked by planting a crash once: the fuzzer
+     must find it and the replay must then fail on the saved input.
+  3. Release variant: a test that derives every class declared in `app/src/debug` from the build outputs
+     and proves none is in the release variant, plus the debug resources.
+  4. Accessibility: a semantics audit (every clickable has a label and is ≥ 48 dp; text in controls doesn't
+     overflow at font scale 200%) over the main screens; fix what it finds.
+  5. StrictMode: run the main flows on an emulator (a separate AVD, not another project's), read the log,
+     fix violations. Phone runs stay manual checks.
+  6. LESSONS walk and the M1 acceptance checklist, here and in the README. Android Auto (M1-S10) is
+     deferred by the owner: recorded under decisions, its checklist item marked deferred, nothing built.
+- Done: all six. Notes per part:
+  1. Import retries as planned (`ListImportViewModel.RETRY_WAITS_MS` = 10 s, 30 s, 90 s). A retry that is due
+     goes before waiting lines; "Search again" on a line waiting for its retry wakes the matcher at once. The
+     row says "The search didn't work. Trying again shortly…" until it gives up. `Pacer` gained `now`,
+     `waitUntil` and `relax`; only a line's first throttled search slows the pacing. Checked on the emulator:
+     the window has `FLAG_KEEP_SCREEN_ON` while a 3-line list matches and loses it after.
+  2. Fuzzing: `FeedParserFuzzTest`, `OpmlParserFuzzTest`; tasks `:core:feed:fuzzFeed`, `fuzzOpml`, `fuzz`
+     (`-PfuzzDuration`, default 60 s) and `fuzzRegression` (in `check`). Crash files and the grown corpus go to
+     `core/feed/build/fuzz/`; saved findings live in `core/feed/src/fuzz/findings/` and are replayed by `check`.
+     CI runs both targets for 60 s each after `check`. README "Fuzzing" has the longer local run. Jazzer's
+     behaviour was read from the 0.30.0 sources (fuzzing only with `JAZZER_FUZZ`, one target per JVM,
+     `jazzer.max_duration`, seeds from `<Class>Inputs/`).
+     **The fuzzer found a real bug within seconds** (both targets): `UrlPolicy.checkFeedUrl` accepted
+     `https:/xample.com/x.mp3` (OkHttp reads one slash as two, like a browser, while the stored text kept one)
+     and `https:'/good.example.com/feed` (OkHttp accepts `'` as a host name). Not reachable for harm (the gate
+     re-parses and DNS fails), but malformed input got through. Fixed in `:core:net`: a feed URL must have
+     `//` after the scheme, and a host must be letters, digits, `-`, `_` and dots (IDNs arrive as punycode) or
+     an IPv6 literal (`hostProblem`, so redirect hops are checked too). Both inputs are saved findings.
+     After the fix: 2 minutes per target (124k feed and 931k OPML inputs), nothing found. CI's first fuzz run
+     then flagged `Https://…` as "not http(s)": a false alarm in the targets' own check (schemes are
+     case-insensitive). The check now ignores case, and that input is kept as a finding too. Proven end to end:
+     the fuzz run failed on the finding, and `fuzzRegression` failed on the saved input until the fix.
+  3. `DebugSourceSetAbsentTest` (release unit tests): `listDebugClasses`/`listReleaseClasses` write each
+     variant's project classes through AGP's `ScopedArtifact.CLASSES`; the test derives the names every file in
+     `app/src/debug` declares, checks they really are debug classes (so it can't pass vacuously), and that none
+     but the release twin (`BuildTypeSetup`) is in the release variant. Same for `app/src/debug/res`.
+  4. `AccessibilityAuditUiTest` audits 12 screens (shell, Home, Library, Discover, Import a list, Starred,
+     Queue, Player, show, episode, Settings, Logs) at 360 dp, font scale 100% and 200%, scrolling through each:
+     every control has a label, its layout is ≥ 48 × 48 dp (Material's reserved touch size counts; Compose's
+     hit-test widening doesn't), nothing is cut off at the side, and no text is clipped unless it ends in "…".
+     Inline links in show notes are exempt from size (as in WCAG), and rows scrolled half out of view are
+     checked when in view. Real text measurement (Robolectric native graphics). A self-test screen with an
+     unlabeled 32 dp target, clipped text, a one-line label that doesn't fit and a button off the edge proves
+     the audit catches each. Found and fixed: on the player at 200% the six controls under the seek bar
+     squeezed "Open the queue" to 43 dp; the row now wraps (`FlowRow`). The ten `contentDescription = null`
+     icons are all decorative next to a text label (Play/Resume buttons, search fields, nav items), so left.
+  5. StrictMode run on an emulator (Pixel 6 profile, Android 15 / API 35, a throwaway AVD made for this
+     session and deleted after), debug build: start-up; subscribe by search (Radiolab), by typed URL (Planet
+     Money) and by OPML file; refresh all; download (notification permission prompt); play a stream and a
+     download; pause, skip ±, play, sleep-timer sheet; add to queue and the Queue screen; Import a list (3
+     lines) and subscribe; Back up now; export a backup file; restore it (the app restarted with the library
+     intact). Result: no thread-policy violation and no StrictMode stack with a Podplayer frame. The VM policy
+     logged non-SDK API use inside libraries only: Media3 (`AudioTrack.getLatency`, 5×), androidx.sqlite via
+     WorkManager (`SQLiteSession` read-only transactions, 2×) and Compose (`ViewTreeObserver
+     .dispatchOnScrollChanged`, 1×). Nothing to fix on our side; the policy only logs those (penaltyLog).
+     Not covered there: process death, Bluetooth, calls, the lock screen (phone checks below).
+  6. LESSONS walk and acceptance checklist: below. README updated (status, release-variant test, fuzzing).
+- LESSONS walk (each row: rule → tests; manual checks are listed under "Manual checks"):
+  - Playback rewrite → one test per SPEC §10 rule in `PlaybackEngineTest`, `SleepTimerTest`,
+    `CommandMatrixTest`, `BluetoothPlayGateTest`; screens see playback only as `PlaybackControls` (view model
+    tests use `FakePlayback`).
+  - Resume after service death → `PlaybackEngineTest.afterProcessDeathTheEpisodeComesBackWithinTenSecondsAnd
+    DoesNotStartByItself`, `resumptionOffersTheCurrentEpisodeThenTheQueueHeadThenNothing`. Lock screen,
+    notification and headset after a kill, and after a reboot: manual. Auto: deferred.
+  - Audio focus → `PlaybackEngineTest.positionIsSavedOnAudioFocusLossTransientOrNot` (pauses, never ducks;
+    resumes after a transient loss). Real calls and navigation prompts: manual.
+  - Bluetooth → `PlaybackEngineTest.becomingNoisyPausesAndSaves`; `BluetoothPlayGateTest` (a device's
+    automatic Play ignored when opted in). Gap: "check the output route before resuming" is not built (not in
+    SPEC or M1); moved to "Later", and the reconnect check stays manual.
+  - Android Auto → deferred with M1-S10 (decision below).
+  - Episode identity → `EpisodeMergeTest` (duplicate GUIDs, re-posts, host moves with and without GUIDs,
+    removed items) and the `duplicate-guids.xml` corpus fixture.
+  - Parser strictness → `HostileFeedCorpusTest` (bare `&`, invalid dates, wrong declared encoding, BOM),
+    `XmlPrepassTest`, `EncodingDetectorTest`; now also the fuzz targets.
+  - Downloads → `RangeDownloaderTest` (dropped connection resumes, slow drip / silent server stall timeouts,
+    capped ranges), `DownloadRunnerTest` (server ignoring Range, wrong Content-Length accepted by probing);
+    the download log is `Repositories.downloadLog`, shown in Settings › Logs.
+  - Refresh → `FeedRefresherTest.concurrentRefreshRequestsCollapseIntoOne`, `backoffDoublesFromHalfAnHour
+    AndStopsAtADay`, `cancellingStopsASlowRefreshWithoutCountingAFailure`; `WorkersTest.thePeriodicRefresh
+    IsUniqueEveryFourHoursAndNeedsANetwork`. Gap: "show last/next refresh" isn't on any screen (not in SPEC
+    or M1); moved to "Later".
+  - Storage → `MigrationTest.everyOldVersionMigratesToTheCurrentOneKeepingItsData`,
+    `DatabaseOpenerTest.anOlderDatabaseIsBackedUpBeforeMigrating`, `BackupRoundTripTest.backupThenWipeThen
+    RestoreBringsEverythingBack`, `LibraryRepositoriesTest.mediaFilesStoreRelativePathsOnly`.
+  - Position jumps → `LibraryRepositoriesTest.positionLogKeepsEveryChangeWithItsCauseNewestFirst`; the
+    Logs screen's Playback tab. Log review after a long streamed session: manual.
+  - Platform updates → manual (owner, after each Android update).
+  - State-dependent actions → `CommandMatrixTest.everyCommandIsSafeInEveryState`; reopen after process death
+    as above.
+  - Sleep timer → `SleepTimerTest` (minutes with fade-out, end of episode at the boundary, pausing doesn't use
+    it up). The timer runs in `PlaybackEngine` inside the service, and those tests drive it with no UI at all.
+- M1 acceptance checklist (also marked in `docs/milestones/M1.md`):
+  - Automated, all passing: `check` green in CI (on this PR); hostile corpus (`HostileFeedCorpusTest`,
+    `OpmlTest`, `ShowNotesTest`, `EnclosureGateTest`, the `:core:net` gate tests, the image sandbox tests, and
+    now fuzzing); episode identity (`EpisodeMergeTest`); process death within 10 s (`PlaybackEngineTest`);
+    backup, wipe, restore (`BackupRoundTripTest`; also done by hand on the emulator); every command in every
+    state (`CommandMatrixTest`).
+  - Manual: the owner's, on the phone (listed below). Some were exercised on the emulator this session
+    (subscribe by search, URL and OPML; download and play), which doesn't replace the phone check.
+  - Android Auto: deferred (owner).
+- Tests added: `ListImportViewModelTest` (5 new: retries after 10/30/90 s then gives up; a retry that works
+  doesn't hold up other lines; matching stays on while a retry is pending; a 230-line list through a 2-minute
+  throttle all matches in bounded fake time; offline lines retry and give up without requests;
+  `noMatchAndFailedSearchesAreShownAndCanBeRetried` was rewritten into the first), `PacerTest` (2: relax,
+  waitUntil), `ListImportUiTest` (screen on while matching, off after and on leaving), `FeedParserFuzzTest`,
+  `OpmlParserFuzzTest`, `UrlPolicyTest` (2: no `//` or a punctuation host is malformed; ordinary hosts
+  incl. `_`, IDN, IPv6 and ports still pass), `DebugSourceSetAbsentTest` (2), `AccessibilityAuditUiTest`
+  (13: 12 screens and the audit's self-test).
+- Deviations from the spec, and why:
+  - Offline lines in Import a list now wait for the retries too (they used to fail at once). The retries
+    are bounded (about two minutes), so the screen doesn't stay on for long with no network.
+  - The URL policy is stricter than SPEC §3 spells out (`//` required, plain host names): a fuzz finding.
+    A feed that writes `https:/host` is now refused as a malformed address instead of working by accident.
+    No such feed was seen.
+  - JUnit 5 (Jupiter 5.14.4, the newest 5.x) is used by the fuzz targets only, as the S1 decision foresaw;
+    SPEC §2 allows JUnit and Jazzer. jazzer-junit 0.30.0 is built against JUnit 5, so not 6.
+  - Two LESSONS rules aren't built ("show last/next refresh", "check the output route before resuming"):
+    neither is in SPEC or M1. Listed under "Later".
+  - The StrictMode run was on an emulator, not the phone (none attached).
+- Manual checks for the owner (phone first):
+  - Phone: install this build. Discover › Import a list with a long list (the 230 Podbean names): it should
+    finish matching with the screen left alone (it stays on while matching), and lines Apple throttled should
+    match on their own after a short wait; only lines still failing after ~2 minutes keep "Search again".
+  - Phone: Settings › Display size and text › Font size at maximum: walk Home, a show, an episode, the player
+    and Settings; nothing should be cut off or overlap except Home's Play/Download pair.
+  - Phone: TalkBack on, swipe through Home, the player and the queue: every button reads a name.
+  - Phone, the M1 manual list (`docs/milestones/M1.md`): dark first launch, Light persists, Use system;
+    subscribe by search, URL and OPML; download and play in airplane mode; Bluetooth disconnect pauses and
+    reconnect doesn't start (then press Play: sound comes from the earbuds, not the speaker); a call and a
+    navigation prompt pause and resume; after force-stop, lock screen or headset play resumes the right
+    episode (and after a reboot); sleep timer (minutes and end of episode) with the screen off; per-show speed;
+    Settings › Logs shows feed URLs without query strings; a feed you control with an enclosure on a private
+    address is refused; a week of daily use with nothing lost.
+  - Phone: after a long streamed session, read Settings › Logs › Playback for unexpected position jumps.
+  - Phone: after each Android update, play a download and a stream once.
+  - Computer: `./gradlew :core:feed:fuzz -PfuzzDuration=1h` once in a while; a finding fails the task.
+- PR: see the `m1-s11-hardening` pull request.
 
 ### Fix: a stream cut short played on in silence (2026-11-17)
 - Owner's report: from 11:13 an episode advanced with no sound; other apps played fine. Read on the phone over
@@ -1778,6 +2022,14 @@ Result:
   `CleanUpRules`. The library side is `Repositories.downloadRules`; per-show "Download new episodes" is
   `FeedSettingsRepository.setAutoDownload` (a time, not a flag). New subscriptions get the default through
   `Subscriptions`.
+- 2026-11-17, owner (M1-S11 session prompt): **Android Auto (M1-S10) is deferred.** Nothing of it is built;
+  `SessionCallback.onGetLibraryRoot`/`onGetChildren` still return an empty root, and the acceptance
+  checklist's Auto item is marked deferred. The reason was cut off in the prompt as it reached the session
+  (see "Questions for owner").
+- Hardening (M1-S11): fuzz targets live in `:core:feed`'s `fuzz` source set (JUnit 5 there only); a finding
+  becomes a file in `core/feed/src/fuzz/findings/` plus a named unit test for the fix. Feed-supplied URLs need
+  `//` after the scheme and a plain host name (`UrlPolicy`). New screens should pass `AccessibilityAuditUiTest`
+  (add a case per screen). A new file in `app/src/debug` is covered by `DebugSourceSetAbsentTest` on its own.
 
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
@@ -1787,17 +2039,26 @@ Result:
     CLAUDE.md says "that exact feed URL". S2 chose the host so a private feed's own media and images work too.
   - A hostname that resolves to a mix of public and private addresses keeps its public addresses (`GatedDns`)
     instead of being refused outright.
+- M1-S11 (2026-11-17), neither blocks anything:
+  - The reason for deferring Android Auto was cut off in the session prompt ("deferred by the owner
+    (2026-11-…"). Please add it to the decision under "Decisions made during the build".
+  - `CLAUDE.md`'s "Commands" list could gain `./gradlew :core:feed:fuzz -PfuzzDuration=10m` (fuzz both
+    parsers). Sessions may not edit `CLAUDE.md`, so it's documented in the README instead.
 
 ## Later
 <!-- Ideas and fixes outside the current session's scope. -->
+- Library: changing the sort keeps the grid's scroll position, so the new order's top isn't shown (found on the
+  phone, 2026-11-17). Scroll to the top when the sort changes.
 - `dumpsys media_session` showed 98 controllers on our session after ~15 h (other apps' sessions: 11). Our UI
   client releases its controller; check whether the count grows with app opens, the notification or Bluetooth
   before calling it a leak.
 - A watchdog for silent playback: if the player is playing but the audio renderer has read its stream to the end
   well before the duration, log it (and maybe reload at the position). Today's fix covers the one cause seen.
-- Import a list: Apple throttled a 230-show import (21 lines "The search didn't work"). Retry a failed search on its
-  own with a growing wait instead of giving up, and keep matching going when the screen turns off (background work
-  that resumes where it stopped).
+- LESSONS rules not built in M1 (not in SPEC or M1): show the last and next refresh time (Library or Settings);
+  check the audio output route before resuming after a Bluetooth device reconnects.
+- Import a list: matching runs while the screen is on (M1-S11). If that isn't enough, background work that
+  resumes where it stopped.
+- Android Auto (M1-S10, deferred by the owner): the S10 items below wait for it.
 - Auto-download: a "Downloads" list that shows which downloads were automatic, and a per-show "keep the newest N"
   rule if 3/14-day clean-up isn't enough.
 - A Compose layout test of Settings › Downloads and storage at 360 dp (S9b checked the show page's new row only;
@@ -1846,7 +2107,6 @@ Result:
 - `itunes:new-feed-url` (a feed that moved without a 301) is not in SPEC §4's field list and isn't parsed yet.
 - RSS 1.0 (RDF) feeds, Atom `xml:base` relative URLs, and `feed://`/`pcast://` URLs in OPML and Discover
   (convert to https?) if a real subscription needs them.
-- S11: seed the Jazzer feed and OPML targets from `core/testing/src/main/resources/corpus`.
 
 ## Known issues
 <!-- Bugs found but not yet fixed, with how to reproduce. -->

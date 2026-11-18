@@ -113,14 +113,18 @@ object ImportLines {
 
 /**
  * Spaces requests at least [intervalMs] apart (Apple's search allows about 20 a minute). [slowDown] doubles the
- * interval after Apple says "too many", up to [MAX_INTERVAL_MS].
+ * interval after Apple says "too many", up to [MAX_INTERVAL_MS]; [relax] halves it again after a success, never
+ * below where it started. Its clock ([now], [waitUntil]) is the importer's only clock, so tests run on fake time.
  */
 class Pacer(
     private var intervalMs: Long = DEFAULT_INTERVAL_MS,
-    private val now: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = System::currentTimeMillis,
     private val sleep: suspend (Long) -> Unit = { delay(it) },
 ) {
+    private val startMs = intervalMs
     private var last: Long? = null
+
+    fun now(): Long = clock()
 
     suspend fun await() {
         val previous = last
@@ -131,8 +135,18 @@ class Pacer(
         last = now()
     }
 
+    /** Waits until [time] on this clock; a time already past returns at once. */
+    suspend fun waitUntil(time: Long) {
+        val wait = time - now()
+        if (wait > 0) sleep(wait)
+    }
+
     fun slowDown() {
         intervalMs = max(intervalMs * 2, 1).coerceAtMost(MAX_INTERVAL_MS)
+    }
+
+    fun relax() {
+        intervalMs = max(intervalMs / 2, startMs)
     }
 
     companion object {

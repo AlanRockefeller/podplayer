@@ -22,6 +22,7 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import us.dikarya.podplayer.core.data.settings.AppSettings
 import us.dikarya.podplayer.core.data.settings.CleanUpSettings
+import us.dikarya.podplayer.core.data.settings.RefreshSchedule
 import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.core.model.MediaFile
 import us.dikarya.podplayer.core.model.PlaybackSettings
@@ -51,6 +52,15 @@ class SettingsViewModelTest {
         assertEquals(PlaybackSettings(), state.playback)
         assertEquals(true, state.wifiOnly)
         assertEquals(AppSettings.DEFAULT_STORAGE_CAP_BYTES, state.capBytes)
+    }
+
+    @Test
+    fun theRefreshScheduleDefaultsTo15MinutesOnWifiAndHourlyOnMobileAndCanBeChanged() {
+        val vm = SettingsViewModel(open().deps)
+        assertEquals(RefreshSchedule(wifiMinutes = 15, mobileMinutes = 60), awaitState(vm.state) { !it.loading }.refresh)
+        vm.setRefreshOnWifi(30)
+        vm.setRefreshOnMobile(null)
+        assertEquals(RefreshSchedule(wifiMinutes = 30, mobileMinutes = null), awaitState(vm.state) { it.refresh.mobileMinutes == null }.refresh)
     }
 
     @Test

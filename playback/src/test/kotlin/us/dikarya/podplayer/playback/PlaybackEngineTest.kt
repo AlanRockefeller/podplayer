@@ -106,6 +106,82 @@ class PlaybackEngineTest {
         assertTrue(1L to EpisodeActionKind.Played in h.store.actions)
     }
 
+    /**
+     * The owner's phone, 2026-11-18: the next queued episode had been played to 34 s, and it started over at 0.
+     * Every other way into an episode starts at its saved position; moving on to the next one does too.
+     */
+    @Test
+    fun theNextEpisodeStartsAtItsSavedPosition() {
+        val h = harness().apply {
+            store.add(1, durationMs = 20_000); store.add(2); store.add(3)
+            store.positions[2] = 34_000
+            store.queue.value = listOf(1, 2, 3)
+        }.start()
+        h.engine.playEpisode(1)
+        run(h.player).untilPositionDiscontinuityWithReason(Player.DISCONTINUITY_REASON_AUTO_TRANSITION)
+        idle()
+        assertEquals(2L, h.store.current)
+        assertTrue("at ${h.player.currentPosition}", h.player.currentPosition >= 34_000)
+        assertTrue(h.player.playWhenReady)
+        val next = h.store.positionLog.last { it.cause == PositionCause.NextEpisode }
+        assertEquals(2L, next.episodeId)
+        assertEquals(34_000L, next.toMs)
+    }
+
+    /**
+     * Owner, 2026-11-18: "if I listen to one podcast, then switch to another, I don't want the first one to be in
+     * the queue. If I switch out, I probably lost interest; if I want to pick it up again, I will." Its position
+     * stays saved, so picking it up again resumes it.
+     */
+    @Test
+    fun switchingToAnotherEpisodeTakesTheOneYouLeftOutOfTheQueueKeepingItsPosition() {
+        val h = harness().apply { (1L..3L).forEach { store.add(it) }; store.queue.value = listOf(1, 2, 3) }.start()
+        h.engine.playEpisode(1)
+        h.playUntil(5_000)
+        h.engine.playEpisode(3)
+        idle()
+        assertEquals(listOf(3L, 2L), h.store.queue.value)
+        assertEquals(listOf(3L, 2L), h.itemIds())
+        assertTrue("saved at ${h.store.positions[1]}", (h.store.positions[1] ?: 0) >= 5_000)
+        assertFalse(1L in h.store.played)
+        // Picking it up again resumes it. Episode 3 was only loaded, never listened to (still at 0), so it stays.
+        h.engine.playEpisode(1)
+        idle()
+        assertTrue("at ${h.player.currentPosition}", h.player.currentPosition >= 5_000)
+        assertEquals(listOf(1L, 3L, 2L), h.store.queue.value)
+    }
+
+    @Test
+    fun anEpisodeOnlyWaitingAtTheHeadOfTheQueueStaysWhenAnotherIsPlayed() {
+        // Loaded paused at 0 when the app started, never listened to: playing another doesn't take it out.
+        val h = harness().apply { (1L..3L).forEach { store.add(it) }; store.queue.value = listOf(1, 2) }.start()
+        assertEquals(1L, h.store.current)
+        h.engine.playEpisode(3)
+        idle()
+        assertEquals(listOf(3L, 1L, 2L), h.store.queue.value)
+    }
+
+    /**
+     * The owner's phone, 2026-11-18: after unsubscribing from the show whose episode was loaded, the mini player
+     * kept it and Play tried it. An episode that leaves the library leaves the player; the queue's head loads paused.
+     */
+    @Test
+    fun anEpisodeThatLeavesTheLibraryLeavesThePlayer() {
+        val h = harness().apply {
+            store.add(1, feedId = 7); store.add(2, feedId = 8)
+            store.queue.value = listOf(1, 2)
+        }.start()
+        h.engine.playEpisode(1)
+        h.playUntil(2_000)
+        // Unsubscribing deletes the show's episodes and their queue entries.
+        h.store.episodes.remove(1L)
+        h.store.queue.value = listOf(2)
+        idle()
+        assertEquals(listOf(2L), h.itemIds())
+        assertEquals(2L, h.store.current)
+        assertFalse(h.player.playWhenReady)
+    }
+
     @Test
     fun theLastEpisodeEndingStaysLoaded() {
         // Owner, 2026-11-16: when the last episode ends, the player stays on it instead of "Nothing is playing".

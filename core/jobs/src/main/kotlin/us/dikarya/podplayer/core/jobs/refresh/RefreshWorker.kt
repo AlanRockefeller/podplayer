@@ -19,6 +19,7 @@ import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import java.util.concurrent.TimeUnit
 import kotlin.coroutines.cancellation.CancellationException
+import us.dikarya.podplayer.core.data.settings.RefreshSchedule
 
 /**
  * Runs a [Refresher] as WorkManager work (SPEC §8): the periodic refresh of due feeds every 4 hours, and
@@ -44,21 +45,37 @@ class RefreshWorker(context: Context, params: WorkerParameters, private val refr
     }
 
     companion object {
-        const val PERIODIC_NAME = "feed-refresh-periodic"
+        /** The single 4-hour schedule from before the setting (SPEC §8); cancelled when the new ones are set. */
+        const val OLD_PERIODIC_NAME = "feed-refresh-periodic"
+        const val PERIODIC_WIFI_NAME = "feed-refresh-periodic-wifi"
+        const val PERIODIC_ANY_NAME = "feed-refresh-periodic-any-network"
         const val KEY_ALL = "all"
         const val KEY_FEED = "feed"
-        const val INTERVAL_HOURS = 4L
 
         private val network = Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+        private val unmetered = Constraints.Builder().setRequiredNetworkType(NetworkType.UNMETERED).build()
 
         fun nowName(feedId: Long?) = if (feedId == null) "feed-refresh-all" else "feed-refresh-$feedId"
 
-        /** Safe on every start: an existing schedule is kept. */
-        fun schedulePeriodic(workManager: WorkManager) {
-            val request = PeriodicWorkRequestBuilder<RefreshWorker>(INTERVAL_HOURS, TimeUnit.HOURS)
-                .setConstraints(network)
+        /**
+         * The background refresh, by [schedule] (owner, 2026-11-18): every [RefreshSchedule.wifiMinutes] on Wi-Fi
+         * (an unmetered network) and every [RefreshSchedule.mobileMinutes] on any network, or never on mobile
+         * data. On Wi-Fi both run; the refresher runs one refresh at a time and skips feeds backing off, so the
+         * hourly one adds little. Safe on every start: an unchanged schedule keeps its work and its timing.
+         */
+        fun schedulePeriodic(workManager: WorkManager, schedule: RefreshSchedule) {
+            workManager.cancelUniqueWork(OLD_PERIODIC_NAME)
+            enqueue(workManager, PERIODIC_WIFI_NAME, schedule.wifiMinutes, unmetered)
+            val mobile = schedule.mobileMinutes
+            if (mobile == null) workManager.cancelUniqueWork(PERIODIC_ANY_NAME) else enqueue(workManager, PERIODIC_ANY_NAME, mobile, network)
+        }
+
+        private fun enqueue(workManager: WorkManager, name: String, minutes: Int, constraints: Constraints) {
+            val request = PeriodicWorkRequestBuilder<RefreshWorker>(minutes.toLong(), TimeUnit.MINUTES)
+                .setConstraints(constraints)
                 .build()
-            workManager.enqueueUniquePeriodicWork(PERIODIC_NAME, ExistingPeriodicWorkPolicy.KEEP, request)
+            // UPDATE keeps the work (and when it last ran) and only changes what differs.
+            workManager.enqueueUniquePeriodicWork(name, ExistingPeriodicWorkPolicy.UPDATE, request)
         }
 
         /** Refresh one feed ([feedId]) or all of them, ignoring backoff, as soon as there is a network. */

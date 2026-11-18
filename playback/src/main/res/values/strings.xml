@@ -16,4 +16,5 @@
     </plurals>
     <!-- A brief notice (toast) when a stream dropped and playback asks the server for the rest. -->
     <string name="playback_stream_reconnecting">The stream dropped. Reconnecting…</string>
+    <string name="playback_stream_refused">This episode\'s address isn\'t allowed, so it can\'t play. Settings › Logs says why.</string>
 </resources>

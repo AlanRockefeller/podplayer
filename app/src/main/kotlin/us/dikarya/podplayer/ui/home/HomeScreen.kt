@@ -42,6 +42,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import us.dikarya.podplayer.R
 import us.dikarya.podplayer.ui.browse.ActionsBeside
+import us.dikarya.podplayer.ui.browse.EpisodeTitleStyle
+import us.dikarya.podplayer.ui.browse.ShowNameLine
 import us.dikarya.podplayer.ui.browse.MIN_TITLE_EMS
 import us.dikarya.podplayer.ui.browse.showNameOrUntitled
 import us.dikarya.podplayer.ui.browse.textRoom
@@ -54,6 +56,7 @@ import us.dikarya.podplayer.ui.browse.FindShowsButton
 import us.dikarya.podplayer.ui.browse.LibraryClosed
 import us.dikarya.podplayer.ui.browse.Loading
 import us.dikarya.podplayer.ui.browse.OfflineBanner
+import us.dikarya.podplayer.ui.browse.PullToRefresh
 import us.dikarya.podplayer.ui.browse.SectionHeading
 import us.dikarya.podplayer.ui.browse.StarUndoBar
 import us.dikarya.podplayer.ui.browse.episodeMeta
@@ -76,6 +79,9 @@ fun HomeScreen(
         state.loading -> return Loading()
         state.libraryClosed -> return LibraryClosed()
     }
+    val refreshing by viewModel.refreshing.collectAsStateWithLifecycle(false)
+    // Pull down to check every show for new episodes (owner, 2026-11-18).
+    PullToRefresh(refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
         item { OfflineBanner(state.online) }
         if (state.noShows) {
@@ -119,6 +125,7 @@ fun HomeScreen(
             }
         }
     }
+    }
 }
 
 @Composable
@@ -128,7 +135,7 @@ private fun ContinueCard(item: EpisodeItem, onOpen: () -> Unit, onPlay: () -> Un
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).clickable(role = Role.Button, onClick = onOpen),
         colors = CardDefaults.cardColors(containerColor = colors.surfaceElevated),
     ) {
-        val title = MaterialTheme.typography.titleSmall
+        val title = EpisodeTitleStyle
         // At large font sizes Resume moves under the title rather than squeeze it (see ActionsBeside).
         ActionsBeside(
             minMainWidth = textRoom(title.fontSize, MIN_TITLE_EMS, extra = CONTINUE_ARTWORK + 12.dp),
@@ -138,8 +145,9 @@ private fun ContinueCard(item: EpisodeItem, onOpen: () -> Unit, onPlay: () -> Un
                     Artwork(item.imageUrl, item.approvedHost, CONTINUE_ARTWORK)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        ShowNameLine(item.showTitle)
                         Text(item.episode.title ?: stringResource(R.string.untitled_episode), style = title, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(episodeMeta(item, withShow = true), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(episodeMeta(item, withShow = false), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         item.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth()) }
                     }
                 }

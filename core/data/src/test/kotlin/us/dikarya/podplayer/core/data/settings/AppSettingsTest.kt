@@ -57,6 +57,17 @@ class AppSettingsTest {
     }
 
     @Test
+    fun refreshIsEvery15MinutesOnWifiAndHourlyOnMobileUntilChangedAndThenPersists() {
+        // Owner, 2026-11-18: "setting, default to 15 min on wifi and 1h on cellular".
+        assertEquals(RefreshSchedule(wifiMinutes = 15, mobileMinutes = 60), withSettings { it.refreshSchedule.first() })
+        withSettings { it.setRefreshSchedule(RefreshSchedule(wifiMinutes = 30, mobileMinutes = null)) }
+        assertEquals(RefreshSchedule(wifiMinutes = 30, mobileMinutes = null), withSettings { it.refreshSchedule.first() })
+        // A value no screen offers (from a hand-edited or old backup) falls back to the default.
+        withSettings { it.setRefreshSchedule(RefreshSchedule(wifiMinutes = 1, mobileMinutes = 7)) }
+        assertEquals(RefreshSchedule(), withSettings { it.refreshSchedule.first() })
+    }
+
+    @Test
     fun lightPersistsAcrossRestart() {
         withSettings { it.setThemeMode(ThemeMode.LIGHT) }
         assertEquals(ThemeMode.LIGHT, withSettings { it.themeMode.first() })

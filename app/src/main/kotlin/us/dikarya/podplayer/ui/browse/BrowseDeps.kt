@@ -56,6 +56,8 @@ class BrowseDeps(
     val importPacer: () -> Pacer = { Pacer() },
     /** Text shared into the app (ACTION_SEND), waiting for the list importer to take it. */
     val sharedText: MutableStateFlow<String?> = MutableStateFlow(null),
+    /** Whether the refresh [refresh] asked for (one feed, or all for null) is running, for pull-to-refresh. */
+    val refreshRunning: (feedId: Long?) -> Flow<Boolean> = { flowOf(false) },
 ) {
     /** [block] over the open library, or just [closed] when the library couldn't be opened (DataLayer). */
     @OptIn(ExperimentalCoroutinesApi::class)

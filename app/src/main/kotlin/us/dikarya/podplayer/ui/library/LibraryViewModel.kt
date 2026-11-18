@@ -54,6 +54,9 @@ class LibraryViewModel(private val deps: BrowseDeps) : ViewModel() {
 
     fun refreshAll() = deps.refresh(null)
 
+    /** The refresh [refreshAll] asked for is running (pull-to-refresh's spinner). */
+    val refreshing: kotlinx.coroutines.flow.Flow<Boolean> = deps.refreshRunning(null)
+
     companion object {
         fun sorted(shows: List<ShowItem>, sort: LibrarySort): List<ShowItem> = when (sort) {
             LibrarySort.Title -> shows.sortedWith(compareBy(String.CASE_INSENSITIVE_ORDER) { it.feed.title.orEmpty() })

@@ -87,7 +87,8 @@ class SessionCallbackTest {
         )
         idle()
         assertEquals(SessionResult.RESULT_SUCCESS, result.resultCode)
-        assertEquals(listOf(2L, 1L), h.store.queue.value)
+        // Episode 1 was started (42 s) and is left for 2, so it leaves the queue (owner, 2026-11-18).
+        assertEquals(listOf(2L), h.store.queue.value)
         assertTrue(h.player.playWhenReady)
     }
 

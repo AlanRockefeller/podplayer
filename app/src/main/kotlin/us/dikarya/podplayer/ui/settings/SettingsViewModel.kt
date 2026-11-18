@@ -25,6 +25,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import us.dikarya.podplayer.core.data.settings.AppSettings
 import us.dikarya.podplayer.core.data.settings.CleanUpSettings
+import us.dikarya.podplayer.core.data.settings.RefreshSchedule
 import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.core.model.PlaybackSettings
 import us.dikarya.podplayer.playback.SkipIntervals
@@ -48,6 +49,8 @@ data class SettingsUiState(
     val autoDownloadStoppedAt: Long? = null,
     /** Bluetooth audio devices this phone has connected, and whether their automatic Play is ignored. */
     val bluetoothDevices: List<BluetoothDeviceUi> = emptyList(),
+    /** How often shows are checked for new episodes in the background (owner, 2026-11-18). */
+    val refresh: RefreshSchedule = RefreshSchedule(),
 )
 
 data class BluetoothDeviceUi(val name: String, val ignoreAutoPlay: Boolean)
@@ -78,15 +81,18 @@ class SettingsViewModel(private val deps: SettingsDeps) : ViewModel() {
         val cleanUp: CleanUpSettings,
         val stoppedAt: Long?,
         val devices: List<BluetoothDeviceUi>,
+        val refresh: RefreshSchedule,
     )
+
+    private val devicesAndRefresh = combine(devices, deps.settings.refreshSchedule) { devices, refresh -> devices to refresh }
 
     private val more = combine(
         deps.settings.autoDownloadNewShows,
         deps.settings.autoDownloadWifiOnly,
         deps.settings.cleanUp,
         deps.autoDownloadStoppedAt,
-        devices,
-    ) { newShows, wifiOnly, cleanUp, stoppedAt, devices -> More(newShows, wifiOnly, cleanUp, stoppedAt, devices) }
+        devicesAndRefresh,
+    ) { newShows, wifiOnly, cleanUp, stoppedAt, (devices, refresh) -> More(newShows, wifiOnly, cleanUp, stoppedAt, devices, refresh) }
 
     val state: StateFlow<SettingsUiState> = combine(
         deps.settings.playback,
@@ -97,7 +103,7 @@ class SettingsViewModel(private val deps: SettingsDeps) : ViewModel() {
     ) { playback, wifiOnly, cap, usage, more ->
         SettingsUiState(
             false, playback, wifiOnly, cap, usage.usedBytes, usage.downloads, usage.freeBytes,
-            more.newShows, more.wifiOnly, more.cleanUp, more.stoppedAt, more.devices,
+            more.newShows, more.wifiOnly, more.cleanUp, more.stoppedAt, more.devices, more.refresh,
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_AFTER_MS), SettingsUiState())
 
@@ -105,6 +111,15 @@ class SettingsViewModel(private val deps: SettingsDeps) : ViewModel() {
     fun setIgnoreAutoPlay(deviceName: String, ignore: Boolean) = write { deps.settings.setIgnoreAutoPlay(deviceName, ignore) }
 
     fun setSpeed(speed: Float) = write { deps.settings.setPlaybackSpeed(speed) }
+
+    fun setRefreshOnWifi(minutes: Int) = write {
+        deps.settings.setRefreshSchedule(deps.settings.refreshSchedule.first().copy(wifiMinutes = minutes))
+    }
+
+    /** null: never on mobile data. */
+    fun setRefreshOnMobile(minutes: Int?) = write {
+        deps.settings.setRefreshSchedule(deps.settings.refreshSchedule.first().copy(mobileMinutes = minutes))
+    }
 
     fun setSkipBack(seconds: Int) = write { deps.settings.setSkipSeconds(seconds, current().skipForwardSeconds) }
 

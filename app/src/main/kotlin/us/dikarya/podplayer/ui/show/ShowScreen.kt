@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import us.dikarya.podplayer.ui.player.SPEED_CHOICES
 import us.dikarya.podplayer.ui.browse.ArtworkBeside
+import us.dikarya.podplayer.ui.browse.PullToRefresh
 import us.dikarya.podplayer.ui.browse.MIN_TITLE_EMS
 import us.dikarya.podplayer.ui.browse.showNameOrUntitled
 import us.dikarya.podplayer.ui.browse.textRoom
@@ -86,6 +87,9 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
     var confirmUnsubscribe by rememberSaveable { mutableStateOf(false) }
     val colors = PodplayerTheme.colors
 
+    val refreshing by viewModel.refreshing.collectAsStateWithLifecycle(false)
+    // Pull down to check this show for new episodes (owner, 2026-11-18).
+    PullToRefresh(refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
         item { OfflineBanner(state.online) }
         item {
@@ -158,6 +162,7 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
         items(state.episodes, key = { it.id }) { item ->
             EpisodeRow(item, withShow = false, onOpen = { onOpenEpisode(item.id) }, actions = viewModel.actions, onDownload = download)
         }
+    }
     }
 
     link?.let { LinkConfirmDialog(it) { link = null } }

@@ -50,6 +50,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import android.text.format.DateUtils
 import us.dikarya.podplayer.R
 import us.dikarya.podplayer.ui.browse.ActionsBeside
+import us.dikarya.podplayer.ui.browse.PullToRefresh
 import us.dikarya.podplayer.ui.browse.showNameOrUntitled
 import us.dikarya.podplayer.core.data.settings.LibraryLayout
 import us.dikarya.podplayer.core.data.settings.LibrarySort
@@ -76,18 +77,23 @@ fun LibraryScreen(viewModel: LibraryViewModel, onOpenShow: (Long) -> Unit, onDis
             CenteredMessage(stringResource(R.string.library_empty)) { FindShowsButton(onDiscover) }
             return@Column
         }
-        when (state.layout) {
-            LibraryLayout.Grid -> LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 104.dp),
-                contentPadding = PaddingValues(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                items(state.shows, key = { it.feed.id }) { show -> GridTile(show, onOpenShow) }
-                item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier) }
-            }
-            LibraryLayout.List -> LazyColumn(contentPadding = PaddingValues(vertical = 8.dp)) {
-                items(state.shows, key = { it.feed.id }) { show -> ListRow(show, onOpenShow) }
+        val refreshing by viewModel.refreshing.collectAsStateWithLifecycle(false)
+        // Pull down to check every show for new episodes (owner, 2026-11-18).
+        PullToRefresh(refreshing, onRefresh = viewModel::refreshAll, modifier = Modifier.fillMaxSize()) {
+            when (state.layout) {
+                LibraryLayout.Grid -> LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 104.dp),
+                    contentPadding = PaddingValues(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    items(state.shows, key = { it.feed.id }) { show -> GridTile(show, onOpenShow) }
+                    item(span = { GridItemSpan(maxLineSpan) }) { Spacer(Modifier) }
+                }
+                LibraryLayout.List -> LazyColumn(contentPadding = PaddingValues(vertical = 8.dp), modifier = Modifier.fillMaxSize()) {
+                    items(state.shows, key = { it.feed.id }) { show -> ListRow(show, onOpenShow) }
+                }
             }
         }
     }

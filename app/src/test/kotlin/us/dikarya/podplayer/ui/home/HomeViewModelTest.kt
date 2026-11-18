@@ -61,14 +61,17 @@ class HomeViewModelTest {
     }
 
     @Test
-    fun newEpisodesAreNewestFirstAcrossShowsAndLeaveOutPlayedOnes() = runBlocking {
+    fun newEpisodesAreNewestFirstAcrossShowsAndPlayedOnesStayInPlace() = runBlocking {
+        // Owner, 2026-11-18: "Playing episode shouldn't remove it from feed, but should mark it played, but let it
+        // stay where it is."
         val a = env.show("Alpha", episodes = 2, publishedBase = 1_790_000_000_000L)
         val b = env.show("Beta", episodes = 2, publishedBase = 1_790_000_000_000L + BrowseTestEnv.DAY / 2)
         val played = env.episodeIds(a).first()
         env.repos.playback.setPlayed(played, true)
         val vm = HomeViewModel(env.deps)
-        val state = awaitState(vm.state) { it.newEpisodes.size == 3 }
-        assertEquals(listOf("Beta 1", "Beta 2", "Alpha 2"), state.newEpisodes.map { it.episode.title })
+        val state = awaitState(vm.state) { it.newEpisodes.size == 4 && it.newEpisodes.any { item -> item.played } }
+        assertEquals(listOf("Beta 1", "Alpha 1", "Beta 2", "Alpha 2"), state.newEpisodes.map { it.episode.title })
+        assertEquals(listOf(false, true, false, false), state.newEpisodes.map { it.started })
         assertEquals("Beta", state.newEpisodes.first().showTitle)
         assertEquals(listOf("Alpha", "Beta"), state.shows.map { it.title })
         assertFalse(state.noShows)
@@ -85,7 +88,10 @@ class HomeViewModelTest {
         assertEquals(middle, started.continueItem!!.id)
         assertEquals(1f / 3, started.continueItem!!.progress!!, 0.01f)
         assertFalse("not loaded, so its button plays it", started.continueItem!!.playing)
-        assertFalse("the Continue episode isn't listed twice", started.newEpisodes.any { it.id == middle })
+        // Owner, 2026-11-18: a started episode stays in its place in the list too, shown as started.
+        assertEquals(listOf(newest, middle), started.newEpisodes.map { it.id }.take(2))
+        assertTrue(started.newEpisodes.single { it.id == middle }.started)
+        assertFalse(started.newEpisodes.single { it.id == newest }.started)
 
         // The session loads another episode: the card follows the session, the single source of truth.
         env.playback.playEpisode(newest)

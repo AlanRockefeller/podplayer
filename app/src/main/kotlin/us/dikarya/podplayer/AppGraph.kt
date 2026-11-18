@@ -157,6 +157,7 @@ class AppGraph(context: Context) {
                 override suspend fun unsubscribe(feedId: Long) = withContext(NonCancellable + Dispatchers.IO) { jobs.downloads.removeFeed(feedId) }
             },
             refresh = { feedId -> jobs.refreshNow(feedId) },
+            refreshRunning = { feedId -> jobs.refreshRunning(feedId) },
             online = network.online,
             search = AppleSearch(gateFetch),
             previewer = FeedPreviewer(gateFetch, androidFeedParser()),

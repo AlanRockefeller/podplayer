@@ -60,6 +60,8 @@ import us.dikarya.podplayer.ui.browse.EpisodeItem
 import us.dikarya.podplayer.ui.browse.LibraryClosed
 import us.dikarya.podplayer.ui.browse.Loading
 import us.dikarya.podplayer.ui.browse.PlayButton
+import us.dikarya.podplayer.ui.browse.EpisodeTitleStyle
+import us.dikarya.podplayer.ui.browse.ShowNameLine
 import us.dikarya.podplayer.ui.browse.episodeMeta
 import us.dikarya.podplayer.ui.theme.PodplayerTheme
 
@@ -231,8 +233,9 @@ private fun QueueRow(
                 if (item.loaded) {
                     Text(stringResource(R.string.queue_now_playing), style = MaterialTheme.typography.labelSmall, color = colors.accent)
                 }
-                Text(title, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(episodeMeta(item, withShow = true), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                ShowNameLine(item.showTitle)
+                Text(title, style = EpisodeTitleStyle, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(episodeMeta(item, withShow = false), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             PlayButton(item, viewModel.actions)
             RowMenu(item, title, index, count, viewModel)

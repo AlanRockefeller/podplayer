@@ -4,7 +4,8 @@ Claude Code updates this file at the end of every session. Keep entries short an
 a reviewer reads it to see what was really done.
 
 ## Current state
-- Milestone: M1, built (M1-S11 done 2026-11-17); Android Auto (M1-S10) deferred by the owner.
+- Milestone: M1, built (M1-S11 done 2026-11-17; owner feedback and phone-check fixes on `m1-s12-owner-feedback`,
+  2026-11-18); Android Auto (M1-S10) deferred by the owner.
 - Next: the owner's phone checks and a week of daily use (M1-S11 entry), then the M1 milestone review.
 - Build status: `./gradlew check` green locally and in CI (with the 60 s fuzz runs) on the M1-S11 PR (#24),
   2026-11-17.
@@ -19,6 +20,69 @@ a reviewer reads it to see what was really done.
 - Manual checks for the owner:
 - PR:
 -->
+
+### M1-S12 Owner feedback and phone-check fixes (2026-11-18)
+Asked for by the owner after the M1-S11 phone checks (not a session in `M1.md`). Branch `m1-s12-owner-feedback`,
+on top of `m1-s11-hardening` (PR #24).
+- Plan (tests first for each):
+  1. Fixes from the phone checks (third pass): (a) the reconnect notice's Toast no longer crashes debug builds
+     on Samsung: `StrictModeFilter` exempts Samsung's `Toast.isSpeg` file check, as it does `IdsController`;
+     (b) an address the URL or address policy refuses fails at once (no retries, no "reconnecting" notice)
+     with its reason in the log and a plain message; (c) a download that fails shows its reason on screen;
+     (d) unsubscribing from the show whose episode is loaded clears it from the player; (e) the next queued
+     episode starts at its saved position, at a natural end and after the end-of-episode timer.
+  2. Queue (owner): starting a different episode takes the one you leave out of the queue, keeping its
+     position. Finished episodes already leave it.
+  3. Text (owner): episode titles smaller (Home, queue, show and starred rows, Continue card, mini player);
+     the show's name bigger, on its own line.
+  4. Background refresh (owner): a setting, by default every 15 minutes on Wi-Fi and every hour on mobile data
+     (SPEC §8 says every 4 hours; owner decision recorded below). Still one refresh at a time, with backoff.
+  5. Pull down to refresh (owner: "swiping"): Home and Library refresh every show, a show's page that show.
+  6. Home (owner): started and played episodes stay in place in the new-episodes list, dimmed, with progress
+     while partly played; "played" in the database still means finished, so resuming keeps working.
+  Bluetooth pause (owner) passed with the earbuds on the phone and again for the owner; nothing to change
+  unless it recurs.
+- Done: all of it.
+  1. (a) `StrictModeFilter` only looks at frames between the violation and our first frame, and lets Samsung's
+     `PackageManager.isSpeg` (inside `Toast.show`) through; our own reads still crash. (b) `RefusalIsFinal`, the
+     gated sources' load-error policy, never retries a refusal by our URL or address policy
+     (`BlockedAddressException`, `DisallowedUrlException`, redirects, our refusing source); the engine logs
+     "the stream was refused: <reason>" (a host at most) and the service shows "This episode's address isn't
+     allowed…". (c) `DownloadFailureBar` in the shell: each download that fails while the app is open shows a
+     snackbar with the log's plain reason. (d) `reconcile()` drops a loaded episode that left the library and
+     loads the queue head paused. (e) The playlist's next episode carries its saved position (`nextSaved`): a
+     natural end seeks there at the transition (logged once as NextEpisode), the end-of-episode timer stops there.
+  2. `playEpisode` takes the episode being left out of the queue when it was listened to (position > 0); one only
+     waiting at the head at 0 (loaded at start) stays.
+  3. `EpisodeTitleStyle` (14 sp, was 16) and `ShowNameLine` (14 sp medium on its own line above the title, was
+     12 sp inside the date line) in episode rows, the Continue card, queue rows and the mini player. The owner
+     checked sizes, Settings and pull-to-refresh on the phone, then asked for the show above the title
+     (`QueueUiTest.aRowShowsTheShowsNameAboveTheEpisodeTitle`); rechecked on the phone.
+  4. `RefreshSchedule` setting (Settings › Checking for new episodes): on Wi-Fi every 15 min / 30 min / 1 h /
+     4 h, on mobile data every 1 h / 4 h / 12 h / only on Wi-Fi. Two unique periodic works (unmetered, any
+     network) replace the old 4-hour one, updated when the setting changes. On the phone the Wi-Fi refresh ran
+     right after install: 227 feeds, 207 not modified, 7 new episodes.
+  5. `PullToRefresh` (Material 3 `PullToRefreshBox`) on Home, Library and a show's page; the spinner shows from
+     the pull until that refresh has run (`Jobs.refreshRunning`), or 2 s when it can't start.
+  6. Home lists every recent episode in place; `EpisodeItem.started` (played or position > 0) dims the title in
+     every episode row.
+- Tests added: `StrictModeFilterTest` +2; `GatedMediaSourceFactoryTest.aRefusedAddressFailsAtOnceWithoutRetrying
+  OrAReconnectNotice`; `DownloadFailuresTest`; `PlaybackEngineTest` +4 (next episode at its saved position,
+  switching takes the left one out of the queue, one only waiting stays, an episode that leaves the library leaves
+  the player); `SleepTimerTest.endOfEpisodeLeavesTheNextEpisodeAtItsSavedPosition`; `WorkersTest` (schedule
+  defaults, old work cancelled, a changed schedule); `AppSettingsTest` and `SettingsViewModelTest` (the setting);
+  `PullToRefreshUiTest` (3); `HomeViewModelTest` changed for played/started episodes staying in place;
+  `SessionCallbackTest.ourScreensCanPlayAnEpisode` changed for the queue rule.
+- Deviations: SPEC §8's 4-hour default refresh is now the owner's 15 min on Wi-Fi / 1 h on mobile data
+  (decision below). SPEC §12 Home "New episodes" kept unplayed only; it now keeps started and played ones in place.
+- Seen: `GatedMediaSourceFactoryTest.aReconnectingStreamShowsOneBriefNoticeAndLogsIt` (from PR #23) failed once in
+  a full run (two notices instead of one) and passed in three more; it runs on a self-advancing fake clock. Watch it.
+- Manual checks for the owner (phone):
+  - Home, the queue and a show at your usual font size: titles smaller, show names bigger and readable.
+  - Pull down on Home, Library and a show: the spinner shows while it checks, and new episodes appear.
+  - Play an episode for a minute, then play another: the first leaves the queue and still resumes where you were.
+  - Settings › Checking for new episodes: the two choices; leave the defaults or change them.
+  - Next time a stream drops: the "reconnecting" notice shows and the app doesn't crash.
 
 ### M1-S11 phone checks over adb (2026-11-17)
 Run by Claude on the owner's phone (Galaxy S24 Ultra, Android 17, display 360 dp wide) with this branch's
@@ -1893,6 +1957,14 @@ Result:
 - PR: #1 (skeleton, guardrails, shell) and #2 (release-key signing, StrictMode fix), both merged.
 
 ## Decisions made during the build
+- Background refresh (owner, 2026-11-18, replacing SPEC §8's 4-hour default): a setting, by default every 15 minutes
+  on Wi-Fi and every hour on mobile data; mobile data can be turned off. Pull-to-refresh on Home, Library and a show.
+- Queue (owner, 2026-11-18): starting another episode takes the one you were listening to out of the queue ("if I
+  switch out, I probably lost interest"); its position is kept. One never listened to (at 0) stays.
+- Home (owner, 2026-11-18): started and played episodes stay in place in "New episodes", dimmed; "played" in the
+  library still means finished (98%), so started episodes resume.
+- Text (owner, 2026-11-18): episode titles 14 sp in lists, the show's name 14 sp medium on its own line above
+  the title ("put the name of the podcast above and the episode name below").
 - applicationId and package root: `us.dikarya.podplayer` (owner's domain dikarya.us). No `.debug` suffix, so M1 data
   carries over to a release build signed with the same key. (Owner, M1-S1 planning.)
 - JDK 21 compiles everything; bytecode is Java 17. JDK 21 is what's installed. Java 17 is the safe level for

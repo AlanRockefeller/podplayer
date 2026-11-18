@@ -38,6 +38,9 @@ data class EpisodeItem(
 ) {
     val id: Long get() = episode.id
     val played: Boolean get() = record?.played == true
+
+    /** Played, or listened to at all: lists show it dimmed in its place (owner, 2026-11-18). */
+    val started: Boolean get() = played || positionMs > 0
     val durationMs: Long? get() = download?.probedDurationMs ?: episode.durationMs ?: record?.durationMs
     val positionMs: Long get() = livePositionMs ?: record?.positionMs ?: 0
     val downloadState: DownloadState? get() = download?.state

@@ -44,6 +44,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -120,6 +121,20 @@ fun episodeMeta(item: EpisodeItem, withShow: Boolean): String {
     return parts.joinToString(" · ")
 }
 
+/**
+ * Owner, 2026-11-18: episode titles were too big and show names too small. Titles in lists take this size; the
+ * show's name gets its own line ([ShowNameLine]) at a bigger size than the date line.
+ */
+val EpisodeTitleStyle: TextStyle
+    @Composable get() = MaterialTheme.typography.bodyMedium
+
+/** The show's name above an episode title: bigger than the date line, on one line. Nothing for null. */
+@Composable
+fun ShowNameLine(name: String?, modifier: Modifier = Modifier) {
+    name ?: return
+    Text(name, style = MaterialTheme.typography.titleSmall, color = PodplayerTheme.colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = modifier)
+}
+
 fun durationText(resources: Resources, ms: Long): String {
     val minutes = (ms.coerceAtLeast(0) + 30_000) / 60_000
     return if (minutes >= 60) {
@@ -143,7 +158,7 @@ fun EpisodeRow(
 ) {
     val colors = PodplayerTheme.colors
     Column(modifier.fillMaxWidth().clickable(role = Role.Button, onClick = onOpen)) {
-        val title = MaterialTheme.typography.bodyLarge
+        val title = EpisodeTitleStyle
         // At large font sizes the buttons move under the title rather than squeeze it (see ActionsBeside).
         ActionsBeside(
             minMainWidth = textRoom(title.fontSize, MIN_TITLE_EMS, extra = ROW_ARTWORK + 16.dp + 12.dp),
@@ -153,14 +168,17 @@ fun EpisodeRow(
                     Artwork(item.imageUrl, item.approvedHost, ROW_ARTWORK)
                     Spacer(Modifier.width(12.dp))
                     Column(Modifier.weight(1f)) {
+                        // The show above its episode (owner, 2026-11-18).
+                        if (withShow) ShowNameLine(item.showTitle)
                         Text(
                             item.episode.title ?: stringResource(R.string.untitled_episode),
                             style = title,
-                            color = if (item.played) colors.textQuiet else colors.textPrimary,
+                            // Started counts as played here (owner, 2026-11-18): it stays in its place, dimmed.
+                            color = if (item.started) colors.textQuiet else colors.textPrimary,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                         )
-                        Text(episodeMeta(item, withShow), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(episodeMeta(item, withShow = false), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
             },

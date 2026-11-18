@@ -85,6 +85,12 @@ class PlaybackEngine(
      */
     var onStreamReconnecting: () -> Unit = {}
 
+    /**
+     * Called on the main thread when our URL or address policy refused the episode's stream, with the reason in
+     * plain words (a host at most, never the URL). The service shows a brief notice.
+     */
+    var onPlaybackRefused: (String) -> Unit = {}
+
     private var lastReconnectNoticeAt: Long? = null
 
     private val loads = object : AnalyticsListener {
@@ -118,6 +124,12 @@ class PlaybackEngine(
 
     private var currentId: Long? = null
     private var currentFeedId: Long? = null
+
+    /**
+     * The playlist's next episode and its saved position, read when it was put there: the move to it happens on
+     * the player's thread without a chance to ask the store, and it must start where it was left.
+     */
+    private var nextSaved: Pair<Long, Long>? = null
     private var markedPlayed = false
     private var switchToFilePending = false
     private val brokenFiles = mutableSetOf<Long>()
@@ -172,6 +184,12 @@ class PlaybackEngine(
                     store.log("Can't play episode $id: it isn't in the library")
                     return@withLock
                 }
+                // Owner, 2026-11-18: "if I listen to one podcast, then switch to another, I don't want the first one
+                // to be in the queue; if I switch out, I probably lost interest". So an episode you started and leave
+                // goes out of the queue; one only waiting there (loaded at 0, never listened to) stays. Its position
+                // is saved by load(), so it resumes if picked up again.
+                val leaving = currentId?.takeIf { it != id && player.mediaItemCount > 0 && player.currentPosition > 0 }
+                if (leaving != null) store.removeFromQueue(leaving)
                 store.putAtQueueHead(id)
                 val start = startAtMs?.coerceAtLeast(0)
                 if (id == currentId && player.mediaItemCount > 0) {
@@ -313,6 +331,7 @@ class PlaybackEngine(
         val known = episode.durationMs?.takeIf { it > 0 }
         val start = startAtMs?.let { if (known != null) it.coerceAtMost(known) else it } ?: saved
         val next = store.queue().first().firstOrNull { it != id }?.let { store.episode(it) }
+        nextSaved = next?.let { it.id to store.startPosition(it.id) }
         if (released) return false
         if (currentId != null && currentId != id) persist()
         adopt(episode.id, episode.feedId)
@@ -377,7 +396,25 @@ class PlaybackEngine(
                 if (player.mediaItemCount == 0 && head != null) load(head, play = false)
                 return
             }
+            if (store.episode(current) == null) {
+                // The loaded episode left the library (its show was unsubscribed, 2026-11-18): it leaves the player,
+                // and the queue's head loads paused, as after a restart.
+                rebuilding = true
+                try {
+                    player.playWhenReady = false
+                    player.clearMediaItems()
+                } finally {
+                    rebuilding = false
+                }
+                currentId = null
+                currentFeedId = null
+                nextSaved = null
+                store.setCurrentEpisodeId(null)
+                store.queue().first().firstOrNull()?.let { load(it, play = false) }
+                return
+            }
             val wantedId = store.queue().first().firstOrNull { it != current }
+            nextSaved = wantedId?.let { it to store.startPosition(it) }
             val wanted = wantedId?.let { store.episode(it) }?.let(::itemFor)
             if (currentId != current || player.mediaItemCount == 0) return
             val existing = if (player.mediaItemCount > 1) player.getMediaItemAt(1) else null
@@ -471,13 +508,16 @@ class PlaybackEngine(
         advancingAfterPause = false
         // Keep the playing item at index 0.
         val index = player.currentMediaItemIndex
-        if (index > 0) {
-            rebuilding = true
-            try {
-                player.removeMediaItems(0, index)
-            } finally {
-                rebuilding = false
-            }
+        val saved = nextSaved?.takeIf { it.first == newId }?.second ?: 0
+        nextSaved = null
+        rebuilding = true
+        try {
+            if (index > 0) player.removeMediaItems(0, index)
+            // The next episode starts at its saved position, like every other way into an episode (owner's phone,
+            // 2026-11-18: one saved at 34 s started over). Logged once, below, as the move to the next episode.
+            if (endedNaturally && saved > 0 && player.currentPosition < saved) player.seekTo(saved)
+        } finally {
+            rebuilding = false
         }
         adopt(newId, null)
         val chosenByController = reason == Player.MEDIA_ITEM_TRANSITION_REASON_PLAYLIST_CHANGED
@@ -522,11 +562,12 @@ class PlaybackEngine(
     }
 
     private fun onPausedAtEndOfItem() {
-        // The end-of-episode sleep timer: stop here, with the next episode loaded at its start.
+        // The end-of-episode sleep timer: stop here, with the next episode loaded at its saved position.
         cancelSleepTimer()
         if (player.mediaItemCount > 1) {
             advancingAfterPause = true
-            player.seekTo(1, 0)
+            val nextId = player.getMediaItemAt(1).mediaId.toLongOrNull()
+            player.seekTo(1, nextSaved?.takeIf { it.first == nextId }?.second ?: 0)
         } else {
             endOfLastEpisode()
         }
@@ -737,7 +778,14 @@ class PlaybackEngine(
                 }
             } else {
                 persist()
-                store.log("Episode $id: playback failed (${error.errorCodeName})")
+                val refused = refusalReason(error)
+                if (refused != null) {
+                    // Never the URL (CLAUDE.md): the reason names a host at most.
+                    store.log("Episode $id: the stream was refused: $refused")
+                    onPlaybackRefused(refused)
+                } else {
+                    store.log("Episode $id: playback failed (${error.errorCodeName})")
+                }
             }
         }
     }

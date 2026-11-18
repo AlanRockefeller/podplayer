@@ -9,6 +9,7 @@ package us.dikarya.podplayer.ui.home
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -66,8 +67,8 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
 
     private fun library(repos: Repositories, shown: Int) = combine(
         repos.feeds.feeds(),
-        // Extra candidates cover played episodes and the Continue episode, which are left out of the list.
-        repos.episodes.latest(shown + CANDIDATE_SLACK),
+        // One more than listed tells whether older episodes exist.
+        repos.episodes.latest(shown + 1),
         repos.playback.inProgress(1).map { it.firstOrNull() },
         deps.playback.state.map { it.episodeId }.distinctUntilChanged()
             .flatMapLatest { id -> if (id == null) flowOf(null) else repos.episodes.observe(id) },
@@ -89,13 +90,13 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
                 val downloads = media.associateBy { it.episodeId }
                 val queued = queue.mapTo(HashSet()) { it.episodeId }
                 fun item(e: Episode) = EpisodeItem.of(e, feeds[e.feedId], records[e.id], downloads[e.id], e.id in queued, playback)
-                val unplayed = lib.latest.filter { it.id != continueEpisode?.id && records[it.id]?.played != true }
                 HomeUiState(
                     loading = false,
                     continueItem = continueEpisode?.let(::item),
-                    newEpisodes = unplayed.take(count).map(::item),
-                    // More unplayed candidates than listed, or a full window (the database may hold older ones).
-                    canLoadMore = unplayed.size > count || lib.latest.size == count + CANDIDATE_SLACK,
+                    // Started and played episodes stay in their place, shown dimmed (owner, 2026-11-18).
+                    newEpisodes = lib.latest.take(count).map(::item),
+                    // More candidates than listed: the database holds older ones.
+                    canLoadMore = lib.latest.size > count,
                     shows = lib.feeds,
                     starred = lib.starred.map(::item),
                     online = online,
@@ -106,10 +107,12 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
 
     fun refresh() = deps.refresh(null)
 
+    /** The refresh [refresh] asked for is running (pull-to-refresh's spinner). */
+    val refreshing: Flow<Boolean> = deps.refreshRunning(null)
+
     companion object {
         /** New episodes per page. */
         const val PAGE = 30
-        private const val CANDIDATE_SLACK = 40
         private const val STARRED = 12
         private const val STOP_AFTER_MS = 5_000L
     }

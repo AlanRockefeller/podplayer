@@ -61,6 +61,9 @@ class PlaybackService : MediaLibraryService() {
         engine.onStreamReconnecting = {
             Toast.makeText(this, R.string.playback_stream_reconnecting, Toast.LENGTH_SHORT).show()
         }
+        engine.onPlaybackRefused = {
+            Toast.makeText(this, R.string.playback_stream_refused, Toast.LENGTH_LONG).show()
+        }
         val session = MediaLibrarySession.Builder(this, engine.sessionPlayer, SessionCallback(engine, scope))
             .setBitmapLoader(ArtworkBitmapLoader(deps.artwork, deps.processScope))
             .setMediaButtonPreferences(SessionCallback.buttons(this, engine.settings))

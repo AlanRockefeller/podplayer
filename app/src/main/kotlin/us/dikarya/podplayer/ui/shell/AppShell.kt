@@ -55,6 +55,7 @@ import us.dikarya.podplayer.R
 import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.ui.DataStateDialogs
 import us.dikarya.podplayer.ui.browse.BrowseDeps
+import us.dikarya.podplayer.ui.browse.DownloadFailureBar
 import us.dikarya.podplayer.ui.browse.LocalSnackbars
 import us.dikarya.podplayer.ui.discover.DiscoverScreen
 import us.dikarya.podplayer.ui.discover.DiscoverViewModel
@@ -194,6 +195,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
     }
 
     CompositionLocalProvider(LocalSnackbars provides snackbars) {
+    DownloadFailureBar(browse)
     Scaffold(
         snackbarHost = { SnackbarHost(snackbars) },
         topBar = {

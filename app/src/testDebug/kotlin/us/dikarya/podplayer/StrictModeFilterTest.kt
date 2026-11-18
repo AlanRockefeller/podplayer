@@ -40,6 +40,36 @@ class StrictModeFilterTest {
     }
 
     @Test
+    fun samsungsFileCheckInsideToastShowOnlyLogs() {
+        // Found on the owner's phone (M1-S11): the stream-reconnect notice's Toast.show crashed the debug build,
+        // because Samsung's Toast checks a file on the main thread. Our frame is on the stack, but the read is not ours.
+        val trace = arrayOf(
+            frame("android.os.StrictMode\$AndroidBlockGuardPolicy"),
+            frame("libcore.io.BlockGuardOs"),
+            frame("java.io.File"),
+            StackTraceElement("android.content.pm.PackageManager", "isSpeg", "PackageManager.java", 6922),
+            StackTraceElement("android.widget.Toast", "isSpeg", "Toast.java", 284),
+            StackTraceElement("android.widget.Toast", "show", "Toast.java", 297),
+            frame("us.dikarya.podplayer.playback.PlaybackService"),
+            frame("android.os.Looper"),
+        )
+        assertFalse(StrictModeFilter.shouldCrash(trace))
+    }
+
+    @Test
+    fun ourOwnReadStillCrashesEvenWithTheSamsungCheckFurtherDown() {
+        // Only frames between the violation and our first frame decide: here our code read the file itself.
+        val trace = arrayOf(
+            frame("android.os.StrictMode\$AndroidBlockGuardPolicy"),
+            frame("java.io.File"),
+            frame("us.dikarya.podplayer.core.data.Something"),
+            StackTraceElement("android.content.pm.PackageManager", "isSpeg", "PackageManager.java", 6922),
+            frame("us.dikarya.podplayer.MainActivity"),
+        )
+        assertTrue(StrictModeFilter.shouldCrash(trace))
+    }
+
+    @Test
     fun lookAlikePackagesDoNotCount() {
         assertFalse(StrictModeFilter.shouldCrash(arrayOf(frame("us.dikarya.podplayerx.Other"))))
         assertFalse(StrictModeFilter.shouldCrash(arrayOf(frame("us.dikarya.daydream.Main"))))

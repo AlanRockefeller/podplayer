@@ -10,8 +10,11 @@ import android.content.Context
 import androidx.work.WorkManager
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import androidx.work.WorkInfo
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import us.dikarya.podplayer.core.data.DataLayer
 import us.dikarya.podplayer.core.data.logs.AppLog
@@ -114,11 +117,14 @@ class Jobs(
         },
     )
 
-    /** Safe on every start: existing schedules are kept. Call off the main thread. */
+    /**
+     * Safe on every start: existing schedules are kept. Call off the main thread. The refresh schedule follows its
+     * setting for the life of the process.
+     */
     fun schedule() {
         BackupWorker.schedule(workManager)
-        RefreshWorker.schedulePeriodic(workManager)
         CleanUpWorker.schedulePeriodic(workManager)
+        scope.launch { data.settings.refreshSchedule.collect { RefreshWorker.schedulePeriodic(workManager, it) } }
     }
 
     /**
@@ -168,6 +174,10 @@ class Jobs(
 
     /** The owner asked: refresh [feedId], or every feed when null, as soon as there is a network. */
     fun refreshNow(feedId: Long?) = RefreshWorker.refreshNow(workManager, feedId)
+
+    /** Whether the refresh [refreshNow] asked for ([feedId], or all for null) is running now. */
+    fun refreshRunning(feedId: Long?): Flow<Boolean> =
+        workManager.getWorkInfosForUniqueWorkFlow(RefreshWorker.nowName(feedId)).map { infos -> infos.any { it.state == WorkInfo.State.RUNNING } }
 
     private companion object {
         const val TAG = "Jobs"

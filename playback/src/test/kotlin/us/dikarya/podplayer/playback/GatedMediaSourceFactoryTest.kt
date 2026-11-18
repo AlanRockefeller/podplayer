@@ -15,6 +15,9 @@ import androidx.media3.test.utils.robolectric.TestPlayerRunHelper.run
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
 import java.io.IOException
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.source.LoadEventInfo
+import androidx.media3.exoplayer.source.MediaLoadData
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlinx.coroutines.CoroutineScope
@@ -161,7 +164,7 @@ class GatedMediaSourceFactoryTest {
         server.dispatcher = rangesOf(whole)
         player.release()
         val clock = FakeClock(true)
-        player = PlayerFactory.create(appContext(), cutShortSources(keep = cut, times = 1), clock, fakeRenderers(clock))
+        player = PlayerFactory.create(appContext(), cutShortSources(keep = cut, times = 1), clock, fakeRenderers(clock), noStuckDetection)
         val url = server.url("/a.wav")
         play(episode(url.toString(), approvedHost = url.host).toMediaItem(useFile = false))
         player.play()
@@ -184,12 +187,14 @@ class GatedMediaSourceFactoryTest {
         server.dispatcher = rangesOf(wav(seconds = 2))
         player.release()
         val clock = FakeClock(true)
-        player = PlayerFactory.create(appContext(), cutShortSources(keep = 10_000, times = 2), clock, fakeRenderers(clock))
+        player = PlayerFactory.create(appContext(), cutShortSources(keep = 10_000, times = 2), clock, fakeRenderers(clock), noStuckDetection)
         val store = FakePlaybackStore()
         val url = server.url("/shows/a.wav?token=secret")
         store.episodes[1] = episode(url.toString(), approvedHost = url.host)
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
-        val engine = PlaybackEngine(player, store, scope, clock)
+        // The engine's own clock, frozen: the player's fake clock runs ahead while real I/O waits on a busy machine
+        // (CI), which once put the two drops more than the notice gap apart.
+        val engine = PlaybackEngine(player, store, scope, FakeClock(false))
         var notices = 0
         engine.onStreamReconnecting = { notices++ }
         try {
@@ -207,6 +212,60 @@ class GatedMediaSourceFactoryTest {
             engine.release()
             scope.cancel()
         }
+    }
+
+    /**
+     * The owner's phone, 2026-11-18: an episode whose stream is on a private address the owner didn't approve was
+     * refused by the gate, then retried as if the stream had dropped, with the "reconnecting" notice (whose Toast
+     * then crashed the debug build). A refusal is final: one failed load, no retry, no notice, and the reason logged
+     * without the URL.
+     */
+    @Test
+    fun aRefusedAddressFailsAtOnceWithoutRetryingOrAReconnectNotice() {
+        server.enqueue(wavResponse())
+        val store = FakePlaybackStore()
+        store.episodes[1] = episode(server.url("/shows/a.wav?token=secret").toString())
+        val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        val engine = PlaybackEngine(player, store, scope, FakeClock(true))
+        var notices = 0
+        engine.onStreamReconnecting = { notices++ }
+        val refusals = mutableListOf<String>()
+        engine.onPlaybackRefused = { refusals += it }
+        var loadErrors = 0
+        player.addAnalyticsListener(object : AnalyticsListener {
+            override fun onLoadError(eventTime: AnalyticsListener.EventTime, loadEventInfo: LoadEventInfo, mediaLoadData: MediaLoadData, error: IOException, wasCanceled: Boolean) {
+                loadErrors++
+            }
+        })
+        try {
+            engine.start()
+            engine.playEpisode(1)
+            player.play()
+            run(player).untilPlayerError()
+            assertEquals(0, server.requestCount)
+            assertEquals("one failed load, no retries", 1, loadErrors)
+            assertEquals(0, notices)
+            assertEquals(1, refusals.size)
+            val lines = store.logLines.filter { "refused" in it }
+            assertEquals(1, lines.size)
+            assertTrue(lines.single(), server.url("/").host in lines.single())
+            assertTrue(store.logLines.none { "secret" in it || "a.wav" in it })
+        } finally {
+            engine.release()
+            scope.cancel()
+        }
+    }
+
+    /**
+     * The fake clock advances on its own while a load waits on the local server, so on a busy machine (CI) the
+     * player once judged itself stuck (`StuckPlayerException`) before the retried load arrived. These tests are
+     * about retries, so the stuck checks are off.
+     */
+    private val noStuckDetection: ExoPlayer.Builder.() -> Unit = {
+        setStuckBufferingDetectionTimeoutMs(Int.MAX_VALUE)
+        setStuckPlayingDetectionTimeoutMs(Int.MAX_VALUE)
+        setStuckPlayingNotEndingTimeoutMs(Int.MAX_VALUE)
+        setStuckSuppressedDetectionTimeoutMs(Int.MAX_VALUE)
     }
 
     /** The gate's client, with the first [times] responses cut to [keep] bytes but keeping their full length. */

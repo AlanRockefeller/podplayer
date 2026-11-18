@@ -90,6 +90,29 @@ data class CleanUpSettings(
 }
 
 /**
+ * How often feeds are refreshed in the background (SPEC §8; owner, 2026-11-18: "setting, default to 15 min on wifi
+ * and 1h on cellular"). [mobileMinutes] null: never on mobile data, only on Wi-Fi.
+ */
+data class RefreshSchedule(val wifiMinutes: Int = 15, val mobileMinutes: Int? = 60) {
+    /** A restored backup can hold anything: the choices offered, else the default. */
+    fun normalized() = RefreshSchedule(
+        wifiMinutes = wifiMinutes.takeIf { it in WIFI_CHOICES } ?: DEFAULT.wifiMinutes,
+        mobileMinutes = if (mobileMinutes == null) null else mobileMinutes.takeIf { it in MOBILE_CHOICES } ?: DEFAULT.mobileMinutes,
+    )
+
+    companion object {
+        val DEFAULT = RefreshSchedule()
+
+        /** WorkManager's shortest periodic interval is 15 minutes. */
+        val WIFI_CHOICES = listOf(15, 30, 60, 240)
+        val MOBILE_CHOICES = listOf(60, 240, 720)
+
+        /** Stored for "never on mobile data". */
+        internal const val NEVER = 0
+    }
+}
+
+/**
  * The owner's settings, in Preferences DataStore. Everything in this store goes into backups and comes back
  * on restore; settings that belong to this phone only live in [DeviceSettings]. A corrupt or unreadable file
  * falls back to the defaults.
@@ -148,6 +171,29 @@ class AppSettings(private val store: DataStore<Preferences>) {
 
     suspend fun setAutoDownloadWifiOnly(wifiOnly: Boolean) {
         store.edit { it[AUTO_DOWNLOAD_WIFI_ONLY] = wifiOnly }
+    }
+
+    /** Background refresh intervals, normalized on read. */
+    val refreshSchedule: Flow<RefreshSchedule> = data
+        .map { prefs ->
+            val mobile = prefs.read<Int>(REFRESH_MOBILE_MINUTES)
+            RefreshSchedule(
+                wifiMinutes = prefs.read<Int>(REFRESH_WIFI_MINUTES) ?: RefreshSchedule.DEFAULT.wifiMinutes,
+                mobileMinutes = when (mobile) {
+                    null -> RefreshSchedule.DEFAULT.mobileMinutes
+                    RefreshSchedule.NEVER -> null
+                    else -> mobile
+                },
+            ).normalized()
+        }
+        .distinctUntilChanged()
+
+    suspend fun setRefreshSchedule(schedule: RefreshSchedule) {
+        val normalized = schedule.normalized()
+        store.edit {
+            it[REFRESH_WIFI_MINUTES] = normalized.wifiMinutes
+            it[REFRESH_MOBILE_MINUTES] = normalized.mobileMinutes ?: RefreshSchedule.NEVER
+        }
     }
 
     /** SPEC §9 clean-up, clamped on read. */
@@ -285,6 +331,8 @@ class AppSettings(private val store: DataStore<Preferences>) {
         private val DOWNLOADS_WIFI_ONLY = booleanPreferencesKey("downloads_wifi_only")
         private val STORAGE_CAP_BYTES = longPreferencesKey("storage_cap_bytes")
         private val PLAYBACK_SPEED = floatPreferencesKey("playback_speed")
+        private val REFRESH_WIFI_MINUTES = intPreferencesKey("refresh_wifi_minutes")
+        private val REFRESH_MOBILE_MINUTES = intPreferencesKey("refresh_mobile_minutes")
         private val SKIP_BACK_SECONDS = intPreferencesKey("skip_back_seconds")
         private val SKIP_FORWARD_SECONDS = intPreferencesKey("skip_forward_seconds")
         private val REWIND_AFTER_PAUSE = booleanPreferencesKey("rewind_after_pause")

@@ -139,6 +139,9 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
 
     fun refresh() = deps.refresh(feedId)
 
+    /** The refresh [refresh] asked for is running (pull-to-refresh's spinner). */
+    val refreshing: kotlinx.coroutines.flow.Flow<Boolean> = deps.refreshRunning(feedId)
+
     fun unsubscribe() {
         unsubscribed.value = true
         viewModelScope.launch { deps.downloads.unsubscribe(feedId) }

@@ -54,8 +54,8 @@ object PlayerFactory {
         .build()
 
     /**
-     * [renderers] and [clock] are for tests; production uses the defaults. The player pauses when audio becomes
-     * noisy (CLAUDE.md) and handles audio focus itself.
+     * [renderers], [clock] and [forTests] are for tests; production uses the defaults. The player pauses when audio
+     * becomes noisy (CLAUDE.md) and handles audio focus itself.
      */
     @SuppressLint("VisibleForTests") // setClock: production always passes Clock.DEFAULT.
     fun create(
@@ -63,6 +63,7 @@ object PlayerFactory {
         sources: MediaSource.Factory,
         clock: Clock = Clock.DEFAULT,
         renderers: RenderersFactory? = null,
+        forTests: ExoPlayer.Builder.() -> Unit = {},
     ): ExoPlayer {
         val builder = if (renderers != null) ExoPlayer.Builder(context, renderers) else ExoPlayer.Builder(context)
         return builder
@@ -73,6 +74,7 @@ object PlayerFactory {
             .setWakeMode(C.WAKE_MODE_NETWORK)
             .setClock(clock)
             .setName("podplayer")
+            .apply(forTests)
             .build()
     }
 }

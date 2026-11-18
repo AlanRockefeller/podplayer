@@ -99,6 +99,25 @@ class SleepTimerTest {
         assertEquals(SleepTimerState.Off, h.engine.sleepTimer.value)
     }
 
+    /** The owner's phone, 2026-11-18: the next episode, saved at 34 s, was left at 0 after the timer stopped. */
+    @Test
+    fun endOfEpisodeLeavesTheNextEpisodeAtItsSavedPosition() {
+        h.store.add(1, durationMs = 60_000)
+        h.store.add(2)
+        h.store.positions[2] = 34_000
+        h.store.queue.value = listOf(1, 2)
+        h.start()
+        h.engine.playEpisode(1)
+        idle()
+        h.engine.sleepAtEndOfEpisode()
+        idle()
+        run(h.player).untilPlayWhenReadyIs(false)
+        idle()
+        assertEquals("2", h.player.currentMediaItem!!.mediaId)
+        assertEquals(34_000L, h.player.currentPosition)
+        assertFalse(h.player.playWhenReady)
+    }
+
     @Test
     fun endOfEpisodeStopsAtTheBoundaryWithTheNextEpisodeReady() {
         h.store.add(1, durationMs = 60_000)

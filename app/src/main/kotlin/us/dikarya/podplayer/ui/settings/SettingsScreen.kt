@@ -10,6 +10,7 @@ import android.content.Context
 import android.text.format.Formatter
 import us.dikarya.podplayer.core.data.settings.AppSettings
 import us.dikarya.podplayer.core.data.settings.CleanUpSettings
+import us.dikarya.podplayer.core.data.settings.RefreshSchedule
 import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -77,6 +78,8 @@ fun SettingsScreen(
         AppearanceScreen(themeMode, onThemeModeChange)
         HorizontalDivider(color = PodplayerTheme.colors.divider)
         PlaybackSection(state, viewModel)
+        HorizontalDivider(color = PodplayerTheme.colors.divider)
+        RefreshSection(state, viewModel)
         HorizontalDivider(color = PodplayerTheme.colors.divider)
         DownloadsSection(state, viewModel)
         HorizontalDivider(color = PodplayerTheme.colors.divider)
@@ -185,6 +188,31 @@ private fun AutoPlayDevices(devices: List<BluetoothDeviceUi>, onChange: (String,
             Text(device.name, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         }
     }
+}
+
+/** How often shows are checked for new episodes in the background (owner, 2026-11-18). */
+@Composable
+private fun RefreshSection(state: SettingsUiState, viewModel: SettingsViewModel) {
+    Heading(R.string.settings_refresh)
+    val every: @Composable (Int) -> String = { stringResource(R.string.settings_every, minutesText(it)) }
+    ChoiceSetting(
+        title = R.string.settings_refresh_wifi,
+        value = every(state.refresh.wifiMinutes),
+        choices = RefreshSchedule.WIFI_CHOICES,
+        selected = state.refresh.wifiMinutes,
+        label = every,
+        onPick = viewModel::setRefreshOnWifi,
+    )
+    val mobile: @Composable (Int?) -> String = { if (it == null) stringResource(R.string.settings_refresh_never_on_mobile) else every(it) }
+    ChoiceSetting(
+        title = R.string.settings_refresh_mobile,
+        body = stringResource(R.string.settings_refresh_body),
+        value = mobile(state.refresh.mobileMinutes),
+        choices = RefreshSchedule.MOBILE_CHOICES + listOf(null),
+        selected = state.refresh.mobileMinutes,
+        label = mobile,
+        onPick = viewModel::setRefreshOnMobile,
+    )
 }
 
 @Composable

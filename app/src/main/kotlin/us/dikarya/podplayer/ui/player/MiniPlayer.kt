@@ -33,6 +33,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import us.dikarya.podplayer.R
 import us.dikarya.podplayer.ui.artwork.Artwork
+import us.dikarya.podplayer.ui.browse.EpisodeTitleStyle
+import us.dikarya.podplayer.ui.browse.ShowNameLine
 import us.dikarya.podplayer.ui.theme.PodplayerTheme
 
 /** Above the navigation while the session has an episode loaded (SPEC §12); nothing otherwise. */
@@ -61,8 +63,8 @@ fun MiniPlayer(state: MiniPlayerUi, onToggle: () -> Unit, onOpen: () -> Unit, mo
             Artwork(state.imageUrl, state.approvedHost, 44.dp)
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
-                Text(state.title ?: stringResource(R.string.untitled_episode), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                state.showTitle?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                ShowNameLine(state.showTitle)
+                Text(state.title ?: stringResource(R.string.untitled_episode), style = EpisodeTitleStyle, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             IconButton(onClick = onToggle) {
                 Icon(

@@ -24,9 +24,19 @@ internal object StrictModeFilter {
      * Crash only when our code is on the stack. Vendor framework code also breaks the rules:
      * Samsung's `android.app.IdsController` reads SharedPreferences on the main thread during
      * every activity resume, with no app frame involved.
+     *
+     * A vendor's own disk work inside a platform call we make is not ours either: Samsung's `Toast.show` checks a
+     * file (`PackageManager.isSpeg`) on the main thread, which crashed the stream-reconnect notice on the owner's
+     * phone (M1-S11). Only the frames between the violation and our first frame decide, so our own reads still crash.
      */
-    fun shouldCrash(trace: Array<StackTraceElement>): Boolean =
-        trace.any { it.className.startsWith(OUR_PACKAGE) }
+    fun shouldCrash(trace: Array<StackTraceElement>): Boolean {
+        val ours = trace.indexOfFirst { it.className.startsWith(OUR_PACKAGE) }
+        if (ours < 0) return false
+        return trace.take(ours).none { frame -> VENDOR_INTERNALS.any { (cls, method) -> frame.className == cls && frame.methodName == method } }
+    }
+
+    /** Vendor-internal calls whose own disk work StrictMode reports inside a platform API we call. */
+    private val VENDOR_INTERNALS = listOf("android.content.pm.PackageManager" to "isSpeg")
 }
 
 /** Debug builds: StrictMode on and invariants crash, so problems get noticed. */

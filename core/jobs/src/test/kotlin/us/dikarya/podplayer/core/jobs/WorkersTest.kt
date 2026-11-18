@@ -29,6 +29,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
+import us.dikarya.podplayer.core.data.settings.RefreshSchedule
 import us.dikarya.podplayer.core.jobs.cleanup.CleanUpWorker
 import us.dikarya.podplayer.core.jobs.cleanup.Housekeeping
 import us.dikarya.podplayer.core.jobs.download.DownloadOutcome
@@ -65,6 +66,8 @@ class WorkersTest {
 
     private fun infos(name: String) = workManager.getWorkInfosForUniqueWork(name).get()
 
+    private fun active(name: String) = infos(name).filter { !it.state.isFinished }
+
     private class FakeRefresher : Refresher {
         val requests = mutableListOf<RefreshRequest>()
         var fail = false
@@ -94,14 +97,36 @@ class WorkersTest {
         )
 
     @Test
-    fun thePeriodicRefreshIsUniqueEveryFourHoursAndNeedsANetwork() {
-        RefreshWorker.schedulePeriodic(workManager)
-        val first = infos(RefreshWorker.PERIODIC_NAME).single()
-        RefreshWorker.schedulePeriodic(workManager)
-        val again = infos(RefreshWorker.PERIODIC_NAME).single()
-        assertEquals(first.id, again.id)
-        assertEquals(4L * 3600 * 1000, again.periodicityInfo!!.repeatIntervalMillis)
-        assertEquals(NetworkType.CONNECTED, again.constraints.requiredNetworkType)
+    fun thePeriodicRefreshIsEvery15MinutesOnWifiAndHourlyOnAnyNetworkByDefault() {
+        // Owner, 2026-11-18: "setting, default to 15 min on wifi and 1h on cellular" (SPEC §8 said 4 hours).
+        RefreshWorker.schedulePeriodic(workManager, RefreshSchedule())
+        val wifi = active(RefreshWorker.PERIODIC_WIFI_NAME).single()
+        val any = active(RefreshWorker.PERIODIC_ANY_NAME).single()
+        assertEquals(15L * 60 * 1000, wifi.periodicityInfo!!.repeatIntervalMillis)
+        assertEquals(NetworkType.UNMETERED, wifi.constraints.requiredNetworkType)
+        assertEquals(60L * 60 * 1000, any.periodicityInfo!!.repeatIntervalMillis)
+        assertEquals(NetworkType.CONNECTED, any.constraints.requiredNetworkType)
+        // Every start schedules again: still one of each, the same work.
+        RefreshWorker.schedulePeriodic(workManager, RefreshSchedule())
+        assertEquals(wifi.id, active(RefreshWorker.PERIODIC_WIFI_NAME).single().id)
+        assertEquals(any.id, active(RefreshWorker.PERIODIC_ANY_NAME).single().id)
+    }
+
+    @Test
+    fun theOldFourHourRefreshGoesAndAChangedScheduleReplacesTheWork() {
+        // An install from before the setting has the single 4-hour schedule.
+        workManager.enqueueUniquePeriodicWork(
+            RefreshWorker.OLD_PERIODIC_NAME,
+            androidx.work.ExistingPeriodicWorkPolicy.KEEP,
+            androidx.work.PeriodicWorkRequestBuilder<RefreshWorker>(4, java.util.concurrent.TimeUnit.HOURS).build(),
+        )
+        RefreshWorker.schedulePeriodic(workManager, RefreshSchedule())
+        assertTrue(active(RefreshWorker.OLD_PERIODIC_NAME).isEmpty())
+
+        // Wi-Fi every hour, never on mobile data.
+        RefreshWorker.schedulePeriodic(workManager, RefreshSchedule(wifiMinutes = 60, mobileMinutes = null))
+        assertEquals(60L * 60 * 1000, active(RefreshWorker.PERIODIC_WIFI_NAME).single().periodicityInfo!!.repeatIntervalMillis)
+        assertTrue(active(RefreshWorker.PERIODIC_ANY_NAME).isEmpty())
     }
 
     @Test

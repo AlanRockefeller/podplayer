@@ -7,6 +7,7 @@
 package us.dikarya.podplayer.ui.discover
 
 import android.text.format.DateUtils
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -20,6 +21,8 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -35,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
@@ -59,15 +63,22 @@ import us.dikarya.podplayer.ui.theme.PodplayerTheme
  * so opening a preview contacts only the feed's own host; no host is approved for it.
  */
 @Composable
-fun ShowPreviewScreen(viewModel: ShowPreviewViewModel, artworkUrl: String?, onOpenShow: (Long) -> Unit) {
+fun ShowPreviewScreen(viewModel: ShowPreviewViewModel, artworkUrl: String?, onOpenShow: (Long) -> Unit, onOpenEpisode: (Long) -> Unit) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val online by viewModel.online.collectAsStateWithLifecycle()
     val opened by viewModel.opened.collectAsStateWithLifecycle()
+    val openedEpisode by viewModel.openedEpisode.collectAsStateWithLifecycle()
     val resources = LocalResources.current
     LaunchedEffect(opened) {
         opened?.let {
             viewModel.onOpened()
             onOpenShow(it)
+        }
+    }
+    LaunchedEffect(openedEpisode) {
+        openedEpisode?.let {
+            viewModel.onEpisodeOpened()
+            onOpenEpisode(it)
         }
     }
     Column(Modifier.fillMaxSize()) {
@@ -139,14 +150,29 @@ private fun Ready(state: ShowPreviewState.Ready, artworkUrl: String?, viewModel:
             HorizontalDivider(color = colors.divider)
         }
         if (state.episodes.isEmpty()) item { CenteredMessage(stringResource(R.string.preview_no_episodes)) }
-        itemsIndexed(state.episodes) { _, episode ->
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp)) {
-                Text(episode.title ?: stringResource(R.string.untitled_episode), style = EpisodeTitleStyle, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                val meta = buildList {
-                    episode.publishedAt?.let { add(DateUtils.formatDateTime(context, it, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH)) }
-                    episode.durationMs?.takeIf { it > 0 }?.let { add(durationText(resources, it)) }
-                }.joinToString(" · ")
-                if (meta.isNotEmpty()) Text(meta, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+        // Playing or opening an episode keeps the show aside without subscribing (SPEC §12).
+        itemsIndexed(state.episodes) { index, episode ->
+            val title = episode.title ?: stringResource(R.string.untitled_episode)
+            Row(
+                Modifier.fillMaxWidth().clickable(enabled = !state.opening) { viewModel.openEpisode(index) }
+                    .padding(start = 16.dp, end = 4.dp, top = 6.dp, bottom = 6.dp).testTag("$TAG_PREVIEW_EPISODE$index"),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
+                    Text(title, style = EpisodeTitleStyle, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    val meta = buildList {
+                        episode.publishedAt?.let { add(DateUtils.formatDateTime(context, it, DateUtils.FORMAT_SHOW_DATE or DateUtils.FORMAT_ABBREV_MONTH)) }
+                        episode.durationMs?.takeIf { it > 0 }?.let { add(durationText(resources, it)) }
+                    }.joinToString(" · ")
+                    if (meta.isNotEmpty()) Text(meta, style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
+                }
+                IconButton(
+                    onClick = { viewModel.play(index) },
+                    enabled = !state.opening,
+                    modifier = Modifier.testTag("$TAG_PREVIEW_PLAY$index"),
+                ) {
+                    Icon(painterResource(R.drawable.ic_play), contentDescription = stringResource(R.string.preview_play_episode, title))
+                }
             }
         }
     }
@@ -156,3 +182,7 @@ private fun Ready(state: ShowPreviewState.Ready, artworkUrl: String?, viewModel:
 private const val DESCRIPTION_LINES = 3
 const val TAG_SHOW_PREVIEW = "show-preview"
 const val TAG_PREVIEW_SUBSCRIBE = "show-preview-subscribe"
+
+/** Followed by the episode's index in the list. */
+const val TAG_PREVIEW_EPISODE = "show-preview-episode-"
+const val TAG_PREVIEW_PLAY = "show-preview-play-"

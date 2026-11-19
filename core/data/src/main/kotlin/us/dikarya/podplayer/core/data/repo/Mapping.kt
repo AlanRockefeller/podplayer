@@ -35,6 +35,7 @@ internal fun FeedEntity.toModel() = Feed(
     lastRefreshErrorAt = lastRefreshErrorAt,
     lastRefreshError = lastRefreshError,
     nextRefreshAt = nextRefreshAt,
+    subscribed = subscribed,
 )
 
 internal fun EpisodeEntity.toModel() = Episode(

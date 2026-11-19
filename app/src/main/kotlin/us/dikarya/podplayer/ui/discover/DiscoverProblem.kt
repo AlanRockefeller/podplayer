@@ -33,6 +33,9 @@ sealed interface DiscoverProblem {
 
     /** The library database isn't open (DataLayer reported it damaged or failed). */
     data object LibraryClosed : DiscoverProblem
+
+    /** A previewed episode couldn't be found once the show was kept aside (SPEC §12). */
+    data object EpisodeUnavailable : DiscoverProblem
 }
 
 /** The message shown for [problem]. No URL is ever quoted (feed URLs are secrets). */
@@ -42,6 +45,7 @@ fun Resources.message(problem: DiscoverProblem): String = when (problem) {
     DiscoverProblem.FileTooLarge -> getString(R.string.problem_file_too_large)
     DiscoverProblem.FileUnreadable -> getString(R.string.problem_file_unreadable)
     DiscoverProblem.LibraryClosed -> getString(R.string.problem_library_closed)
+    DiscoverProblem.EpisodeUnavailable -> getString(R.string.preview_open_problem)
     is DiscoverProblem.NotOpml -> getString(R.string.problem_not_opml)
     is DiscoverProblem.NotAFeed -> when (problem.problem) {
         is ParseProblem.NotAFeed, ParseProblem.HtmlPage -> getString(R.string.problem_not_a_feed_page)

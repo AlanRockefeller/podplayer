@@ -52,9 +52,15 @@ data class FeedEntity(
     val lastRefreshError: String? = null,
     val consecutiveFailures: Int = 0,
     val nextRefreshAt: Long? = null,
+    /**
+     * False for a show kept aside so the owner can play from its preview without subscribing (v5, owner
+     * 2026-11-18): it stays out of the library, Home, refreshes and auto-download, and housekeeping removes it
+     * once nothing of it is in use. Subscribing turns it into an ordinary subscription (FeedRepository.subscribe).
+     */
+    @ColumnInfo(defaultValue = "1") val subscribed: Boolean = true,
 ) {
     override fun toString() =
-        "FeedEntity(id=$id, url=${redact(url)}, title=$title, ownerApprovedHost=$ownerApprovedHost)"
+        "FeedEntity(id=$id, url=${redact(url)}, title=$title, ownerApprovedHost=$ownerApprovedHost, subscribed=$subscribed)"
 }
 
 @Entity(

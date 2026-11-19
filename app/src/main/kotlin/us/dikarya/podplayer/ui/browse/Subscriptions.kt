@@ -6,6 +6,7 @@
 
 package us.dikarya.podplayer.ui.browse
 
+import us.dikarya.podplayer.core.data.repo.KeepAsideResult
 import us.dikarya.podplayer.core.data.repo.Repositories
 import us.dikarya.podplayer.core.data.repo.SubscribeResult
 import us.dikarya.podplayer.core.feed.ParsedFeed
@@ -20,6 +21,14 @@ sealed interface SubscribeOutcome {
     data class Refused(val problem: UrlProblem) : SubscribeOutcome
 
     data object LibraryClosed : SubscribeOutcome
+}
+
+sealed interface KeepAsideOutcome {
+    data class Stored(val feedId: Long) : KeepAsideOutcome
+
+    data class Refused(val problem: UrlProblem) : KeepAsideOutcome
+
+    data object LibraryClosed : KeepAsideOutcome
 }
 
 data class ImportSummary(val added: Int, val alreadySubscribed: Int, val refused: Int)
@@ -52,6 +61,18 @@ class Subscriptions(
                 refresh(result.feedId)
                 SubscribeOutcome.Subscribed(result.feedId)
             }
+        }
+    }
+
+    /**
+     * Keeps a previewed show aside, unsubscribed, so its episodes can be played (SPEC §12). [preview] is the feed
+     * already fetched; nothing more is fetched and no refresh is asked for.
+     */
+    suspend fun keepAside(url: String, preview: ParsedFeed): KeepAsideOutcome {
+        val repos = repositories() ?: return KeepAsideOutcome.LibraryClosed
+        return when (val result = repos.feeds.keepAside(url, preview)) {
+            is KeepAsideResult.Stored -> KeepAsideOutcome.Stored(result.feedId)
+            is KeepAsideResult.Refused -> KeepAsideOutcome.Refused(result.problem)
         }
     }
 

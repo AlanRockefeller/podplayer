@@ -147,6 +147,15 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
         viewModelScope.launch { deps.downloads.unsubscribe(feedId) }
     }
 
+    /**
+     * A show kept aside from a preview (SPEC §12) becomes a subscription, keeping what was played; the page stays
+     * and shows it subscribed. Never owner-typed: the address came from a search result.
+     */
+    fun subscribe() {
+        val feed = state.value.feed?.takeIf { !it.subscribed } ?: return
+        viewModelScope.launch { deps.subscriptions.subscribe(feed.url, ownerTyped = false) }
+    }
+
     private companion object {
         const val STOP_AFTER_MS = 5_000L
     }

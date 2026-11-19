@@ -66,7 +66,8 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
     }
 
     private fun library(repos: Repositories, shown: Int) = combine(
-        repos.feeds.feeds(),
+        // Every show, kept-aside ones too: the Continue card and Starred can hold their episodes.
+        repos.feeds.allFeeds(),
         // One more than listed tells whether older episodes exist.
         repos.episodes.latest(shown + 1),
         repos.playback.inProgress(1).map { it.firstOrNull() },
@@ -97,7 +98,7 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
                     newEpisodes = lib.latest.take(count).map(::item),
                     // More candidates than listed: the database holds older ones.
                     canLoadMore = lib.latest.size > count,
-                    shows = lib.feeds,
+                    shows = lib.feeds.filter { it.subscribed },
                     starred = lib.starred.map(::item),
                     online = online,
                 )

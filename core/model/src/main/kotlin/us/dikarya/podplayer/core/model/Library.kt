@@ -35,6 +35,8 @@ data class Feed(
     val lastRefreshError: String?,
     /** While the feed is backing off after errors: the earliest automatic retry. Null: with the next refresh. */
     val nextRefreshAt: Long? = null,
+    /** False for a show kept aside to play from its preview without subscribing (SPEC §12). */
+    val subscribed: Boolean = true,
 ) {
     /** SPEC §3: cleartext feeds are allowed and the UI marks them "not secure". */
     val isSecure: Boolean get() = url.startsWith("https://", ignoreCase = true)

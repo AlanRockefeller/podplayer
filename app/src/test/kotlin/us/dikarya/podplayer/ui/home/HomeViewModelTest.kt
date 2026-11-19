@@ -20,7 +20,11 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import us.dikarya.podplayer.core.data.repo.KeepAsideResult
 import us.dikarya.podplayer.ui.browse.BrowseTestEnv
+import us.dikarya.podplayer.ui.discover.PreviewOutcome
+import us.dikarya.podplayer.ui.discover.rss
+import us.dikarya.podplayer.ui.discover.success
 import us.dikarya.podplayer.ui.browse.awaitState
 import us.dikarya.podplayer.ui.browse.eventually
 
@@ -43,6 +47,23 @@ class HomeViewModelTest {
         assertTrue(state.noShows)
         assertNull(state.continueItem)
         assertTrue(state.newEpisodes.isEmpty())
+    }
+
+    @Test
+    fun aShowKeptAsideFromAPreviewIsOnlyOnTheContinueCard() = runBlocking {
+        // SPEC §12: listening without subscribing keeps the show out of Your shows and New episodes.
+        val subscribed = env.show("Alpha", episodes = 1)
+        env.answer = { success(rss("Aside", episodes = 2).toByteArray(), "application/rss+xml") }
+        val parsed = env.deps.previewer.preview("https://aside.example.com/feed.xml", ownerTyped = false) as PreviewOutcome.Ready
+        val aside = (env.repos.feeds.keepAside("https://aside.example.com/feed.xml", parsed.preview.feed) as KeepAsideResult.Stored).feedId
+        val started = env.episodeIds(aside).first()
+        env.repos.playback.savePosition(started, 60_000, 1_800_000)
+        val vm = HomeViewModel(env.deps)
+        val state = awaitState(vm.state) { it.continueItem != null && it.shows.isNotEmpty() }
+        assertEquals(started, state.continueItem!!.id)
+        assertEquals("Aside", state.continueItem!!.showTitle)
+        assertEquals(listOf(subscribed), state.shows.map { it.id })
+        assertEquals(listOf(subscribed), state.newEpisodes.map { it.episode.feedId }.distinct())
     }
 
     @Test

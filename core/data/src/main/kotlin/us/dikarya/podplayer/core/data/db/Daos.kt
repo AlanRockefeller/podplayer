@@ -64,6 +64,11 @@ data class FeedChannelFields(
 
 @Dao
 interface FeedDao {
+    /** The library: subscribed shows only. */
+    @Query("SELECT * FROM feeds WHERE subscribed = 1 ORDER BY title COLLATE NOCASE, id")
+    fun observeSubscribed(): Flow<List<FeedEntity>>
+
+    /** Every show, kept-aside ones too: for naming the show of an episode wherever it is listed. */
     @Query("SELECT * FROM feeds ORDER BY title COLLATE NOCASE, id")
     fun observeAll(): Flow<List<FeedEntity>>
 
@@ -88,12 +93,38 @@ interface FeedDao {
     @Query("UPDATE feeds SET ownerApprovedHost = :host WHERE id = :id")
     suspend fun setOwnerApprovedHost(id: Long, host: String?): Int
 
-    @Query("SELECT id FROM feeds ORDER BY id")
+    /** Subscribed shows: what "refresh all" fetches. A kept-aside show is never fetched in the background. */
+    @Query("SELECT id FROM feeds WHERE subscribed = 1 ORDER BY id")
     suspend fun allIds(): List<Long>
 
-    /** Feeds not backing off: never failed, or their retry time has come. */
-    @Query("SELECT id FROM feeds WHERE nextRefreshAt IS NULL OR nextRefreshAt <= :now ORDER BY id")
+    /** Subscribed feeds not backing off: never failed, or their retry time has come. */
+    @Query("SELECT id FROM feeds WHERE subscribed = 1 AND (nextRefreshAt IS NULL OR nextRefreshAt <= :now) ORDER BY id")
     suspend fun dueIds(now: Long): List<Long>
+
+    /** Turns a kept-aside show into a subscription; returns the rows changed (0 when it already was one). */
+    @Query("UPDATE feeds SET subscribed = 1, subscribedAt = :at WHERE id = :id AND subscribed = 0")
+    suspend fun markSubscribed(id: Long, at: Long): Int
+
+    /** A kept-aside show was opened again: [at] becomes its "kept aside at" time (subscribedAt). */
+    @Query("UPDATE feeds SET subscribedAt = :at WHERE id = :id AND subscribed = 0")
+    suspend fun touchKeptAside(id: Long, at: Long): Int
+
+    /**
+     * Kept-aside shows nothing is using any more: kept aside and last played before [before], and no episode
+     * queued, with a download (any state, so no file is left behind), starred, started and unfinished, or loaded in
+     * the player ([loadedEpisodeId]).
+     */
+    @Query(
+        """SELECT f.id FROM feeds f WHERE f.subscribed = 0 AND f.subscribedAt < :before AND NOT EXISTS (
+             SELECT 1 FROM episodes e WHERE e.feedId = f.id AND (
+               e.starred = 1 OR e.id = :loadedEpisodeId
+               OR EXISTS (SELECT 1 FROM queue_entries q WHERE q.episodeId = e.id)
+               OR EXISTS (SELECT 1 FROM media_files m WHERE m.episodeId = e.id)
+               OR EXISTS (SELECT 1 FROM playback_records p WHERE p.episodeId = e.id
+                          AND ((p.played = 0 AND p.positionMs > 0) OR p.updatedAt >= :before))))
+           ORDER BY f.id""",
+    )
+    suspend fun unusedKeptAsideIds(loadedEpisodeId: Long?, before: Long): List<Long>
 
     @Query(
         """UPDATE feeds SET etag = :etag, lastModified = :lastModified, lastRefreshSuccessAt = :at,
@@ -144,7 +175,10 @@ interface EpisodeDao {
     @Query("SELECT * FROM episodes WHERE feedId = :feedId ORDER BY publishedAt DESC, id DESC")
     fun observeForFeed(feedId: Long): Flow<List<EpisodeEntity>>
 
-    @Query("SELECT * FROM episodes WHERE inFeed = 1 ORDER BY publishedAt DESC, id DESC LIMIT :limit")
+    @Query(
+        """SELECT e.* FROM episodes e JOIN feeds f ON f.id = e.feedId WHERE e.inFeed = 1 AND f.subscribed = 1
+           ORDER BY e.publishedAt DESC, e.id DESC LIMIT :limit""",
+    )
     fun observeLatest(limit: Int): Flow<List<EpisodeEntity>>
 
     @Query("SELECT feedId, MAX(publishedAt) AS newest FROM episodes GROUP BY feedId")
@@ -294,8 +328,8 @@ interface FeedSettingsDao {
 @Dao
 interface DownloadRulesDao {
     @Query(
-        """SELECT e.* FROM episodes e JOIN feed_settings s ON s.feedId = e.feedId
-           WHERE s.autoDownloadSince IS NOT NULL AND e.publishedAt > s.autoDownloadSince AND e.inFeed = 1
+        """SELECT e.* FROM episodes e JOIN feed_settings s ON s.feedId = e.feedId JOIN feeds f ON f.id = e.feedId
+           WHERE f.subscribed = 1 AND s.autoDownloadSince IS NOT NULL AND e.publishedAt > s.autoDownloadSince AND e.inFeed = 1
              AND e.autoDownloadedAt IS NULL
              AND NOT EXISTS (SELECT 1 FROM media_files m WHERE m.episodeId = e.id)
              AND NOT EXISTS (SELECT 1 FROM playback_records p WHERE p.episodeId = e.id AND p.played = 1)

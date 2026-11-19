@@ -51,7 +51,7 @@ abstract class PodDatabase : RoomDatabase() {
          * The schema version. Bumping it needs: the exported schema file (written by the build), a migration
          * from the previous version in [Migrations.ALL], and a seed-and-check in MigrationTest.
          */
-        const val VERSION = 4
+        const val VERSION = 5
 
         const val FILE_NAME = "podplayer.db"
     }
@@ -91,5 +91,12 @@ object Migrations {
         }
     }
 
-    val ALL: List<Migration> = listOf(V1_TO_V2, V2_TO_V3, V3_TO_V4)
+    /** M1-S17: shows kept aside to play from a preview without subscribing. Every existing show is subscribed. */
+    val V4_TO_V5 = object : Migration(4, 5) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL("ALTER TABLE `feeds` ADD COLUMN `subscribed` INTEGER NOT NULL DEFAULT 1")
+        }
+    }
+
+    val ALL: List<Migration> = listOf(V1_TO_V2, V2_TO_V3, V3_TO_V4, V4_TO_V5)
 }

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
@@ -148,11 +149,21 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
                         leadingIcon = { Icon(painterResource(R.drawable.ic_star), contentDescription = null, modifier = Modifier.size(18.dp)) },
                         modifier = Modifier.heightIn(min = 48.dp),
                     )
-                    TextButton(onClick = { confirmUnsubscribe = true }) {
-                        Text(stringResource(R.string.action_unsubscribe), maxLines = 1, softWrap = false)
+                    if (feed.subscribed) {
+                        TextButton(onClick = { confirmUnsubscribe = true }) {
+                            Text(stringResource(R.string.action_unsubscribe), maxLines = 1, softWrap = false)
+                        }
                     }
                 }
-                AutoDownloadRow(state.autoDownload, viewModel::setAutoDownload)
+                if (feed.subscribed) {
+                    AutoDownloadRow(state.autoDownload, viewModel::setAutoDownload)
+                } else {
+                    // Kept aside to play from a preview (SPEC §12): not in the library until subscribed.
+                    Text(stringResource(R.string.show_not_subscribed), style = MaterialTheme.typography.bodyMedium, color = colors.textSecondary)
+                    Button(onClick = viewModel::subscribe, modifier = Modifier.testTag(TAG_SHOW_SUBSCRIBE)) {
+                        Text(stringResource(R.string.action_subscribe))
+                    }
+                }
             }
             HorizontalDivider()
         }
@@ -209,6 +220,7 @@ private fun AutoDownloadRow(checked: Boolean, onChange: (Boolean) -> Unit) {
 }
 
 const val TAG_SHOW_AUTO_DOWNLOAD = "show-auto-download"
+const val TAG_SHOW_SUBSCRIBE = "show-subscribe"
 
 /** SPEC §10: a show's own speed, or the global one. */
 @Composable

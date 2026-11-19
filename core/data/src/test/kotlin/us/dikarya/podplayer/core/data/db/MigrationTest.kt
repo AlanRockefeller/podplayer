@@ -179,6 +179,24 @@ internal object MigrationSeeds {
                 assertEquals(true, repos.feedSettings.autoDownload(1).first())
                 assertEquals(150L, repos.feedSettings.autoDownloadSince(1))
                 assertEquals(listOf(12L), repos.downloadRules.autoDownloadCandidates(10).map { it.id })
+                // Version 5 added kept-aside shows; every migrated show is a subscription.
+                assertEquals(listOf(true), repos.feeds.feeds().first().map { it.subscribed })
+                assertEquals(listOf(1L), repos.feeds.allFeedIds())
+            },
+        ),
+        5 to Seed(
+            sql = listOf(
+                "INSERT INTO feeds (id, url, title, subscribedAt, consecutiveFailures, subscribed) VALUES (1, 'https://f.example.com/rss', 'Show', 1, 0, 1)",
+                "INSERT INTO feeds (id, url, title, subscribedAt, consecutiveFailures, subscribed) VALUES (2, 'https://g.example.com/rss', 'Aside', 2, 0, 0)",
+                "INSERT INTO episodes (id, feedId, guid, title, publishedAt, firstSeenAt, enclosureUrl, fingerprint, inFeed, starred) " +
+                    "VALUES (20, 2, 'g1', 'Heard', 100, 100, 'https://g.example.com/1.mp3', 'fp', 1, 0)",
+                "INSERT INTO playback_records (episodeId, positionMs, durationMs, played, updatedAt) VALUES (20, 4242, 9000, 0, 7)",
+            ),
+            check = { repos ->
+                assertEquals(listOf("Show"), repos.feeds.feeds().first().map { it.title })
+                assertEquals(false, repos.feeds.get(2)!!.subscribed)
+                assertEquals(4242L, repos.playback.get(20)!!.positionMs)
+                assertEquals(listOf(1L), repos.feeds.allFeedIds())
             },
         ),
     )

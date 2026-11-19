@@ -43,7 +43,7 @@ class DownloadsViewModel(private val deps: BrowseDeps) : ViewModel() {
     val state: StateFlow<DownloadsUiState> = deps.withRepositories(DownloadsUiState(loading = false, libraryClosed = true)) { repos ->
         repos.episodes.downloaded().flatMapLatest { episodes ->
             combine(
-                repos.feeds.feeds().map { feeds -> feeds.associateBy { it.id } },
+                repos.feeds.allFeeds().map { feeds -> feeds.associateBy { it.id } },
                 // Every listed row's record, past the 500 an id list allows (Codex review, PR #28).
                 repos.playback.recordsForDownloads(),
                 repos.media.observeAll(),

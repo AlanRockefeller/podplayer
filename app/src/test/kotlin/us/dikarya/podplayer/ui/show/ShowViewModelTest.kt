@@ -18,7 +18,11 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import us.dikarya.podplayer.core.data.repo.KeepAsideResult
 import us.dikarya.podplayer.ui.browse.BrowseTestEnv
+import us.dikarya.podplayer.ui.discover.PreviewOutcome
+import us.dikarya.podplayer.ui.discover.rss
+import us.dikarya.podplayer.ui.discover.success
 import us.dikarya.podplayer.ui.browse.awaitState
 import us.dikarya.podplayer.ui.browse.eventually
 
@@ -114,6 +118,22 @@ class ShowViewModelTest {
         // The fake records the call before Room's delete commits, so wait for the library itself, not the call.
         eventually { runBlocking { env.repos.feeds.get(feed) } == null }
         assertEquals(listOf("unsubscribe $feed"), env.downloads.calls)
+    }
+
+    @Test
+    fun aShowKeptAsideFromAPreviewCanBeSubscribedFromItsPage() = runBlocking {
+        val url = "https://aside.example.com/feed.xml"
+        env.answer = { success(rss("Aside", episodes = 2).toByteArray(), "application/rss+xml") }
+        val parsed = env.deps.previewer.preview(url, ownerTyped = false) as PreviewOutcome.Ready
+        val feed = (env.repos.feeds.keepAside(url, parsed.preview.feed) as KeepAsideResult.Stored).feedId
+        env.refreshes.clear()
+        val vm = ShowViewModel(env.deps, feed)
+        assertEquals(false, awaitState(vm.state) { it.feed != null }.feed!!.subscribed)
+        assertEquals(2, vm.state.value.episodes.size)
+        vm.subscribe()
+        assertEquals(true, awaitState(vm.state) { it.feed?.subscribed == true }.feed!!.subscribed)
+        assertEquals(listOf(feed), env.repos.feeds.feeds().first().map { it.id })
+        eventually { env.refreshes == listOf<Long?>(feed) }
     }
 
     @Test

@@ -40,7 +40,7 @@ class QueueViewModel(private val deps: BrowseDeps) : ViewModel() {
         repos.queue.episodes().flatMapLatest { episodes ->
             val ids = episodes.map { it.id }
             combine(
-                repos.feeds.feeds().map { feeds -> feeds.associateBy { it.id } },
+                repos.feeds.allFeeds().map { feeds -> feeds.associateBy { it.id } },
                 repos.playback.records(ids.take(MAX_ROWS)),
                 repos.media.observeAll().map { files -> files.associateBy { it.episodeId } },
                 deps.playback.state,

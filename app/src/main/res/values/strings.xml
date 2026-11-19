@@ -395,6 +395,9 @@
     <string name="preview_try_again">Try again</string>
     <string name="preview_no_episodes">This show has no episodes with audio yet.</string>
     <string name="discover_open_preview">Preview %1$s</string>
+    <string name="preview_play_episode">Play %1$s</string>
+    <string name="preview_open_problem">Couldn\'t open this episode. Try again.</string>
+    <string name="show_not_subscribed">Not subscribed: this show isn\'t in your library and isn\'t checked for new episodes.</string>
 
     <!-- Copy or share a link (owner, 2026-11-18) -->
     <string name="share_menu">Share or copy link</string>

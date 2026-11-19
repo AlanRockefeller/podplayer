@@ -104,6 +104,16 @@ class Jobs(
 
     private val notifications by lazy { DownloadNotifications(appContext) }
 
+    /**
+     * Shows kept aside to play from a preview (SPEC §12) leave once nothing of them is queued, downloaded, starred,
+     * started or loaded. Their downloads, if any, keep them, so no file is ever left without its episode.
+     */
+    private suspend fun removeUnusedKeptAside() {
+        val repos = data.awaitRepositories() ?: return
+        val removed = repos.feeds.removeUnusedKeptAside(data.device.currentEpisodeId())
+        if (removed > 0) log.i(TAG, "Removed $removed shows kept aside from a preview")
+    }
+
     val workerFactory = PodplayerWorkerFactory(
         backups = { data.backups.asDailyBackup() },
         refresher = { AutoDownloadAfterRefresh(refresher, { log.e(TAG, "Auto-download failed", it) }) { autoDownloader.run() } },
@@ -112,6 +122,8 @@ class Jobs(
         housekeeping = {
             Housekeeping {
                 cleanUp.run()
+                // After the downloads' clean-up, which may have freed a kept-aside show's last download.
+                removeUnusedKeptAside()
                 autoDownloader.run()
             }
         },

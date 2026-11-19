@@ -21,6 +21,45 @@ a reviewer reads it to see what was really done.
 - PR:
 -->
 
+### M1-S17 Listen without subscribing (2026-11-18)
+Owner: "It looks like we need to subscribe to a podcast to be able to listen to it - can we make it so we can listen
+without subscribing?" Branch `m1-s17-play-before-subscribe`, stacked on `m1-s16-title-share`.
+- Done: the S15 "could follow". In a search result's Preview each episode has a Play button, and tapping the row opens
+  its episode page (notes, play, queue, download, star). Either stores the show "kept aside" from the feed the preview
+  already fetched (`FeedRepository.keepAside`, no new request, not owner-typed), so playback, positions and the queue
+  go through the usual database path. Schema v5: `feeds.subscribed` (default 1; migration and seed). A kept-aside show
+  is left out of Library, Home's shows and New episodes, Discover's "already subscribed", refresh-all and due
+  refreshes, and auto-download; lists that name an episode's show (Queue, Starred, Downloads, Home's Continue) still
+  find it (`FeedRepository.allFeeds`). Its show page says "Not subscribed" with Subscribe instead of Unsubscribe and
+  no auto-download switch. Subscribing from anywhere (`FeedRepository.subscribe`) turns the same row into a
+  subscription, keeping episodes, positions and queue. Housekeeping (the clean-up worker, daily and soon after an
+  episode is marked played, after download clean-up) removes a kept-aside show once it was kept aside and last played
+  more than a week ago and none of its episodes is queued, downloaded (any state, so no file is left behind), starred,
+  started and unfinished, or loaded in the player. A subscription whose feed moves (301/308) to a kept-aside show's
+  address takes that address, and the kept-aside row goes, unless it holds a download (then the move is refused as
+  for any duplicate). Opening a preview still stores nothing.
+- Tests added: `KeptAsideShowTest` (13: stored but not subscribed or owner-typed; never refreshed, on Home, or
+  auto-downloaded; subscribe promotes keeping position and queue; typed address approves its host; keeping aside again
+  reuses the row and leaves a subscription alone; bad address refused; clean-up spares in-use shows and anything
+  opened or played within a week, removes the rest, never touches subscriptions; the playback store's lookups and
+  position saving work; a moving subscription takes a kept-aside address unless it holds a download);
+  `HomeViewModelTest` +1 (a kept-aside episode is on Continue with its show's name, the show is not in Your shows or
+  New episodes); `MigrationTest` v5 seed (and v4 checks the flag); `ShowPreviewViewModelTest` +4 (Play
+  keeps aside and plays with no new request or refresh; row opens the episode; subscribe after playing promotes the
+  same row; a kept-aside show still previews); `ShowViewModelTest` +1 (Subscribe from a kept-aside show's page);
+  `PreviewPlayUiTest` (Play button and row tap). The accessibility audit covers the new preview rows.
+- Deviations from the spec, and why: none; SPEC §7, §8 and §12 updated as owner decisions. The network question under
+  "Questions for owner" gained a line about it. A kept-aside show is never refreshed in the background, but a starred
+  episode of one is downloaded when "Keep starred episodes downloaded" is on, as starring asks for.
+- Not done: the typed-URL preview in Discover (a pasted feed address) has no Play; it subscribes as before. The play
+  path is covered at the database level (`RoomPlaybackStore` reads by episode and feed id only) and with the fake
+  player in the app tests; `:playback` has no real-database harness, so there is no engine test with a kept-aside
+  show.
+- Manual checks for the owner: Discover › search › tap a show › Play on an episode: it plays, the mini player shows it,
+  and the show is not in Library. Tap another episode's row: its page opens; Back returns to the preview. Kill and
+  reopen the app: the episode resumes where it was. Then Subscribe (in the preview or on the show's page): the show
+  joins Library with the played position kept.
+
 ### M1-S16 Long episode titles; copy or share a link (2026-11-18)
 Owner, with two screenshots of an episode page: "There must be a better way to display this long podcast title"
 (17 lines in a narrow column between the artwork and the star); "is it possible to copy a shareable link to any
@@ -62,8 +101,7 @@ subscribe?" Branch `m1-s15-search-preview`, stacked on `m1-s14-downloads-buffer`
   address policy.
 - Deviations from the spec, and why: none; SPEC §12 records it as an owner decision. A question about CLAUDE.md's
   network list is under "Questions for owner".
-- Not done (could follow): playing an episode from the preview before subscribing. Playback works from episodes in
-  the database, so it would need a "not subscribed" show kept aside and cleaned up.
+- Not done (could follow): playing an episode from the preview before subscribing (done in M1-S17).
 - Manual checks for the owner: search Discover, tap a show (not its Subscribe button): the Preview lists its
   episodes; Back returns to the results; Subscribe there opens the show with its episodes; Back from the show returns
   to the results.
@@ -2213,7 +2251,9 @@ Result:
 - M1-S15 (2026-11-18), doesn't block anything: CLAUDE.md's list of allowed network calls names subscribed hosts,
   Apple's search and the owner's server. Previews (a typed address since M1, and now a tapped search result, as the
   owner asked) contact a feed's host before it is subscribed, only when the owner asks for that preview. Should
-  CLAUDE.md say so? It was left unchanged.
+  CLAUDE.md say so? It was left unchanged. M1-S17 adds to this: playing an episode of a show kept aside (not
+  subscribed) contacts its audio host and the show's artwork host, again only when the owner taps Play or opens it;
+  nothing of a kept-aside show is fetched in the background.
 - Two S2 design choices to confirm, from the review pass (2026-11-09). Neither blocks a session; the code stays as
   it is until the owner says otherwise.
   - Owner approval is per host: `AddressPolicy` approves every port and path on the host the owner typed, while

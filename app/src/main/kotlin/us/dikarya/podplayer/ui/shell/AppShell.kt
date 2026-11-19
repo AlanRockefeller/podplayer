@@ -300,6 +300,8 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
                     artworkUrl = route.artworkUrl,
                     // The show replaces its preview, so Back goes to the search results.
                     onOpenShow = { id -> navController.navigate(ShowRoute(id)) { popUpTo<ShowPreviewRoute> { inclusive = true } } },
+                    // An episode opens above the preview, so Back returns to it.
+                    onOpenEpisode = openEpisode,
                 )
             }
             composable<LibraryRoute> {

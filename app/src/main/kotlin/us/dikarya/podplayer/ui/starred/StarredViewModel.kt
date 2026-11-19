@@ -44,7 +44,7 @@ class StarredViewModel(private val deps: BrowseDeps) : ViewModel() {
             repos.starred.starred(q).flatMapLatest { episodes ->
                 val ids = episodes.map { it.id }.take(PlaybackRepository.MAX_IDS)
                 combine(
-                    repos.feeds.feeds().map { feeds -> feeds.associateBy { it.id } },
+                    repos.feeds.allFeeds().map { feeds -> feeds.associateBy { it.id } },
                     repos.playback.records(ids),
                     repos.media.observeAll(),
                     repos.queue.entries(),

@@ -109,6 +109,7 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
   synced flag, used by M2 sync), download_log, refresh_log.
 - Added (owner, 2026-11-15): a starred flag and starred time per episode (in backups; M2 sync carries it as an
   episode action), and per-show auto-download settings in feed_settings.
+- Added (owner, 2026-11-18, v5): feeds.subscribed, false for a show kept aside to play from its preview (§12).
 - Backups: automatic daily backup of the database (SQLite `VACUUM INTO` or equivalent) plus settings into a
   folder the owner chooses through the Storage Access Framework; keep the last 7. Manual export and import.
   Always back up before running a migration.
@@ -117,6 +118,7 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
 ## 8. Feed refresh (`:core:jobs`)
 - Periodic WorkManager job (default every 4 hours, network required) plus manual pull-to-refresh.
 - One refresh at a time (unique work); cancelable; per-feed exponential backoff on errors.
+- Only subscriptions are refreshed in the background; a show kept aside (§12) only when the owner pulls its page.
 - Refresh log per feed: last success, last error (plain language), next scheduled time.
 
 ## 9. Downloads (`:core:jobs`)
@@ -182,6 +184,14 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
   and every episode with audio (title, date, length), with Subscribe. The feed is fetched only on that tap, from its
   own host, through the gate with no host approved (a search result is never owner-typed); the art is the search
   result's. Nothing is stored until Subscribe. A show already in the library opens its page instead.
+  Listen without subscribing (owner, 2026-11-18): each episode in the preview has Play, and tapping it opens its
+  episode page. Either stores the show "kept aside" (feeds.subscribed = false) from the feed already fetched, so
+  playback, positions, queue, star and download work as for any episode. A kept-aside show is not in Library, Home's
+  rows or New episodes, is never refreshed in the background or auto-downloaded, and its page says "Not subscribed"
+  with Subscribe in place of Unsubscribe. Subscribing (from the preview, its page, search, a typed URL or an import)
+  turns it into a subscription, keeping what was played. Housekeeping removes a kept-aside show once it was opened
+  and played more than a week ago and none of its episodes is queued, downloaded, starred, started and unfinished,
+  or loaded in the player.
 - Library: subscriptions grid (list toggle); show page with episodes, sort, per-show speed.
 - Episode page: sanitized notes, play, queue, download, mark played. The artwork, show, date, share and star sit in
   one compact row; the title takes the full width below, four lines at first with More (owner, 2026-11-18).

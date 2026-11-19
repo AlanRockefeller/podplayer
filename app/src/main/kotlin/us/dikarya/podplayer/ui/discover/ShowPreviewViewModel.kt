@@ -19,8 +19,24 @@ import kotlinx.coroutines.withContext
 import us.dikarya.podplayer.core.feed.notes.NotesResult
 import us.dikarya.podplayer.core.feed.notes.RichText
 import us.dikarya.podplayer.core.feed.notes.ShowNotes
+import us.dikarya.podplayer.core.feed.ParsedEpisode
+import us.dikarya.podplayer.core.model.Episode
 import us.dikarya.podplayer.ui.browse.BrowseDeps
+import us.dikarya.podplayer.ui.browse.KeepAsideOutcome
 import us.dikarya.podplayer.ui.browse.SubscribeOutcome
+
+/**
+ * The stored episode for a previewed [parsed] one: same GUID, else same audio address. Episode identity is the
+ * merge's (SPEC §4); this only finds the row the merge just wrote.
+ */
+internal fun List<Episode>.storedIdOf(parsed: ParsedEpisode): Long? {
+    val url = parsed.enclosure?.url
+    // A feed can reuse a GUID for different audio, which the merge keeps as separate episodes (Codex review, PR #31):
+    // the GUID and the audio together pick the row, then the audio alone, then a GUID only one row has.
+    firstOrNull { it.guid != null && it.guid == parsed.guid && it.enclosure.url == url }?.let { return it.id }
+    if (url != null) firstOrNull { it.enclosure.url == url }?.let { return it.id }
+    return parsed.guid?.let { guid -> filter { it.guid == guid }.singleOrNull()?.id }
+}
 
 /** One episode as the preview lists it: nothing to play yet, just what it is. */
 data class PreviewEpisode(val title: String?, val publishedAt: Long?, val durationMs: Long?)
@@ -37,6 +53,8 @@ sealed interface ShowPreviewState {
         val episodes: List<PreviewEpisode>,
         val isSecure: Boolean,
         val subscribing: Boolean = false,
+        /** Keeping the show aside to open or play one of its episodes (SPEC §12). */
+        val opening: Boolean = false,
         /** A subscribe that didn't work, shown once. */
         val message: DiscoverProblem? = null,
     ) : ShowPreviewState
@@ -58,9 +76,17 @@ class ShowPreviewViewModel(private val deps: BrowseDeps, private val feedUrl: St
     /** Set when the show is in the library (already, or just subscribed): the screen opens it, then calls [onOpened]. */
     val opened: StateFlow<Long?> = openedId
 
+    private val openedEpisodeId = MutableStateFlow<Long?>(null)
+
+    /** Set when an episode was opened from the preview: the screen opens its page, then calls [onEpisodeOpened]. */
+    val openedEpisode: StateFlow<Long?> = openedEpisodeId
+
     val online: StateFlow<Boolean> = deps.online
 
     private var fetched: FeedPreview? = null
+
+    /** The episodes listed, in the same order as [ShowPreviewState.Ready.episodes]. */
+    private var listed: List<ParsedEpisode> = emptyList()
     private var work: Job? = null
 
     init {
@@ -96,12 +122,12 @@ class ShowPreviewViewModel(private val deps: BrowseDeps, private val feedUrl: St
         val description = withContext(Dispatchers.Default) {
             (ShowNotes.sanitize(preview.feed.description) as? NotesResult.Ok)?.text?.takeIf { it.text.isNotBlank() }
         }
+        listed = preview.feed.episodes.filter { it.enclosure != null }
         return ShowPreviewState.Ready(
             title = preview.title,
             author = preview.author,
             description = description,
-            episodes = preview.feed.episodes.filter { it.enclosure != null }
-                .map { PreviewEpisode(AppleSearch.clean(it.title), it.publishedAt, it.durationMs) },
+            episodes = listed.map { PreviewEpisode(AppleSearch.clean(it.title), it.publishedAt, it.durationMs) },
             isSecure = preview.isSecure,
         )
     }
@@ -110,7 +136,7 @@ class ShowPreviewViewModel(private val deps: BrowseDeps, private val feedUrl: St
     fun subscribe() {
         val preview = fetched ?: return
         val ready = mutable.value as? ShowPreviewState.Ready ?: return
-        if (ready.subscribing) return
+        if (ready.subscribing || ready.opening) return
         mutable.value = ready.copy(subscribing = true, message = null)
         viewModelScope.launch {
             when (val outcome = deps.subscriptions.subscribe(preview.url, ownerTyped = false, preview = preview.feed)) {
@@ -122,8 +148,42 @@ class ShowPreviewViewModel(private val deps: BrowseDeps, private val feedUrl: St
         }
     }
 
+    /** Opens the episode at [index] of the list on its own page (notes, play, queue, download, star). */
+    fun openEpisode(index: Int) = withEpisode(index) { openedEpisodeId.value = it }
+
+    /** Plays the episode at [index] at once; the mini player appears as for any episode. */
+    fun play(index: Int) = withEpisode(index) { deps.playback.playEpisode(it) }
+
+    /**
+     * Playing without subscribing (owner, 2026-11-18): the show is kept aside in the database, unsubscribed, from
+     * the feed already fetched, so playback, positions and the queue work as for any episode. Nothing more is
+     * fetched here; playing contacts the episode's audio host, as playing always does.
+     */
+    private fun withEpisode(index: Int, then: (episodeId: Long) -> Unit) {
+        val preview = fetched ?: return
+        val episode = listed.getOrNull(index) ?: return
+        val ready = mutable.value as? ShowPreviewState.Ready ?: return
+        if (ready.opening || ready.subscribing) return
+        mutable.value = ready.copy(opening = true, message = null)
+        viewModelScope.launch {
+            val feedId = when (val outcome = deps.subscriptions.keepAside(preview.url, preview.feed)) {
+                is KeepAsideOutcome.Stored -> outcome.feedId
+                is KeepAsideOutcome.Refused -> return@launch fail(DiscoverProblem.BadUrl(outcome.problem))
+                KeepAsideOutcome.LibraryClosed -> return@launch fail(DiscoverProblem.LibraryClosed)
+            }
+            val stored = deps.repositories()?.episodes?.forFeed(feedId)?.first().orEmpty()
+            val id = stored.storedIdOf(episode) ?: return@launch fail(DiscoverProblem.EpisodeUnavailable)
+            mutable.update { (it as? ShowPreviewState.Ready)?.copy(opening = false) ?: it }
+            then(id)
+        }
+    }
+
+    fun onEpisodeOpened() {
+        openedEpisodeId.value = null
+    }
+
     private fun fail(problem: DiscoverProblem) =
-        mutable.update { (it as? ShowPreviewState.Ready)?.copy(subscribing = false, message = problem) ?: it }
+        mutable.update { (it as? ShowPreviewState.Ready)?.copy(subscribing = false, opening = false, message = problem) ?: it }
 
     fun dismissMessage() = mutable.update { (it as? ShowPreviewState.Ready)?.copy(message = null) ?: it }
 

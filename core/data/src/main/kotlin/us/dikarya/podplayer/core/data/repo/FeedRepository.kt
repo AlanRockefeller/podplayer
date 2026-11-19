@@ -36,6 +36,12 @@ sealed interface SubscribeResult {
     data class Refused(val problem: UrlProblem) : SubscribeResult
 }
 
+sealed interface KeepAsideResult {
+    data class Stored(val feedId: Long) : KeepAsideResult
+
+    data class Refused(val problem: UrlProblem) : KeepAsideResult
+}
+
 sealed interface RefreshApplied {
     data class Applied(
         val inserted: Int,
@@ -85,7 +91,11 @@ class FeedRepository internal constructor(private val db: PodDatabase, private v
     /** Tests only: runs inside the transaction after the inserts, to prove a failure rolls everything back. */
     internal var faultAfterInserts: (() -> Unit)? = null
 
-    fun feeds(): Flow<List<Feed>> = db.feeds().observeAll().map { rows -> rows.map { it.toModel() } }
+    /** The library: subscribed shows. */
+    fun feeds(): Flow<List<Feed>> = db.feeds().observeSubscribed().map { rows -> rows.map { it.toModel() } }
+
+    /** Every show, kept-aside ones too: for naming an episode's show in lists (queue, starred, downloads). */
+    fun allFeeds(): Flow<List<Feed>> = db.feeds().observeAll().map { rows -> rows.map { it.toModel() } }
 
     fun feed(id: Long): Flow<Feed?> = db.feeds().observe(id).map { it?.toModel() }
 
@@ -114,7 +124,18 @@ class FeedRepository internal constructor(private val db: PodDatabase, private v
                 if (host != null && existing.ownerApprovedHost == null) {
                     db.feeds().setOwnerApprovedHost(existing.id, host)
                 }
-                SubscribeResult.AlreadySubscribed(existing.id)
+                if (existing.subscribed) {
+                    SubscribeResult.AlreadySubscribed(existing.id)
+                } else {
+                    // A show kept aside from a preview becomes a subscription, keeping its episodes and positions.
+                    val now = clock()
+                    db.feeds().markSubscribed(existing.id, now)
+                    if (autoDownload) {
+                        val settings = db.feedSettings().get(existing.id) ?: FeedSettingsEntity(existing.id)
+                        db.feedSettings().upsert(settings.copy(autoDownloadSince = now))
+                    }
+                    SubscribeResult.Subscribed(existing.id)
+                }
             } else {
                 val now = clock()
                 val id = db.feeds().insert(FeedEntity(url = canonical, ownerApprovedHost = host, subscribedAt = now))
@@ -130,6 +151,43 @@ class FeedRepository internal constructor(private val db: PodDatabase, private v
      */
     suspend fun unsubscribe(id: Long) {
         db.feeds().delete(id)
+    }
+
+    /**
+     * Stores a previewed show without subscribing, so the owner can play, queue, star or download its episodes
+     * (owner, 2026-11-18). [parsed] is the preview already fetched; it is applied like a refresh. The row is not
+     * owner-typed (no approved host) and stays out of the library, Home, refreshes and auto-download. A show that
+     * is already stored, kept aside or subscribed, keeps its row and gets [parsed] applied. Returns the feed id.
+     */
+    suspend fun keepAside(url: String, parsed: ParsedFeed): KeepAsideResult {
+        val canonical = when (val check = UrlPolicy.checkFeedUrl(url)) {
+            is UrlCheck.Allowed -> check.url.toString()
+            is UrlCheck.Rejected -> return KeepAsideResult.Refused(check.problem)
+        }
+        return db.withTransaction {
+            val now = clock()
+            val existing = db.feeds().getByUrl(canonical)
+            val id = if (existing != null) {
+                db.feeds().touchKeptAside(existing.id, now)
+                existing.id
+            } else {
+                db.feeds().insert(FeedEntity(url = canonical, subscribedAt = now, subscribed = false))
+            }
+            applyRefresh(id, parsed)
+            KeepAsideResult.Stored(id)
+        }
+    }
+
+    /**
+     * Removes kept-aside shows nothing uses any more (see FeedDao.unusedKeptAsideIds); [loadedEpisodeId] is the
+     * episode in the player. A show kept aside or played within [KEPT_ASIDE_GRACE_MS] stays, so clean-up never
+     * pulls a show from under a page the owner just opened. A show with any download stays too, so no file is
+     * left behind. Returns the number removed.
+     */
+    suspend fun removeUnusedKeptAside(loadedEpisodeId: Long?): Int = db.withTransaction {
+        val ids = db.feeds().unusedKeptAsideIds(loadedEpisodeId, before = clock() - KEPT_ASIDE_GRACE_MS)
+        ids.forEach { db.feeds().delete(it) }
+        ids.size
     }
 
     suspend fun refreshTarget(id: Long): RefreshTarget? = db.feeds().get(id)?.let {
@@ -178,7 +236,14 @@ class FeedRepository internal constructor(private val db: PodDatabase, private v
             val feed = db.feeds().get(id) ?: return@withTransaction MoveResult.FeedGone
             if (feed.url == allowed) return@withTransaction MoveResult.Unchanged
             val other = db.feeds().getByUrl(allowed)
-            if (other != null) return@withTransaction MoveResult.AlreadySubscribed(other.id)
+            if (other != null) {
+                // A show kept aside from a preview gives way to the subscription, unless it holds a download (its
+                // files would be left behind); its episodes and positions go with it.
+                if (other.subscribed || db.mediaFiles().forFeed(other.id).isNotEmpty()) {
+                    return@withTransaction MoveResult.AlreadySubscribed(other.id)
+                }
+                db.feeds().delete(other.id)
+            }
             db.feeds().setUrl(id, allowed)
             MoveResult.Moved
         }
@@ -243,11 +308,14 @@ class FeedRepository internal constructor(private val db: PodDatabase, private v
         )
     }
 
-    private companion object {
+    companion object {
+        /** How long a show kept aside from a preview stays after it was last opened or played: a week. */
+        const val KEPT_ASIDE_GRACE_MS = 7L * 24 * 60 * 60 * 1000
+
         /** Keeps every statement under SQLite's 999-variable limit on old Android versions. */
-        const val CHUNK = 500
-        const val MAX_ERROR = 2_000
-        const val MAX_COUNTED_FAILURES = 1_000
+        private const val CHUNK = 500
+        private const val MAX_ERROR = 2_000
+        private const val MAX_COUNTED_FAILURES = 1_000
     }
 }
 

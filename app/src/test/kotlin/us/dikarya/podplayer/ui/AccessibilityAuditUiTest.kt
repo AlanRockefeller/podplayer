@@ -139,7 +139,7 @@ class AccessibilityAuditUiTest {
             env.browse.answer = { success(rss("The Extraordinarily Long-Titled Weekly Science Podcast", episodes = 6).toByteArray(), "application/rss+xml") }
             ShowPreviewViewModel(browse, "https://found.example.com/feed.xml")
         }
-        ShowPreviewScreen(vm, artworkUrl = null, onOpenShow = {})
+        ShowPreviewScreen(vm, artworkUrl = null, onOpenShow = {}, onOpenEpisode = {})
     }
 
     @Test fun importList() = audit(withLibrary = false) { ListImportScreen(remember { ListImportViewModel(browse) }, onOpenShow = {}, onDone = {}) }

@@ -21,6 +21,28 @@ a reviewer reads it to see what was really done.
 - PR:
 -->
 
+### M1-S16 Long episode titles; copy or share a link (2026-11-18)
+Owner, with two screenshots of an episode page: "There must be a better way to display this long podcast title"
+(17 lines in a narrow column between the artwork and the star); "is it possible to copy a shareable link to any
+podcast episode, or any podcast". Branch `m1-s16-title-share`, stacked on `m1-s15-search-preview`.
+- Done: (1) Episode page header: artwork (72 dp, was 96), show name (two lines at most), date and length, share and
+  star in one row; the title below at full width, four lines with More / Less (screen readers get all of it; it is a
+  heading). (2) `ShareLinks` and `ShareMenu`: a share icon on the episode page and the show page with Copy link and
+  Share…. An episode uses its item link, else the show's website ("Copy the show's website (no episode page)"); a show
+  uses its website. Never the feed or enclosure address (same host and path is refused, query or not), only
+  http/https, user names and passwords removed. With no web page the menu says "This feed gives no web page to link
+  to". Copy confirms with a toast before Android 13 (13+ confirms itself).
+- Tests added: `ShareLinksTest` (5), `EpisodeHeaderUiTest` (title spans the page and More opens it; Copy link puts the
+  episode page on the clipboard; without one, the show's website and no token). The accessibility audit (episode and
+  show pages at 360 dp, 100% and 200% font) passes with the new row.
+- Deviations from the spec, and why: none; SPEC §12 updated as owner decisions. A show's feed address is never
+  offered, so a podcast whose feed names no website has no link to share; an Apple Podcasts link would need a lookup
+  (not done).
+- Manual checks for the owner: the Ship It Weekly episode from the screenshot: title across the page, More/Less;
+  share icon → Copy link, paste somewhere; a show page's share icon.
+- Also 2026-11-18: a debug APK of `m1-s15-search-preview` was attached to a draft GitHub release (private repo,
+  drafts visible to collaborators only) for the owner to install while away from home.
+
 ### M1-S15 Preview a search result before subscribing (2026-11-18)
 Owner: "In discover, once we search for a show, shouldn't we be able to click on it and see the episodes before we
 subscribe?" Branch `m1-s15-search-preview`, stacked on `m1-s14-downloads-buffer`.

@@ -57,6 +57,8 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import us.dikarya.podplayer.ui.player.SPEED_CHOICES
 import us.dikarya.podplayer.ui.browse.ArtworkBeside
 import us.dikarya.podplayer.ui.browse.PullToRefresh
+import us.dikarya.podplayer.ui.browse.ShareLinks
+import us.dikarya.podplayer.ui.browse.ShareMenu
 import us.dikarya.podplayer.ui.browse.MIN_TITLE_EMS
 import us.dikarya.podplayer.ui.browse.showNameOrUntitled
 import us.dikarya.podplayer.ui.browse.textRoom
@@ -130,6 +132,9 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
                     IconButton(onClick = viewModel::refresh) {
                         Icon(painterResource(R.drawable.ic_refresh), contentDescription = stringResource(R.string.action_refresh_show))
                     }
+                    // The show's website only, never its feed address (CLAUDE.md: feed URLs are secrets).
+                    val share = remember(feed) { ShareLinks.show(feed) }
+                    ShareMenu(share, share?.let { ShareLinks.text(null, feed.title, it) })
                     IconButton(onClick = viewModel::toggleSort) {
                         Icon(
                             painterResource(R.drawable.ic_sort),

@@ -396,6 +396,15 @@
     <string name="preview_no_episodes">This show has no episodes with audio yet.</string>
     <string name="discover_open_preview">Preview %1$s</string>
 
+    <!-- Copy or share a link (owner, 2026-11-18) -->
+    <string name="share_menu">Share or copy link</string>
+    <string name="share_copy_link">Copy link</string>
+    <string name="share_copy_show_site">Copy the show\'s website (no episode page)</string>
+    <string name="share_send">Share…</string>
+    <string name="share_copied">Link copied</string>
+    <string name="share_clip_label">Podcast link</string>
+    <string name="share_no_link">This feed gives no web page to link to</string>
+
     <!-- Import a list of shows (M1-S9a) -->
     <string name="discover_import_list">Import a list</string>
     <string name="import_list_title">Import a list of shows</string>

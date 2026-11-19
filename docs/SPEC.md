@@ -183,7 +183,12 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
   own host, through the gate with no host approved (a search result is never owner-typed); the art is the search
   result's. Nothing is stored until Subscribe. A show already in the library opens its page instead.
 - Library: subscriptions grid (list toggle); show page with episodes, sort, per-show speed.
-- Episode page: sanitized notes, play, queue, download, mark played.
+- Episode page: sanitized notes, play, queue, download, mark played. The artwork, show, date, share and star sit in
+  one compact row; the title takes the full width below, four lines at first with More (owner, 2026-11-18).
+- Copy or share a link (owner, 2026-11-18): a share icon on the episode page (the episode's item link, else the
+  show's website, labelled as such) and on the show page (the show's website), with Copy link and Share. Never a
+  feed or enclosure address (CLAUDE.md: feed URLs are secrets); only http/https, without user names or passwords.
+  When the feed names no web page, the menu says so.
 - Queue: drag handle plus Move up / Move down actions for accessibility; play next; remove.
 - Player: artwork, title, show, seek bar with elapsed/remaining, back/play/forward, speed, sleep timer,
   queue, download. The seek bar marks how far a stream has buffered; a downloaded episode shows as all there

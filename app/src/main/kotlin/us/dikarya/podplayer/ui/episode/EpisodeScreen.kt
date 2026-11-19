@@ -35,8 +35,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import us.dikarya.podplayer.ui.browse.ShareLinks
+import us.dikarya.podplayer.ui.browse.ShareMenu
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import us.dikarya.podplayer.R
 import us.dikarya.podplayer.core.feed.notes.RichStyle
@@ -71,28 +79,33 @@ fun EpisodeScreen(viewModel: EpisodeViewModel, onOpenShow: (Long) -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
         OfflineBanner(state.online)
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            // At large font sizes the artwork moves above the title rather than squeeze it (see ArtworkBeside).
-            val titleStyle = MaterialTheme.typography.titleLarge
+            // Owner, 2026-11-18: a long title squeezed beside the artwork and the star ran to 17 lines. The artwork,
+            // show, date, share and star share a compact row; the title takes the full width below it, a few lines
+            // at first with More. At large font sizes the artwork moves above the row (see ArtworkBeside).
+            val showStyle = MaterialTheme.typography.titleSmall
             ArtworkBeside(
-                minTextWidth = textRoom(titleStyle.fontSize, MIN_TITLE_EMS, extra = 48.dp),
-                artwork = { Box(Modifier.padding(end = 16.dp, bottom = 8.dp)) { Artwork(item.imageUrl, item.approvedHost, 96.dp) } },
+                minTextWidth = textRoom(showStyle.fontSize, MIN_TITLE_EMS, extra = 96.dp),
+                artwork = { Box(Modifier.padding(end = 16.dp, bottom = 8.dp)) { Artwork(item.imageUrl, item.approvedHost, 72.dp) } },
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(item.episode.title ?: stringResource(R.string.untitled_episode), style = titleStyle)
                         item.showTitle?.let { show ->
                             Text(
                                 show,
-                                style = MaterialTheme.typography.bodyMedium,
+                                style = showStyle,
                                 color = colors.accent,
+                                maxLines = SHOW_LINES,
+                                overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.clickable(role = Role.Button) { onOpenShow(item.episode.feedId) }.padding(vertical = 4.dp),
                             )
                         }
                         Text(episodeMeta(item, withShow = false), style = MaterialTheme.typography.bodySmall, color = colors.textSecondary)
                     }
+                    ShareMenu(state.share, state.share?.let { ShareLinks.text(item.episode.title, item.showTitle, it) })
                     StarButton(item, viewModel.actions)
                 }
             }
+            EpisodeTitle(item.episode.title ?: stringResource(R.string.untitled_episode))
             item.progress?.let { LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth()) }
             Actions(item, viewModel, state.downloadsWifiOnly)
             if (!state.online && !item.downloaded) {
@@ -115,6 +128,32 @@ fun EpisodeScreen(viewModel: EpisodeViewModel, onOpenShow: (Long) -> Unit) {
     }
     link?.let { LinkConfirmDialog(it) { link = null } }
 }
+
+/** The full-width title: [TITLE_LINES] lines, with More when it has more (screen readers always get all of it). */
+@Composable
+private fun EpisodeTitle(title: String) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    var cut by remember { mutableStateOf(false) }
+    Column {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleLarge,
+            maxLines = if (expanded) Int.MAX_VALUE else TITLE_LINES,
+            overflow = TextOverflow.Ellipsis,
+            onTextLayout = { if (!expanded) cut = it.hasVisualOverflow },
+            modifier = Modifier.fillMaxWidth().semantics { heading() }.testTag(TAG_EPISODE_TITLE),
+        )
+        if (cut || expanded) {
+            TextButton(onClick = { expanded = !expanded }) {
+                Text(stringResource(if (expanded) R.string.show_less else R.string.show_more))
+            }
+        }
+    }
+}
+
+private const val TITLE_LINES = 4
+private const val SHOW_LINES = 2
+const val TAG_EPISODE_TITLE = "episode-title"
 
 @Composable
 private fun Actions(item: EpisodeItem, viewModel: EpisodeViewModel, downloadsWifiOnly: Boolean) {

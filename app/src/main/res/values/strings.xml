@@ -381,6 +381,15 @@
     <string name="starred_empty">Nothing starred yet. Tap the star on an episode to keep it here.</string>
     <string name="starred_no_matches">No starred episode matches that search.</string>
 
+    <!-- Downloads list (owner, 2026-11-18) -->
+    <string name="downloads_title">Downloads</string>
+    <string name="library_downloads">Downloads</string>
+    <string name="downloads_empty">No downloads yet. Tap Download on an episode to keep it on this phone for listening offline.</string>
+    <plurals name="downloads_summary">
+        <item quantity="one">%1$d episode ready to play offline, %2$s.</item>
+        <item quantity="other">%1$d episodes ready to play offline, %2$s.</item>
+    </plurals>
+
     <!-- Import a list of shows (M1-S9a) -->
     <string name="discover_import_list">Import a list</string>
     <string name="import_list_title">Import a list of shows</string>

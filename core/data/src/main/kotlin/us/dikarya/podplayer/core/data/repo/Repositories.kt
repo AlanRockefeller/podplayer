@@ -62,6 +62,15 @@ class EpisodeRepository internal constructor(private val db: PodDatabase) {
     fun observe(id: Long): Flow<Episode?> = db.episodes().observe(id).map { it?.toModel() }
 
     suspend fun get(id: Long): Episode? = db.episodes().get(id)?.toModel()
+
+    /** Library › Downloads: downloads on their way, then finished ones newest first; failed ones aren't listed. */
+    fun downloaded(limit: Int = MAX_DOWNLOADED): Flow<List<Episode>> =
+        db.episodes().observeDownloaded(limit).map { rows -> rows.map { it.toModel() } }
+
+    companion object {
+        /** Far more than a phone holds; the list screen shows this many at most. */
+        const val MAX_DOWNLOADED = 2_000
+    }
 }
 
 /**
@@ -173,6 +182,10 @@ class PlaybackRepository internal constructor(private val db: PodDatabase, priva
     /** Every record of [feedId]'s episodes, by episode id (the show page's played and progress marks). */
     fun recordsForFeed(feedId: Long): Flow<Map<Long, PlaybackRecord>> =
         db.playback().observeForFeed(feedId).map { rows -> rows.associate { it.episodeId to it.toModel() } }
+
+    /** The records of every downloaded episode (any download state), by episode id. */
+    fun recordsForDownloads(): Flow<Map<Long, PlaybackRecord>> =
+        db.playback().observeForDownloads().map { rows -> rows.associate { it.episodeId to it.toModel() } }
 
     /** The records of up to [MAX_IDS] episodes, by episode id; the rest of a longer list is ignored. */
     fun records(ids: List<Long>): Flow<Map<Long, PlaybackRecord>> {

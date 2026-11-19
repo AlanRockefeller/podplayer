@@ -20,6 +20,8 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import us.dikarya.podplayer.core.model.DownloadState
+import us.dikarya.podplayer.core.model.MediaFile
 import us.dikarya.podplayer.playback.SleepUi
 import us.dikarya.podplayer.ui.browse.BrowseTestEnv
 import us.dikarya.podplayer.ui.browse.awaitState
@@ -65,6 +67,18 @@ class PlayerViewModelTest {
         assertEquals(1_800_000L, state.durationMs)
         assertEquals(1_200_000L, state.remainingMs)
         assertTrue(state.playing)
+    }
+
+    @Test
+    fun theSeekBarShowsWhatTheSessionHasBufferedOrAllOfADownload() = runBlocking {
+        val (episode, vm) = playing()
+        env.playback.state.value = env.playback.state.value.copy(positionMs = 300_000, bufferedPositionMs = 900_000, durationMs = 1_800_000)
+        val streaming = awaitState(vm.state) { it.bufferedMs == 900_000L }
+        assertEquals(0.5f, streaming.availableFraction!!, 0.0001f)
+
+        env.repos.media.upsert(MediaFile(episode, "media/$episode.mp3", DownloadState.Complete, 1_000, 1_000, null, 1L))
+        val downloaded = awaitState(vm.state) { it.item?.downloaded == true }
+        assertEquals(1f, downloaded.availableFraction!!, 0.0001f)
     }
 
     @Test

@@ -182,7 +182,11 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
 - Episode page: sanitized notes, play, queue, download, mark played.
 - Queue: drag handle plus Move up / Move down actions for accessibility; play next; remove.
 - Player: artwork, title, show, seek bar with elapsed/remaining, back/play/forward, speed, sleep timer,
-  queue, download.
+  queue, download. The seek bar marks how far a stream has buffered; a downloaded episode shows as all there
+  (owner, 2026-11-18).
+- Downloads list (owner, 2026-11-18): Library has a Downloads list for listening offline: downloads on their way
+  first, then finished ones newest first, with how many are ready and the space they take. Rows play, queue and
+  delete as anywhere else.
 - Settings: Appearance (Dark default on first launch, Light, Use system), Playback, Downloads and storage,
   Backup and restore, Logs (app log, download log, refresh log, crash log; export via share), About and licenses.
 - Starred episodes (owner, 2026-11-15):

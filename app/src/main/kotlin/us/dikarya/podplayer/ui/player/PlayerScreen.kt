@@ -32,6 +32,13 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -191,6 +198,7 @@ private fun Player(state: PlayerUiState, viewModel: PlayerViewModel, onOpenEpiso
  * The seek bar follows the session; while the owner drags, it shows the finger's position, and the seek is sent
  * once, on release. That drag value is gesture state, not playback state.
  */
+@OptIn(ExperimentalMaterial3Api::class) // Slider's track slot, for the buffered mark.
 @Composable
 private fun SeekBar(state: PlayerUiState, onSeek: (Long) -> Unit) {
     val colors = PodplayerTheme.colors
@@ -199,6 +207,8 @@ private fun SeekBar(state: PlayerUiState, onSeek: (Long) -> Unit) {
     val description = stringResource(R.string.player_seek)
     if (duration != null && duration > 0) {
         val shown = dragging ?: (state.positionMs.toFloat() / duration).coerceIn(0f, 1f)
+        val available = state.availableFraction
+        val bufferedColor = MaterialTheme.colorScheme.primary.copy(alpha = BUFFERED_ALPHA)
         Slider(
             value = shown,
             onValueChange = { dragging = it },
@@ -207,6 +217,27 @@ private fun SeekBar(state: PlayerUiState, onSeek: (Long) -> Unit) {
                 dragging = null
             },
             modifier = Modifier.fillMaxWidth().semantics { contentDescription = description },
+            track = { sliderState ->
+                // The buffered mark is painted only over the track the slider drew (SrcAtop on its own layer), so
+                // the gap around the thumb and the rounded end stay as they are.
+                SliderDefaults.Track(
+                    sliderState = sliderState,
+                    modifier = Modifier
+                        .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                        .drawWithContent {
+                            drawContent()
+                            if (available != null && available > sliderState.value) {
+                                val start = size.width * sliderState.value
+                                drawRect(
+                                    color = bufferedColor,
+                                    topLeft = Offset(start, 0f),
+                                    size = Size(size.width * available - start, size.height),
+                                    blendMode = BlendMode.SrcAtop,
+                                )
+                            }
+                        },
+                )
+            },
         )
         val position = dragging?.let { (it * duration).toLong() } ?: state.positionMs
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -340,6 +371,9 @@ private fun SheetTitle(@StringRes text: Int) {
         modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp).semantics { heading() },
     )
 }
+
+/** The buffered part of the seek bar: the played colour, faded, over the unplayed track. */
+private const val BUFFERED_ALPHA = 0.4f
 
 /** One choice in a sheet: the whole row is the control (48 dp and more). */
 @Composable

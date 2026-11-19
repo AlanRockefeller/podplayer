@@ -173,6 +173,17 @@ interface EpisodeDao {
 
     @Query("SELECT id FROM episodes WHERE feedId = :feedId AND starred = 1")
     fun observeStarredIds(feedId: Long): Flow<List<Long>>
+
+    /**
+     * Episodes with a download that hasn't failed: ones still on their way first (latest change first), then
+     * finished ones, newest finished first.
+     */
+    @Query(
+        """SELECT e.* FROM episodes e JOIN media_files m ON m.episodeId = e.id
+           WHERE m.state != 'Failed'
+           ORDER BY m.state = 'Complete', COALESCE(m.completedAt, m.updatedAt) DESC, e.id DESC LIMIT :limit""",
+    )
+    fun observeDownloaded(limit: Int): Flow<List<EpisodeEntity>>
 }
 
 @Dao
@@ -247,6 +258,10 @@ interface PlaybackDao {
 
     @Query("SELECT p.* FROM playback_records p JOIN episodes e ON e.id = p.episodeId WHERE e.feedId = :feedId")
     fun observeForFeed(feedId: Long): Flow<List<PlaybackRecordEntity>>
+
+    /** Records of every episode with a download row: Library › Downloads, with no id list to cap. */
+    @Query("SELECT p.* FROM playback_records p JOIN media_files m ON m.episodeId = p.episodeId")
+    fun observeForDownloads(): Flow<List<PlaybackRecordEntity>>
 
     /** Callers keep [ids] under SQLite's variable limit. */
     @Query("SELECT * FROM playback_records WHERE episodeId IN (:ids)")

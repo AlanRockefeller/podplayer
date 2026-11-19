@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import org.junit.Assert.assertTrue
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.setValue
@@ -51,6 +52,10 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import us.dikarya.podplayer.PodplayerApp
 import us.dikarya.podplayer.core.data.settings.ThemeMode
+import us.dikarya.podplayer.core.model.DownloadState
+import us.dikarya.podplayer.core.model.MediaFile
+import us.dikarya.podplayer.ui.downloads.DownloadsScreen
+import us.dikarya.podplayer.ui.downloads.DownloadsViewModel
 import us.dikarya.podplayer.playback.PlaybackUiState
 import us.dikarya.podplayer.ui.discover.DiscoverScreen
 import us.dikarya.podplayer.ui.discover.DiscoverViewModel
@@ -128,6 +133,13 @@ class AccessibilityAuditUiTest {
     @Test fun importList() = audit(withLibrary = false) { ListImportScreen(remember { ListImportViewModel(browse) }, onOpenShow = {}, onDone = {}) }
 
     @Test fun starred() = audit { StarredScreen(remember { StarredViewModel(browse) }, onOpenEpisode = {}) }
+
+    @Test fun downloads() = audit { ids ->
+        LaunchedEffect(Unit) {
+            env.browse.repos.media.upsert(MediaFile(ids.second, "media/${ids.second}.mp3", DownloadState.Complete, 30_000_000, 30_000_000, null, 1L))
+        }
+        DownloadsScreen(remember { DownloadsViewModel(browse) }, onOpenEpisode = {})
+    }
 
     @Test fun queue() = audit { QueueScreen(remember { QueueViewModel(browse) }, onOpenEpisode = {}) }
 

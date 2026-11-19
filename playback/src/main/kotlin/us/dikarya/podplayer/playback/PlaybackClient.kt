@@ -33,6 +33,8 @@ data class PlaybackUiState(
     val playWhenReady: Boolean = false,
     val buffering: Boolean = false,
     val positionMs: Long = 0,
+    /** How far the player has loaded ahead (streams keep 10 to 15 minutes; `PlayerFactory.Buffers`). */
+    val bufferedPositionMs: Long = 0,
     val durationMs: Long? = null,
     val speed: Float = 1.0f,
     val sleep: SleepUi = SleepUi.Off,
@@ -209,6 +211,7 @@ class PlaybackClient(context: Context) : PlaybackControls {
             playWhenReady = c.playWhenReady,
             buffering = c.playbackState == Player.STATE_BUFFERING,
             positionMs = c.currentPosition.coerceAtLeast(0),
+            bufferedPositionMs = c.bufferedPosition.coerceAtLeast(0),
             durationMs = c.duration.takeIf { it > 0 },
             speed = c.playbackParameters.speed,
             sleep = when (extras.getInt(PlaybackService.EXTRA_SLEEP_MODE, PlaybackService.SLEEP_OFF)) {

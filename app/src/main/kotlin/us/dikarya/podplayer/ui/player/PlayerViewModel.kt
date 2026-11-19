@@ -35,6 +35,8 @@ data class PlayerUiState(
     val playing: Boolean = false,
     val buffering: Boolean = false,
     val positionMs: Long = 0,
+    /** How far the session has loaded ahead; see [availableFraction]. */
+    val bufferedMs: Long = 0,
     /** The session's length, else the download's or the feed's while the player doesn't know it yet. */
     val durationMs: Long? = null,
     val speed: Float = 1.0f,
@@ -47,6 +49,20 @@ data class PlayerUiState(
     val item: EpisodeItem? = null,
 ) {
     val remainingMs: Long? get() = durationMs?.let { (it - positionMs).coerceAtLeast(0) }
+
+    /** How much of the seek bar is ready to play (the buffered mark). */
+    val availableFraction: Float? get() = availableFraction(positionMs, bufferedMs, durationMs, item?.downloaded == true)
+}
+
+/**
+ * How much of the episode can play without the network, as a share of [durationMs] (owner, 2026-11-18): all of a
+ * download, else what the player has buffered, never behind the position. Null without a length.
+ */
+fun availableFraction(positionMs: Long, bufferedMs: Long, durationMs: Long?, downloaded: Boolean): Float? {
+    if (durationMs == null || durationMs <= 0) return null
+    if (downloaded) return 1f
+    val ahead = bufferedMs.coerceAtLeast(positionMs).coerceIn(0, durationMs)
+    return ahead.toFloat() / durationMs
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -92,6 +108,7 @@ class PlayerViewModel(private val deps: BrowseDeps) : ViewModel() {
             playing = playback.playWhenReady,
             buffering = playback.buffering,
             positionMs = playback.positionMs,
+            bufferedMs = playback.bufferedPositionMs,
             durationMs = playback.durationMs ?: item?.durationMs,
             speed = playback.speed,
             showSpeed = library.showSpeed.takeIf { item != null },

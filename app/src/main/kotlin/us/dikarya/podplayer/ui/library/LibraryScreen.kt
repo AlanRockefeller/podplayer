@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
@@ -65,9 +66,11 @@ import us.dikarya.podplayer.ui.browse.Loading
 import us.dikarya.podplayer.ui.browse.OfflineBanner
 import us.dikarya.podplayer.ui.theme.PodplayerTheme
 
+const val TAG_LIBRARY_DOWNLOADS = "library-downloads"
+
 /** Library (SPEC §12): every subscription, as a grid or a list, sorted by the owner's choice. */
 @Composable
-fun LibraryScreen(viewModel: LibraryViewModel, onOpenShow: (Long) -> Unit, onDiscover: () -> Unit, onOpenStarred: () -> Unit = {}) {
+fun LibraryScreen(viewModel: LibraryViewModel, onOpenShow: (Long) -> Unit, onDiscover: () -> Unit, onOpenStarred: () -> Unit = {}, onOpenDownloads: () -> Unit = {}) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     when {
         state.loading -> return Loading()
@@ -75,7 +78,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, onOpenShow: (Long) -> Unit, onDis
     }
     Column(Modifier.fillMaxSize()) {
         OfflineBanner(state.online)
-        Toolbar(state, viewModel, onOpenStarred)
+        Toolbar(state, viewModel, onOpenStarred, onOpenDownloads)
         if (state.shows.isEmpty()) {
             CenteredMessage(stringResource(R.string.library_empty)) { FindShowsButton(onDiscover) }
             return@Column
@@ -120,7 +123,7 @@ fun LibraryScreen(viewModel: LibraryViewModel, onOpenShow: (Long) -> Unit, onDis
 }
 
 @Composable
-private fun Toolbar(state: LibraryUiState, viewModel: LibraryViewModel, onOpenStarred: () -> Unit) {
+private fun Toolbar(state: LibraryUiState, viewModel: LibraryViewModel, onOpenStarred: () -> Unit, onOpenDownloads: () -> Unit) {
     // At large font sizes the buttons move under the count rather than break it ("227 sho / ws" on the phone).
     ActionsBeside(
         minMainWidth = null,
@@ -133,18 +136,22 @@ private fun Toolbar(state: LibraryUiState, viewModel: LibraryViewModel, onOpenSt
                 modifier = Modifier.padding(start = 8.dp),
             )
         },
-        actions = { ToolbarActions(state, viewModel, onOpenStarred) },
+        actions = { ToolbarActions(state, viewModel, onOpenStarred, onOpenDownloads) },
     )
 }
 
 @Composable
-private fun ToolbarActions(state: LibraryUiState, viewModel: LibraryViewModel, onOpenStarred: () -> Unit) {
+private fun ToolbarActions(state: LibraryUiState, viewModel: LibraryViewModel, onOpenStarred: () -> Unit, onOpenDownloads: () -> Unit) {
     var sorting by rememberSaveable { mutableStateOf(false) }
     Row(verticalAlignment = Alignment.CenterVertically) {
         TextButton(onClick = onOpenStarred) {
             Icon(painterResource(R.drawable.ic_star), contentDescription = null, tint = PodplayerTheme.colors.accent)
             Spacer(Modifier.width(4.dp))
             Text(stringResource(R.string.library_starred), maxLines = 1, softWrap = false)
+        }
+        // An icon only: the row already wraps under the count at large font sizes.
+        IconButton(onClick = onOpenDownloads, modifier = Modifier.testTag(TAG_LIBRARY_DOWNLOADS)) {
+            Icon(painterResource(R.drawable.ic_download_done), contentDescription = stringResource(R.string.library_downloads))
         }
         IconButton(onClick = viewModel::refreshAll) {
             Icon(painterResource(R.drawable.ic_refresh), contentDescription = stringResource(R.string.action_refresh_all))

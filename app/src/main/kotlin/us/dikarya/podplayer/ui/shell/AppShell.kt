@@ -56,6 +56,8 @@ import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.ui.DataStateDialogs
 import us.dikarya.podplayer.ui.browse.BrowseDeps
 import us.dikarya.podplayer.ui.browse.DownloadFailureBar
+import us.dikarya.podplayer.ui.downloads.DownloadsScreen
+import us.dikarya.podplayer.ui.downloads.DownloadsViewModel
 import us.dikarya.podplayer.ui.browse.LocalSnackbars
 import us.dikarya.podplayer.ui.discover.DiscoverScreen
 import us.dikarya.podplayer.ui.discover.DiscoverViewModel
@@ -123,6 +125,10 @@ data object LicensesRoute
 @Serializable
 data object StarredRoute
 
+/** Library › Downloads. */
+@Serializable
+data object DownloadsRoute
+
 /** Discover › Import a list of shows (also where shared text lands). */
 @Serializable
 data object ImportListRoute
@@ -167,8 +173,9 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
     val onEpisode = destination.isOn(EpisodeRoute::class)
     val onStarred = destination.isOn(StarredRoute::class)
     val onImportList = destination.isOn(ImportListRoute::class)
+    val onDownloads = destination.isOn(DownloadsRoute::class)
     val onSubScreen = onSettings || onLogs || onLicenses || onPlayer || onDebug
-    val canGoBack = onSubScreen || onShow || onEpisode || onStarred || onImportList
+    val canGoBack = onSubScreen || onShow || onEpisode || onStarred || onImportList || onDownloads
     val snackbars = remember { SnackbarHostState() }
     val current = TopLevelDestination.entries.firstOrNull { destination.isOn(it.routeClass) }
     val miniPlayer = viewModel { MiniPlayerViewModel(browse) }
@@ -181,6 +188,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
     val openQueue: () -> Unit = { navController.navigateToTab(TopLevelDestination.QUEUE) }
     val openStarred: () -> Unit = { navController.navigate(StarredRoute) { launchSingleTop = true } }
     val openImportList: () -> Unit = { navController.navigate(ImportListRoute) { launchSingleTop = true } }
+    val openDownloads: () -> Unit = { navController.navigate(DownloadsRoute) { launchSingleTop = true } }
 
     // Text shared into the app goes to the list importer, which takes it from BrowseDeps.sharedText.
     val shared by browse.sharedText.collectAsState()
@@ -211,6 +219,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
                         onEpisode -> R.string.episode_title
                         onStarred -> R.string.starred_title
                         onImportList -> R.string.import_list_title
+                        onDownloads -> R.string.downloads_title
                         current != null -> current.label
                         else -> R.string.app_name
                     }
@@ -267,9 +276,16 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
             }
             composable<DiscoverRoute> { DiscoverScreen(viewModel { DiscoverViewModel(browse) }, onOpenShow = openShow, onImportList = openImportList) }
             composable<LibraryRoute> {
-                LibraryScreen(viewModel { LibraryViewModel(browse) }, onOpenShow = openShow, onDiscover = openDiscover, onOpenStarred = openStarred)
+                LibraryScreen(
+                    viewModel { LibraryViewModel(browse) },
+                    onOpenShow = openShow,
+                    onDiscover = openDiscover,
+                    onOpenStarred = openStarred,
+                    onOpenDownloads = openDownloads,
+                )
             }
             composable<StarredRoute> { StarredScreen(viewModel { StarredViewModel(browse) }, onOpenEpisode = openEpisode) }
+            composable<DownloadsRoute> { DownloadsScreen(viewModel { DownloadsViewModel(browse) }, onOpenEpisode = openEpisode) }
             composable<ImportListRoute> {
                 val vm = viewModel { ListImportViewModel(browse) }
                 // A second share while the importer is open replaces what it holds.

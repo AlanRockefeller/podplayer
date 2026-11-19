@@ -21,6 +21,36 @@ a reviewer reads it to see what was really done.
 - PR:
 -->
 
+### M1-S14 Buffered mark on the seek bar, Downloads list (2026-11-18)
+Owner feedback: "some blue waves to the left of the play bar looks silly"; "would be nice if we could see how far we
+have buffered"; "if there isn't a place to see downloaded episodes, there should be". Branch
+`m1-s14-downloads-buffer`, stacked on `m1-s13-later-fixes` (PR #27).
+- Done:
+  1. Waves: not ours. Nothing in the app draws waves (no wavy component in Material 3 1.4.0, no wave drawable or
+     code in `:app` or `:playback`). Android 13 and later draw a wavy line on the played part of the seek bar in the
+     system media controls (notification shade and lock screen) while playing; apps can't restyle it. No change.
+  2. Seek bar: the part buffered ahead of the position is drawn in the played colour, faded. It comes from the
+     session (`PlaybackUiState.bufferedPositionMs`, the controller's `bufferedPosition`); streams keep 10 to 15
+     minutes ahead (`PlayerFactory.Buffers`), so on an hour-long episode it is a visible stretch. A downloaded
+     episode shows as fully there (the player keeps only 60 s of a local file in memory, which would mislead).
+     Drawn in the Slider's track slot (Material marks that slot experimental, so `SeekBar` opts in), painted with
+     `SrcAtop` only over the track the slider drew, so the gap around the thumb and the rounded end stay.
+  3. Library › Downloads (icon button beside Starred, labelled "Downloads"): downloads on their way first, then
+     finished ones newest first; failed ones are left out. A line says how many are ready to play offline and the
+     space they take. Rows are the usual episode rows (play, queue, star, delete download). No schema change: one
+     new query (`EpisodeDao.observeDownloaded`, capped at 2,000).
+- Tests added: `AvailableTest` (buffered share: clamped to position and end, null without a length, 1 for a
+  download); `PlayerViewModelTest` +1 (the session's buffered position reaches the screen, a download fills the
+  bar); `DownloadedListTest` (order, failed ones left out, delete, cap); `DownloadsViewModelTest` (offline: listed
+  with show names, ready count and bytes, play is a command; delete); `AccessibilityAuditUiTest` +1 (Downloads at
+  360 dp, 100% and 200% font; Library's audit covers the new button).
+- Deviations from the spec, and why: none (SPEC §12 updated with both, as owner decisions).
+- Manual checks for the owner: (a) stream an episode you haven't downloaded: a faded stretch ahead of the thumb that
+  grows to 10–15 minutes; (b) a downloaded episode: the whole bar faded ahead of the thumb; (c) Library › the
+  download-done icon beside Starred opens Downloads; in airplane mode the downloads there play; (d) at large font
+  the Library toolbar still fits (it moves under the show count as before).
+- PR: see branch.
+
 ### M1-S13 Four items from "Later" (2026-11-18)
 Asked for by the owner ("yes" to: Library sort, the controller count, a silent-playback watchdog, last/next refresh).
 Branch `m1-s13-later-fixes`.
@@ -2155,8 +2185,8 @@ Result:
 - Import a list: matching runs while the screen is on (M1-S11). If that isn't enough, background work that
   resumes where it stopped.
 - Android Auto (M1-S10, deferred by the owner): the S10 items below wait for it.
-- Auto-download: a "Downloads" list that shows which downloads were automatic, and a per-show "keep the newest N"
-  rule if 3/14-day clean-up isn't enough.
+- Auto-download: mark which downloads in Library › Downloads were automatic (the list exists since M1-S14), and a
+  per-show "keep the newest N" rule if 3/14-day clean-up isn't enough.
 - A Compose layout test of Settings › Downloads and storage at 360 dp (S9b checked the show page's new row only;
   Settings reuses the existing switch and choice rows).
 - List import: an optional per-line "Check" that previews a pasted feed address (owner-tapped fetch), and a way to
@@ -2165,7 +2195,7 @@ Result:
 - A pull-to-refresh gesture on Home, Library and the show page (today a refresh button).
 - `feed://` / `pcast://` addresses typed in Discover are refused with "Only http and https addresses work";
   converting them to https could come with the OPML item below.
-- Episode search within the library, and a Downloads list (Home shows download state on rows only).
+- Episode search within the library.
 - S10: the browse tree (Continue, Queue); `SessionCallback.onGetLibraryRoot`/`onGetChildren` return an empty root
   until then. Check that a car's or Auto's next/previous buttons (mapped to skip) are what the owner wants there.
 - Map player `IOException`s with `NetError.from` for a plain-language playback error in the log (S7 logs the

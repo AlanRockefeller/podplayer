@@ -56,6 +56,8 @@ import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.ui.DataStateDialogs
 import us.dikarya.podplayer.ui.browse.BrowseDeps
 import us.dikarya.podplayer.ui.browse.DownloadFailureBar
+import us.dikarya.podplayer.ui.discover.ShowPreviewScreen
+import us.dikarya.podplayer.ui.discover.ShowPreviewViewModel
 import us.dikarya.podplayer.ui.downloads.DownloadsScreen
 import us.dikarya.podplayer.ui.downloads.DownloadsViewModel
 import us.dikarya.podplayer.ui.browse.LocalSnackbars
@@ -125,6 +127,13 @@ data object LicensesRoute
 @Serializable
 data object StarredRoute
 
+/**
+ * Discover › a search result's show, before subscribing. [feedUrl] is the search result's (public, from Apple's
+ * directory); nothing here approves a host.
+ */
+@Serializable
+data class ShowPreviewRoute(val feedUrl: String, val artworkUrl: String?)
+
 /** Library › Downloads. */
 @Serializable
 data object DownloadsRoute
@@ -174,8 +183,9 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
     val onStarred = destination.isOn(StarredRoute::class)
     val onImportList = destination.isOn(ImportListRoute::class)
     val onDownloads = destination.isOn(DownloadsRoute::class)
+    val onShowPreview = destination.isOn(ShowPreviewRoute::class)
     val onSubScreen = onSettings || onLogs || onLicenses || onPlayer || onDebug
-    val canGoBack = onSubScreen || onShow || onEpisode || onStarred || onImportList || onDownloads
+    val canGoBack = onSubScreen || onShow || onEpisode || onStarred || onImportList || onDownloads || onShowPreview
     val snackbars = remember { SnackbarHostState() }
     val current = TopLevelDestination.entries.firstOrNull { destination.isOn(it.routeClass) }
     val miniPlayer = viewModel { MiniPlayerViewModel(browse) }
@@ -220,6 +230,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
                         onStarred -> R.string.starred_title
                         onImportList -> R.string.import_list_title
                         onDownloads -> R.string.downloads_title
+                        onShowPreview -> R.string.preview_title
                         current != null -> current.label
                         else -> R.string.app_name
                     }
@@ -274,7 +285,23 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
                     onOpenStarred = openStarred,
                 )
             }
-            composable<DiscoverRoute> { DiscoverScreen(viewModel { DiscoverViewModel(browse) }, onOpenShow = openShow, onImportList = openImportList) }
+            composable<DiscoverRoute> {
+                DiscoverScreen(
+                    viewModel { DiscoverViewModel(browse) },
+                    onOpenShow = openShow,
+                    onImportList = openImportList,
+                    onPreview = { hit -> navController.navigate(ShowPreviewRoute(hit.feedUrl, hit.artworkUrl)) { launchSingleTop = true } },
+                )
+            }
+            composable<ShowPreviewRoute> { backStack ->
+                val route = backStack.toRoute<ShowPreviewRoute>()
+                ShowPreviewScreen(
+                    viewModel { ShowPreviewViewModel(browse, route.feedUrl) },
+                    artworkUrl = route.artworkUrl,
+                    // The show replaces its preview, so Back goes to the search results.
+                    onOpenShow = { id -> navController.navigate(ShowRoute(id)) { popUpTo<ShowPreviewRoute> { inclusive = true } } },
+                )
+            }
             composable<LibraryRoute> {
                 LibraryScreen(
                     viewModel { LibraryViewModel(browse) },

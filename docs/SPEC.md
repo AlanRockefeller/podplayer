@@ -178,6 +178,10 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
 - Discover: one field for search terms or a pasted feed URL. Search uses Apple's podcast search
   (`https://itunes.apple.com/search?media=podcast&entity=podcast&term=...`); results show art, title, publisher,
   subscribe. Typed URLs get a preview before subscribing.
+  Tapping a search result opens a preview page (owner, 2026-11-18): the show's title, author, sanitized description
+  and every episode with audio (title, date, length), with Subscribe. The feed is fetched only on that tap, from its
+  own host, through the gate with no host approved (a search result is never owner-typed); the art is the search
+  result's. Nothing is stored until Subscribe. A show already in the library opens its page instead.
 - Library: subscriptions grid (list toggle); show page with episodes, sort, per-show speed.
 - Episode page: sanitized notes, play, queue, download, mark played.
 - Queue: drag handle plus Move up / Move down actions for accessibility; play next; remove.

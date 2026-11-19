@@ -54,6 +54,10 @@ import us.dikarya.podplayer.PodplayerApp
 import us.dikarya.podplayer.core.data.settings.ThemeMode
 import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.core.model.MediaFile
+import us.dikarya.podplayer.ui.discover.ShowPreviewScreen
+import us.dikarya.podplayer.ui.discover.ShowPreviewViewModel
+import us.dikarya.podplayer.ui.discover.rss
+import us.dikarya.podplayer.ui.discover.success
 import us.dikarya.podplayer.ui.downloads.DownloadsScreen
 import us.dikarya.podplayer.ui.downloads.DownloadsViewModel
 import us.dikarya.podplayer.playback.PlaybackUiState
@@ -129,6 +133,14 @@ class AccessibilityAuditUiTest {
     @Test fun library() = audit { LibraryScreen(remember { LibraryViewModel(browse) }, onOpenShow = {}, onDiscover = {}) }
 
     @Test fun discover() = audit(withLibrary = false) { DiscoverScreen(remember { DiscoverViewModel(browse) }, onOpenShow = {}) }
+
+    @Test fun showPreview() = audit(withLibrary = false) {
+        val vm = remember {
+            env.browse.answer = { success(rss("The Extraordinarily Long-Titled Weekly Science Podcast", episodes = 6).toByteArray(), "application/rss+xml") }
+            ShowPreviewViewModel(browse, "https://found.example.com/feed.xml")
+        }
+        ShowPreviewScreen(vm, artworkUrl = null, onOpenShow = {})
+    }
 
     @Test fun importList() = audit(withLibrary = false) { ListImportScreen(remember { ListImportViewModel(browse) }, onOpenShow = {}, onDone = {}) }
 

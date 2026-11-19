@@ -136,13 +136,17 @@ class BrowseTestEnv(root: File) {
     var answer: (okhttp3.HttpUrl) -> FetchResult = { FetchResult.Failure(NetError.Network("no test server")) }
     val requests = mutableListOf<okhttp3.HttpUrl>()
 
+    /** The address policy each request was made with, in the same order as [requests]. */
+    val policies = mutableListOf<us.dikarya.podplayer.core.net.AddressPolicy>()
+
     /** Each request with the list importer's (fake) time when it was made. */
     val requestTimes = mutableListOf<Pair<okhttp3.HttpUrl, Long>>()
 
     /** Runs before each answer; a test can suspend here to hold a request open. */
     var beforeAnswer: suspend (okhttp3.HttpUrl) -> Unit = {}
-    private val gate = GateFetch { url, _, _ ->
+    private val gate = GateFetch { url, _, policy ->
         requests += url
+        policies += policy
         requestTimes += url to pacerNow
         beforeAnswer(url)
         answer(url)

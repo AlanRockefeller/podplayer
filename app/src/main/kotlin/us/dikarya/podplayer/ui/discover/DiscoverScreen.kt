@@ -64,7 +64,12 @@ import us.dikarya.podplayer.ui.theme.PodplayerTheme
 
 /** Discover (SPEC §12): search or paste a feed address in one field, or import an OPML file. */
 @Composable
-fun DiscoverScreen(viewModel: DiscoverViewModel, onOpenShow: (Long) -> Unit, onImportList: () -> Unit = {}) {
+fun DiscoverScreen(
+    viewModel: DiscoverViewModel,
+    onOpenShow: (Long) -> Unit,
+    onImportList: () -> Unit = {},
+    onPreview: (SearchHit) -> Unit = {},
+) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val resources = LocalResources.current
@@ -143,6 +148,7 @@ fun DiscoverScreen(viewModel: DiscoverViewModel, onOpenShow: (Long) -> Unit, onI
                         subscribing = hit.feedUrl in state.subscribing,
                         onSubscribe = { viewModel.subscribe(hit) },
                         onOpen = onOpenShow,
+                        onPreview = onPreview,
                     )
                 }
             }
@@ -194,9 +200,21 @@ private fun PreviewCard(preview: FeedPreview, subscribing: Boolean, onSubscribe:
 private fun pluralStringResourceSafe(id: Int, count: Int): String = pluralStringResource(id, count, count)
 
 @Composable
-private fun ResultRow(hit: SearchHit, subscribedId: Long?, subscribing: Boolean, onSubscribe: () -> Unit, onOpen: (Long) -> Unit) {
+private fun ResultRow(
+    hit: SearchHit,
+    subscribedId: Long?,
+    subscribing: Boolean,
+    onSubscribe: () -> Unit,
+    onOpen: (Long) -> Unit,
+    onPreview: (SearchHit) -> Unit,
+) {
     val colors = PodplayerTheme.colors
-    val open = subscribedId?.let { id -> Modifier.clickable(role = Role.Button) { onOpen(id) } } ?: Modifier
+    // The whole row opens the show: its page when subscribed, else a preview with its episodes (owner, 2026-11-18).
+    val open = if (subscribedId != null) {
+        Modifier.clickable(role = Role.Button) { onOpen(subscribedId) }
+    } else {
+        Modifier.clickable(role = Role.Button, onClickLabel = stringResource(R.string.discover_open_preview, hit.title)) { onPreview(hit) }
+    }
     Row(Modifier.fillMaxWidth().then(open).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         // Search results' art comes from Apple's image servers, through the gate and the sandbox like any image.
         Artwork(hit.artworkUrl, approvedHost = null, size = 56.dp)

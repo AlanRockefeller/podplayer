@@ -390,6 +390,12 @@
         <item quantity="other">%1$d episodes ready to play offline, %2$s.</item>
     </plurals>
 
+    <!-- A search result's show before subscribing (owner, 2026-11-18) -->
+    <string name="preview_title">Preview</string>
+    <string name="preview_try_again">Try again</string>
+    <string name="preview_no_episodes">This show has no episodes with audio yet.</string>
+    <string name="discover_open_preview">Preview %1$s</string>
+
     <!-- Import a list of shows (M1-S9a) -->
     <string name="discover_import_list">Import a list</string>
     <string name="import_list_title">Import a list of shows</string>

@@ -21,6 +21,31 @@ a reviewer reads it to see what was really done.
 - PR:
 -->
 
+### M1-S15 Preview a search result before subscribing (2026-11-18)
+Owner: "In discover, once we search for a show, shouldn't we be able to click on it and see the episodes before we
+subscribe?" Branch `m1-s15-search-preview`, stacked on `m1-s14-downloads-buffer`.
+- Done: tapping a search result's row opens a Preview page (new `ShowPreviewRoute`, `ShowPreviewViewModel`,
+  `ShowPreviewScreen`): artwork (the search result's), title, author, episode count, the sanitized description (More
+  / Less, links through the usual confirm dialog), Subscribe, then every episode with audio with its date and
+  length. Subscribe applies the fetched episodes at once and opens the show page in the preview's place, so Back
+  returns to the results. The row's own Subscribe button still subscribes without opening anything. A subscribed
+  result still opens its show page. Failures (offline, network, not a feed) say why, with Try again.
+- Trust: the feed is fetched with `AddressPolicy.Default` and subscribed with `ownerTyped = false`, as subscribing
+  from a result always was; the route carries only the feed URL and Apple's artwork URL. The feed's own image is not
+  fetched for the preview, so a tap contacts one new host only (the feed's).
+- Tests added: `ShowPreviewViewModelTest` (all episodes listed, default address policy, nothing stored; subscribe is
+  not owner-typed and keeps the episodes; a subscribed show opens with no request; offline sends nothing; network
+  and not-a-feed failures; Try again), `ResultTapUiTest` (row tap previews, Subscribe still subscribes),
+  `AccessibilityAuditUiTest` +1 (Preview at 360 dp, 100% and 200% font). `BrowseTestEnv` now records each request's
+  address policy.
+- Deviations from the spec, and why: none; SPEC §12 records it as an owner decision. A question about CLAUDE.md's
+  network list is under "Questions for owner".
+- Not done (could follow): playing an episode from the preview before subscribing. Playback works from episodes in
+  the database, so it would need a "not subscribed" show kept aside and cleaned up.
+- Manual checks for the owner: search Discover, tap a show (not its Subscribe button): the Preview lists its
+  episodes; Back returns to the results; Subscribe there opens the show with its episodes; Back from the show returns
+  to the results.
+
 ### M1-S14 Buffered mark on the seek bar, Downloads list (2026-11-18)
 Owner feedback: "some blue waves to the left of the play bar looks silly"; "would be nice if we could see how far we
 have buffered"; "if there isn't a place to see downloaded episodes, there should be". Branch
@@ -2163,6 +2188,10 @@ Result:
 
 ## Questions for owner
 <!-- Blockers or choices that need the owner. Do not work around them. -->
+- M1-S15 (2026-11-18), doesn't block anything: CLAUDE.md's list of allowed network calls names subscribed hosts,
+  Apple's search and the owner's server. Previews (a typed address since M1, and now a tapped search result, as the
+  owner asked) contact a feed's host before it is subscribed, only when the owner asks for that preview. Should
+  CLAUDE.md say so? It was left unchanged.
 - Two S2 design choices to confirm, from the review pass (2026-11-09). Neither blocks a session; the code stays as
   it is until the owner says otherwise.
   - Owner approval is per host: `AddressPolicy` approves every port and path on the host the owner typed, while

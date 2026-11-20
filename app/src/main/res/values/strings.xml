@@ -431,6 +431,7 @@
     <string name="import_list_retry">Search again</string>
     <string name="import_list_start_over">Start over</string>
     <string name="import_list_done">Added %1$d. Already subscribed: %2$d. Skipped: %3$d. Couldn\'t add: %4$d.</string>
+    <string name="import_list_stopped">The library couldn\'t be saved to, so the import stopped part-way. What it added is kept, and importing the same list again is safe. Check that the phone has free storage.</string>
     <string name="import_list_not_found">Not found</string>
     <string name="import_list_unmatched_episodes">Episodes that didn\'t match</string>
     <string name="import_list_problem_empty">There\'s nothing to import.</string>

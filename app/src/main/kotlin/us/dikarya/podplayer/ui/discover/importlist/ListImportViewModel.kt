@@ -10,10 +10,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.IOException
 import java.io.InputStream
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -73,6 +76,8 @@ data class ListImportSummary(
     val notFound: List<String>,
     /** Import-file episodes no library episode matched (M1-S9c reviews these with the owner). */
     val unmatchedEpisodes: List<String>,
+    /** A write failed part-way, so the rows after it weren't imported; the counts say what was. */
+    val stoppedByError: Boolean = false,
 )
 
 data class ListImportUiState(
@@ -184,8 +189,10 @@ class ListImportViewModel(private val deps: BrowseDeps) : ViewModel() {
                 is ImportLine.AppleId -> ImportRow(i, "podcasts.apple.com/id${line.id}", line, episodes)
             }
         }
+        // A matcher still searching the previous list must not write its results into these rows (keys repeat).
+        matcher?.cancel()
         local.update { it.copy(rows = rows, leftOut = leftOut, problem = null, summary = null) }
-        matchWaiting()
+        matchWaiting(replace = true)
     }
 
     /** True while the matcher only waits for a failed row's retry time, so "Search again" may wake it. */
@@ -195,11 +202,12 @@ class ListImportViewModel(private val deps: BrowseDeps) : ViewModel() {
     /**
      * Matches every waiting row in order, one paced request at a time. A failed search is tried again on its own
      * after each of [RETRY_WAITS_MS] (other rows go on meanwhile; a retry that is due goes first), then the row
-     * keeps "Search again". [restart] replaces a matcher that is only waiting for a retry.
+     * keeps "Search again". [restart] replaces a matcher that is only waiting for a retry; [replace] replaces any
+     * (a new list).
      */
-    private fun matchWaiting(restart: Boolean = false) {
+    private fun matchWaiting(restart: Boolean = false, replace: Boolean = false) {
         val previous = matcher
-        if (previous?.isActive == true && !(restart && waitingForRetry)) return
+        if (previous?.isActive == true && !replace && !(restart && waitingForRetry)) return
         local.update { it.copy(matching = true) }
         lateinit var job: Job
         job = viewModelScope.launch(start = CoroutineStart.LAZY) {
@@ -242,6 +250,8 @@ class ListImportViewModel(private val deps: BrowseDeps) : ViewModel() {
                 is ImportLine.AppleId -> deps.search.lookup(line.id)
                 is ImportLine.Address -> continue
             }
+            // A search that finished after this matcher was replaced belongs to rows that are gone.
+            currentCoroutineContext().ensureActive()
             when (outcome) {
                 is SearchOutcome.Results -> {
                     pacer.relax()
@@ -274,19 +284,32 @@ class ListImportViewModel(private val deps: BrowseDeps) : ViewModel() {
     private fun setRow(key: Int, change: (ImportRow) -> ImportRow) =
         local.update { s -> s.copy(rows = s.rows.map { if (it.key == key) change(it) else it }) }
 
+    /** The owner's change to a row; none while subscribing, since [confirm] works on the rows as confirmed. */
+    private fun edit(key: Int, change: (ImportRow) -> ImportRow): Boolean {
+        if (local.value.subscribing) return false
+        setRow(key, change)
+        return true
+    }
+
     /** Takes another of the row's matches. */
-    fun choose(key: Int, hit: Int) = setRow(key) { if (hit in it.hits.indices) it.copy(chosen = hit, skipped = false) else it }
+    fun choose(key: Int, hit: Int) {
+        edit(key) { if (hit in it.hits.indices) it.copy(chosen = hit, skipped = false) else it }
+    }
 
-    fun skip(key: Int) = setRow(key) { it.copy(skipped = true) }
+    fun skip(key: Int) {
+        edit(key) { it.copy(skipped = true) }
+    }
 
-    fun include(key: Int) = setRow(key) { it.copy(skipped = false) }
+    fun include(key: Int) {
+        edit(key) { it.copy(skipped = false) }
+    }
 
     /** Searches a failed or unmatched row again. */
     fun retry(key: Int) {
-        setRow(key) {
+        val edited = edit(key) {
             if (it.status == RowStatus.Failed || it.status == RowStatus.NoMatch) it.copy(status = RowStatus.Waiting, problem = null, failures = 0, retryAt = null) else it
         }
-        matchWaiting(restart = true)
+        if (edited) matchWaiting(restart = true)
     }
 
     /** Back to the text field, keeping the text. */
@@ -307,23 +330,33 @@ class ListImportViewModel(private val deps: BrowseDeps) : ViewModel() {
             var refused = 0
             val unmatched = ArrayList<String>()
             val rows = local.value.rows
-            for (row in rows.filter { it.included }) {
-                val url = row.chosenHit!!.feedUrl
-                val preview = if (row.episodes.isNotEmpty() && url !in state.value.subscribedUrls) {
-                    (deps.previewer.preview(url, ownerTyped = false) as? PreviewOutcome.Ready)?.preview?.feed
-                } else {
-                    null
+            var stopped = false
+            try {
+                for (row in rows.filter { it.included }) {
+                    val url = row.chosenHit!!.feedUrl
+                    val preview = if (row.episodes.isNotEmpty() && url !in state.value.subscribedUrls) {
+                        (deps.previewer.preview(url, ownerTyped = false) as? PreviewOutcome.Ready)?.preview?.feed
+                    } else {
+                        null
+                    }
+                    val feedId = when (val outcome = deps.subscriptions.subscribe(url, ownerTyped = false, preview = preview)) {
+                        is SubscribeOutcome.Subscribed -> outcome.feedId.also { added++ }
+                        is SubscribeOutcome.AlreadySubscribed -> outcome.feedId.also { already++ }
+                        is SubscribeOutcome.Refused, SubscribeOutcome.LibraryClosed -> null.also { refused++ }
+                    }
+                    if (feedId != null && row.episodes.isNotEmpty()) {
+                        val repos = deps.repositories() ?: continue
+                        val report = ImportApplier.apply(repos, feedId, row.episodes)
+                        unmatched += report.unmatched
+                    }
                 }
-                val feedId = when (val outcome = deps.subscriptions.subscribe(url, ownerTyped = false, preview = preview)) {
-                    is SubscribeOutcome.Subscribed -> outcome.feedId.also { added++ }
-                    is SubscribeOutcome.AlreadySubscribed -> outcome.feedId.also { already++ }
-                    is SubscribeOutcome.Refused, SubscribeOutcome.LibraryClosed -> null.also { refused++ }
-                }
-                if (feedId != null && row.episodes.isNotEmpty()) {
-                    val repos = deps.repositories() ?: continue
-                    val report = ImportApplier.apply(repos, feedId, row.episodes)
-                    unmatched += report.unmatched
-                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A failed write (storage full, say). What was subscribed stays; importing again is safe. Only the
+                // exception's type is logged: its message could quote a feed address (a secret).
+                deps.log.w(TAG, "Import stopped: a write failed (${e.javaClass.simpleName})")
+                stopped = true
             }
             val summary = ListImportSummary(
                 added = added,
@@ -332,6 +365,7 @@ class ListImportViewModel(private val deps: BrowseDeps) : ViewModel() {
                 skipped = rows.count { it.skipped },
                 notFound = rows.filter { !it.skipped && it.chosenHit == null }.map { it.label },
                 unmatchedEpisodes = unmatched,
+                stoppedByError = stopped,
             )
             deps.log.i(TAG, "Import: ${summary.added} added, ${summary.alreadySubscribed} already there, ${summary.refused} refused")
             local.update { it.copy(subscribing = false, summary = summary) }

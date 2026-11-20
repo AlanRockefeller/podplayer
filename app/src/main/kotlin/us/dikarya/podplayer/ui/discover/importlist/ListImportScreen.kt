@@ -140,12 +140,13 @@ private fun Review(state: ListImportUiState, viewModel: ListImportViewModel, onO
                 if (state.subscribing) CircularProgressIndicator()
             }
         }
-        items(state.rows, key = { it.key }) { row -> RowCard(row, state.subscribedUrls, viewModel, onOpenShow) }
+        // Rows can't change while subscribing: the rows confirmed are the ones subscribed.
+        items(state.rows, key = { it.key }) { row -> RowCard(row, state.subscribedUrls, !state.subscribing, viewModel, onOpenShow) }
     }
 }
 
 @Composable
-private fun RowCard(row: ImportRow, subscribed: Map<String, Long>, viewModel: ListImportViewModel, onOpenShow: (Long) -> Unit) {
+private fun RowCard(row: ImportRow, subscribed: Map<String, Long>, editable: Boolean, viewModel: ListImportViewModel, onOpenShow: (Long) -> Unit) {
     val colors = PodplayerTheme.colors
     Card(
         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
@@ -176,14 +177,14 @@ private fun RowCard(row: ImportRow, subscribed: Map<String, Long>, viewModel: Li
                 if (subscribedId != null && !row.skipped) {
                     TextButton(onClick = { onOpenShow(subscribedId) }) { Text(stringResource(R.string.discover_subscribed)) }
                 }
-                if (row.hits.size > 1 && !row.skipped) ChangeMenu(row, viewModel)
+                if (row.hits.size > 1 && !row.skipped) ChangeMenu(row, editable, viewModel)
                 if (row.status == RowStatus.Failed || row.status == RowStatus.NoMatch) {
-                    TextButton(onClick = { viewModel.retry(row.key) }) { Text(stringResource(R.string.import_list_retry)) }
+                    TextButton(onClick = { viewModel.retry(row.key) }, enabled = editable) { Text(stringResource(R.string.import_list_retry)) }
                 }
                 if (row.skipped) {
-                    TextButton(onClick = { viewModel.include(row.key) }) { Text(stringResource(R.string.import_list_include)) }
+                    TextButton(onClick = { viewModel.include(row.key) }, enabled = editable) { Text(stringResource(R.string.import_list_include)) }
                 } else if (hit != null) {
-                    TextButton(onClick = { viewModel.skip(row.key) }) { Text(stringResource(R.string.import_list_skip)) }
+                    TextButton(onClick = { viewModel.skip(row.key) }, enabled = editable) { Text(stringResource(R.string.import_list_skip)) }
                 }
             }
         }
@@ -191,11 +192,11 @@ private fun RowCard(row: ImportRow, subscribed: Map<String, Long>, viewModel: Li
 }
 
 @Composable
-private fun ChangeMenu(row: ImportRow, viewModel: ListImportViewModel) {
+private fun ChangeMenu(row: ImportRow, editable: Boolean, viewModel: ListImportViewModel) {
     var open by remember { mutableStateOf(false) }
     Box {
-        TextButton(onClick = { open = true }) { Text(stringResource(R.string.import_list_change)) }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+        TextButton(onClick = { open = true }, enabled = editable) { Text(stringResource(R.string.import_list_change)) }
+        DropdownMenu(expanded = open && editable, onDismissRequest = { open = false }) {
             row.hits.forEachIndexed { i, hit ->
                 DropdownMenuItem(
                     text = {
@@ -219,6 +220,9 @@ private fun ChangeMenu(row: ImportRow, viewModel: ListImportViewModel) {
 private fun Summary(summary: ListImportSummary, onDone: () -> Unit) {
     val colors = PodplayerTheme.colors
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (summary.stoppedByError) {
+            item { Text(stringResource(R.string.import_list_stopped), style = MaterialTheme.typography.bodyLarge, color = colors.error) }
+        }
         item {
             Text(
                 stringResource(R.string.import_list_done, summary.added, summary.alreadySubscribed, summary.skipped, summary.refused),

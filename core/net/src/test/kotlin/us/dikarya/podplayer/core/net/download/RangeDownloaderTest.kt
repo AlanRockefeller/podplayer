@@ -503,6 +503,20 @@ class RangeDownloaderTest {
     }
 
     @Test
+    fun aBare416AfterAPieceOfUnknownTotalRestartsFromZeroOnce() {
+        // Without `bytes */N` the 416 proves nothing about the saved bytes: start over rather than guess.
+        val big = testBytes(256 * 1024)
+        file.writeBytes(big.copyOf(20_000))
+        server.enqueue(unknownTotalPiece(20_000, big.size, big))
+        server.enqueue(MockResponse.Builder().code(416).build())
+        server.enqueue(full(big))
+        val result = download(request(Validators.of(etag, null))) as DownloadResult.Complete
+        assertEquals(RestartReason.RangeNotSatisfiable, result.restart)
+        assertArrayEquals(big, file.readBytes())
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test
     fun aChunkedPieceOfUnknownTotalCutShortIsAResumableFailure() {
         val big = testBytes(256 * 1024)
         file.writeBytes(big.copyOf(20_000))

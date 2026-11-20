@@ -165,4 +165,73 @@ class AppLogTest {
         assertEquals(seen, again)
         assertEquals(1, Regex("ANR").findAll(allText()).count())
     }
+
+    @Test
+    fun anExitDescriptionIsRedactedBeforeItIsCut() {
+        // CodeRabbit review (PR 3): the description was cut to 500 characters first, which could cut a URL just
+        // before the '@' of its userinfo; the redaction then no longer saw userinfo and kept the password.
+        val context = appContext()
+        val am = context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+        shadowOf(am).addApplicationExitInfo(
+            ApplicationExitInfoBuilder.newBuilder()
+                .setProcessName(context.packageName)
+                .setReason(ApplicationExitInfo.REASON_CRASH)
+                .setTimestamp(6_000L)
+                .setDescription("x".repeat(479) + " https://alice:SECRET@h.example/f")
+                .build(),
+        )
+        ExitReasons.record(context, log, lastSeenAt = 0L)
+        val text = allText()
+        assertTrue(text, "crash" in text)
+        assertFalse(text, "SECRET" in text)
+        assertFalse(text, "alice" in text)
+    }
+
+    @Test
+    fun crashesInTheSameSecondKeepTheNewestAndDropTheOldest() {
+        // CodeRabbit review (PR 3): sorting by name put "crash-X.txt" before "crash-X-2.txt" and "-9" before
+        // "-10", so retention deleted a newer report than the oldest.
+        val crashDir = File(dir, "crash")
+        val handler = CrashHandler(log, { crashDir }, clock, "1") { _, _ -> }
+        repeat(CrashHandler.KEEP + 1) { handler.uncaughtException(Thread.currentThread(), RuntimeException("n$it")) }
+        val left = crashDir.listFiles()!!
+        assertEquals(CrashHandler.KEEP, left.size)
+        val texts = left.map { it.readText() }
+        assertFalse("the oldest is gone", texts.any { "RuntimeException: n0\n" in it })
+        assertTrue("the newest stays", texts.any { "RuntimeException: n${CrashHandler.KEEP}\n" in it })
+        val newestFirst = CrashHandler.newestFirst(left.toList())
+        assertTrue(newestFirst.first().readText(), "RuntimeException: n${CrashHandler.KEEP}\n" in newestFirst.first().readText())
+        assertTrue(newestFirst.last().readText(), "RuntimeException: n1\n" in newestFirst.last().readText())
+    }
+
+    @Test
+    fun aSnapshotTakenWhileTheLogRollsHasNoGap() {
+        // CodeRabbit review (PR 3): reading file by file while the log rolled could skip a whole file. A snapshot
+        // is taken under the writer's lock, so the lines it holds are always one unbroken run.
+        val writing = Thread { repeat(4_000) { log.logNow(AppLog.Level.Info, "T", "line $it") } }.apply { start() }
+        val number = Regex("line (\\d+)$")
+        while (writing.isAlive) {
+            val seen = log.snapshot(1 shl 20).flatMap { it.lines() }.mapNotNull { number.find(it)?.groupValues?.get(1)?.toInt() }
+            if (seen.isNotEmpty()) assertEquals(seen.toString(), (seen.first()..seen.last()).toList(), seen)
+        }
+    }
+
+    @Test
+    fun crashesOnTwoThreadsAtOnceEachGetTheirOwnFile() {
+        // CodeRabbit review (PR 3): two threads could both find the same name free and overwrite each other.
+        val crashDir = File(dir, "crash")
+        val handler = CrashHandler(log, { crashDir }, clock, "1") { _, _ -> }
+        val start = java.util.concurrent.CountDownLatch(1)
+        val threads = (1..4).map { n ->
+            Thread {
+                start.await()
+                handler.uncaughtException(Thread.currentThread(), RuntimeException("thread$n"))
+            }.apply { start() }
+        }
+        start.countDown()
+        threads.forEach { it.join(10_000) }
+        val texts = crashDir.listFiles()!!.map { it.readText() }
+        assertEquals(4, texts.size)
+        (1..4).forEach { n -> assertTrue(texts.any { "RuntimeException: thread$n\n" in it }) }
+    }
 }

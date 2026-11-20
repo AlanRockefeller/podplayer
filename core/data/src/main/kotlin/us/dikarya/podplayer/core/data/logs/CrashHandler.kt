@@ -46,7 +46,8 @@ class CrashHandler(
 
     private fun writeCrashFile(thread: Thread, error: Throwable) {
         val dir = crashDir()
-        if (!dir.isDirectory && !dir.mkdirs()) return
+        // mkdirs() is false when another thread made the folder first; only a folder that still isn't there stops us.
+        if (!dir.isDirectory && !dir.mkdirs() && !dir.isDirectory) return
         val now = clock()
         val text = buildString {
             appendLine("Podplayer $appVersion crashed at ${stamp.format(Instant.ofEpochMilli(now))}")
@@ -55,14 +56,19 @@ class CrashHandler(
             appendLine()
             append(error.stackTraceToString())
         }
-        var file = File(dir, "crash-${fileStamp.format(Instant.ofEpochMilli(now))}.txt")
-        var n = 2
-        while (file.exists()) file = File(dir, "crash-${fileStamp.format(Instant.ofEpochMilli(now))}-${n++}.txt")
-        file.writeText(scrubUrls(text).take(MAX_BYTES))
-        dir.listFiles { f -> f.name.startsWith("crash-") }
-            ?.sortedByDescending { it.name }
-            ?.drop(KEEP)
-            ?.forEach { it.delete() }
+        // One crash at a time: two threads crashing together must not pick the same name or rotate each other's file.
+        synchronized(lock) {
+            val second = fileStamp.format(Instant.ofEpochMilli(now))
+            // createNewFile claims the name atomically, so a name another process took is never overwritten either.
+            var file = File(dir, "crash-$second.txt")
+            var n = 2
+            while (!file.createNewFile()) file = File(dir, "crash-$second-${n++}.txt")
+            file.writeText(scrubUrls(text).take(MAX_BYTES))
+            dir.listFiles { f -> f.name.startsWith("crash-") }
+                ?.let { newestFirst(it.toList()) }
+                ?.drop(KEEP)
+                ?.forEach { it.delete() }
+        }
     }
 
     companion object {
@@ -70,6 +76,18 @@ class CrashHandler(
         private const val MAX_BYTES = 256 * 1024
         private val stamp = DateTimeFormatter.ISO_INSTANT
         private val fileStamp = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC)
+        private val lock = Any()
+        private val crashName = Regex("^crash-(\\d{8}-\\d{6})(?:-(\\d{1,9}))?\\.txt$")
+
+        /**
+         * Crash files newest first: by their second, then by the number added for a second crash in the same
+         * second (the first one has none). Names that aren't ours sort last, by name.
+         */
+        fun newestFirst(files: List<File>): List<File> = files.sortedWith(
+            compareByDescending<File> { crashName.matchEntire(it.name)?.groupValues?.get(1) ?: "" }
+                .thenByDescending { f -> crashName.matchEntire(f.name)?.let { it.groupValues[2].toIntOrNull() ?: 1 } ?: 0 }
+                .thenByDescending { it.name },
+        )
 
         /** Installs the handler in front of the current default one. */
         fun install(log: AppLog, crashDir: () -> File, appVersion: String, clock: () -> Long = System::currentTimeMillis) {
@@ -95,7 +113,8 @@ object ExitReasons {
         }
         var newest = lastSeenAt
         for (info in infos.filter { it.timestamp > lastSeenAt }.sortedBy { it.timestamp }) {
-            val description = info.description?.let { ": ${it.take(500)}" } ?: ""
+            // Redact before cutting: a cut just before a URL's '@' would hide its userinfo from the redaction.
+            val description = info.description?.let { ": ${scrubUrls(it).take(500)}" } ?: ""
             log.i(
                 "Exit",
                 "An earlier run ended at ${DateTimeFormatter.ISO_INSTANT.format(Instant.ofEpochMilli(info.timestamp))}: " +

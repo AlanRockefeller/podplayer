@@ -135,4 +135,15 @@ class LogExportTest {
         assertEquals(listOf("crash-20261112-090000.txt", "crash-20261110-090000.txt"), crashes.map { it.name })
         assertFalse("OLDSECRET" in crashes.last().text)
     }
+
+    @Test
+    fun crashesInTheSameSecondAreListedNewestFirst() = runBlocking {
+        // CodeRabbit review (PR 3): name order put the first crash of a second before its "-2" and "-9" before "-10".
+        crashDir.mkdirs()
+        val names = listOf("crash-20261112-090000.txt") + (2..10).map { "crash-20261112-090000-$it.txt" } + "crash-20261111-090000.txt"
+        names.forEach { File(crashDir, it).writeText(it) }
+        val export = LogExport(log, { crashDir }, { repos }, "t", clock)
+        val expected = (10 downTo 2).map { "crash-20261112-090000-$it.txt" } + "crash-20261112-090000.txt" + "crash-20261111-090000.txt"
+        assertEquals(expected, export.crashes().map { it.name })
+    }
 }

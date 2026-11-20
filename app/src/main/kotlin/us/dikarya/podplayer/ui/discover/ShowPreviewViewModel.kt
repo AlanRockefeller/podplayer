@@ -21,6 +21,7 @@ import us.dikarya.podplayer.core.feed.notes.NotesResult
 import us.dikarya.podplayer.core.feed.notes.RichText
 import us.dikarya.podplayer.core.feed.notes.ShowNotes
 import us.dikarya.podplayer.core.feed.ParsedEpisode
+import us.dikarya.podplayer.core.feed.identity.EpisodeMerge
 import us.dikarya.podplayer.core.model.Episode
 import us.dikarya.podplayer.ui.browse.BrowseDeps
 import us.dikarya.podplayer.ui.browse.KeepAsideOutcome
@@ -40,7 +41,9 @@ internal fun List<Episode>.storedIdOf(parsed: ParsedEpisode): Long? {
         // title, then the nearest date, picks the row (CodeRabbit review, PR #1).
         val sameAudio = filter { it.enclosure.url == url }
         if (sameAudio.isNotEmpty()) {
-            val sameTitle = sameAudio.filter { it.title == parsed.title }.ifEmpty { sameAudio }
+            // The merge's own title rule: an item it dropped as a duplicate ("episode a") finds the row it kept.
+            val title = EpisodeMerge.normalizeTitle(parsed.title)
+            val sameTitle = sameAudio.filter { EpisodeMerge.normalizeTitle(it.title) == title }.ifEmpty { sameAudio }
             val at = parsed.publishedAt
             return (if (at == null) sameTitle.first() else sameTitle.minBy { abs(it.publishedAt - at) }).id
         }

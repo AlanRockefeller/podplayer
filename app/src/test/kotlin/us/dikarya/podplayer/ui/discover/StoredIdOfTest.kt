@@ -37,6 +37,16 @@ class StoredIdOfTest {
         assertEquals("an unknown title falls back to the nearest date", 2L, rows.storedIdOf(parsed(null, url, "Renamed", 12 * day)))
     }
 
+    /** CodeRabbit CLI review, PR #8: the merge drops "episode a" as a duplicate of "Episode A"; it must open A. */
+    @Test
+    fun titlesAreComparedTheWayTheMergeComparesThem() {
+        val url = "https://cdn.example.com/same.mp3"
+        val tenTen = 1_790_000_000_000L
+        val rows = listOf(stored(1, null, url, "Episode A", tenTen), stored(2, null, url, "Episode B", tenTen - 11 * 60_000))
+        assertEquals(1L, rows.storedIdOf(parsed(null, url, "  episode   a ", tenTen - 10 * 60_000)))
+        assertEquals("full-width letters count as the same title", 1L, rows.storedIdOf(parsed(null, url, "Ｅｐｉｓｏｄｅ A", tenTen - 10 * 60_000)))
+    }
+
     /** Codex review, PR #31: a reused GUID picked the first row for every episode sharing it. */
     @Test
     fun aReusedGuidIsToldApartByItsAudio() {

@@ -36,6 +36,26 @@ class SeekDragTest {
     }
 
     @Test
+    fun aDragThatSawAnotherEpisodeStaysDroppedEvenIfTheFirstComesBack() {
+        val drag = SeekDrag()
+        drag.move(0.6f, A)
+        drag.onEpisode(B)
+        drag.onEpisode(A)
+        assertNull(drag.shown(A))
+        drag.move(0.7f, A)
+        assertNull("later moves from the same gesture don't revive it", drag.shown(A))
+        assertNull(drag.release(A))
+    }
+
+    @Test
+    fun aMoveReportedOnAnotherEpisodeAlsoDropsTheDrag() {
+        val drag = SeekDrag()
+        drag.move(0.6f, A)
+        drag.move(0.65f, B)
+        assertNull(drag.release(A))
+    }
+
+    @Test
     fun theNextDragOnTheNewEpisodeWorks() {
         val drag = SeekDrag()
         drag.move(0.5f, A)

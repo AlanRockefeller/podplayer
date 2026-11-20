@@ -50,14 +50,19 @@ class Downloads(
      * whose auto-download is still waiting turns it into the owner's download, same work id. Returns false if
      * there is nothing to download.
      *
-     * Holds the same lock as [applyNetworkSetting]: a network setting changed between reading it here and queuing
-     * the work is then applied to this download too, instead of running before the work exists.
+     * Reading the network setting and queuing the work hold the same lock as [applyNetworkSetting], so a setting
+     * changed in between is applied to this download too, instead of running before the work exists. Recording
+     * the download ([DownloadRunner.queue]) happens before that lock: it waits for the episode's own lock, which a
+     * running transfer holds, and nothing else may wait behind that.
      */
-    suspend fun enqueue(episodeId: Long, auto: Boolean = false): Boolean = applying.withLock { enqueueNow(episodeId, auto) }
-
-    private suspend fun enqueueNow(episodeId: Long, auto: Boolean): Boolean {
+    suspend fun enqueue(episodeId: Long, auto: Boolean = false): Boolean {
         val episode = repositories()?.episodes?.get(episodeId) ?: return false
         if (!runner.queue(episodeId)) return false
+        return applying.withLock { submit(episode, auto) }
+    }
+
+    private suspend fun submit(episode: Episode, auto: Boolean): Boolean {
+        val episodeId = episode.id
         if (!auto) {
             val waitingAuto = waitingWork(episodeId)?.takeIf { TAG_AUTO in it.tags }
             if (waitingAuto != null) {

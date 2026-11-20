@@ -112,6 +112,10 @@ class BluetoothPlayGateTest {
         loaded = setOf(CAR)
         connect(gate, 79, "Pixel Buds")
         assertNull(gate.ignoreReason(carController))
+        // A list read as empty (nothing ticked) is not "unread": nothing is ignored.
+        loaded = emptySet()
+        connect(gate, 80, CAR)
+        assertNull(gate.ignoreReason(carController))
     }
 
     @Test

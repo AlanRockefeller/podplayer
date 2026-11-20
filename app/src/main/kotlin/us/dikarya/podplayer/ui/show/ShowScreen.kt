@@ -267,18 +267,19 @@ private fun SpeedPicker(showSpeed: Float?, globalSpeed: Float, onChange: (Float?
 /** Unsubscribing failed: the page stayed; say so, with Try again. */
 @Composable
 private fun UnsubscribeFailureBar(viewModel: ShowViewModel) {
+    // Keyed on the failure's number: a retry that fails again shows the bar again.
     val failed by viewModel.unsubscribeFailed.collectAsStateWithLifecycle()
     val snackbars = LocalSnackbars.current
     val resources = LocalResources.current
     LaunchedEffect(failed, snackbars) {
-        if (!failed) return@LaunchedEffect
+        val id = failed ?: return@LaunchedEffect
         val result = snackbars.showSnackbar(
             message = resources.getString(R.string.unsubscribe_failed),
             actionLabel = resources.getString(R.string.unsubscribe_try_again),
             withDismissAction = true,
             duration = SnackbarDuration.Long,
         )
-        if (result == SnackbarResult.ActionPerformed) viewModel.unsubscribe() else viewModel.unsubscribeFailureShown()
+        if (result == SnackbarResult.ActionPerformed) viewModel.unsubscribe() else viewModel.unsubscribeFailureShown(id)
     }
 }
 

@@ -9,6 +9,7 @@ package us.dikarya.podplayer.ui.show
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -145,10 +146,14 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
     /** The refresh [refresh] asked for is running (pull-to-refresh's spinner). */
     val refreshing: kotlinx.coroutines.flow.Flow<Boolean> = deps.refreshRunning(feedId)
 
-    /** The last unsubscribe failed; the page stays, says so and offers to try again. */
-    val unsubscribeFailed: StateFlow<Boolean> get() = failedToUnsubscribe
+    /**
+     * The last unsubscribe failed; the page stays, says so and offers to try again. Each failure has its own
+     * number, so a retry that fails again is reported again even if the screen never saw the retry's null.
+     */
+    val unsubscribeFailed: StateFlow<Int?> get() = failedToUnsubscribe
 
-    private val failedToUnsubscribe = MutableStateFlow(false)
+    private val failedToUnsubscribe = MutableStateFlow<Int?>(null)
+    private val failures = AtomicInteger(0)
     private val unsubscribing = AtomicBoolean(false)
 
     /**
@@ -157,7 +162,7 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
      */
     fun unsubscribe() {
         if (!unsubscribing.compareAndSet(false, true)) return
-        failedToUnsubscribe.value = false
+        failedToUnsubscribe.value = null
         viewModelScope.launch {
             try {
                 deps.downloads.unsubscribe(feedId)
@@ -166,15 +171,16 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
                 throw e
             } catch (e: Exception) {
                 deps.log.w(TAG, "Unsubscribing from show $feedId failed", e)
-                failedToUnsubscribe.value = true
+                failedToUnsubscribe.value = failures.incrementAndGet()
             } finally {
                 unsubscribing.set(false)
             }
         }
     }
 
-    fun unsubscribeFailureShown() {
-        failedToUnsubscribe.value = false
+    /** Failure [id] was reported; a newer one stays. */
+    fun unsubscribeFailureShown(id: Int) {
+        failedToUnsubscribe.compareAndSet(id, null)
     }
 
     /**

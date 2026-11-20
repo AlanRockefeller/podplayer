@@ -76,6 +76,7 @@ internal fun DeveloperPlayer(client: PlaybackClient) {
             // episode the drag started on.
             val drag = remember { SeekDrag() }
             val episodeId = state.episodeId
+            LaunchedEffect(episodeId) { drag.onEpisode(episodeId) }
             Slider(
                 value = drag.shown(episodeId) ?: state.positionMs.toFloat().coerceIn(0f, duration.toFloat()),
                 onValueChange = { drag.move(it, episodeId) },

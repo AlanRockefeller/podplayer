@@ -20,6 +20,7 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -380,6 +381,31 @@ class WorkersTest {
             change.join()
         }
         assertEquals(NetworkType.UNMETERED, infos(Downloads.workName(episode)).single().constraints.requiredNetworkType)
+    }
+
+    @Test
+    fun askingAgainForADownloadThatIsRunningDoesNotHoldUpOtherWork() = withEnv { env, downloads ->
+        // While A downloads, its runner holds A's lock for the whole transfer. Asking for A again waits for that,
+        // but a network-setting change (or any other download) must not wait behind it.
+        val (_, episode) = env.oneEpisode()
+        val transferring = CompletableDeferred<Unit>()
+        val finish = CompletableDeferred<Unit>()
+        runBlocking {
+            val transfer = launch(Dispatchers.Default) {
+                env.locks.withLock(episode) {
+                    transferring.complete(Unit)
+                    finish.await()
+                }
+            }
+            transferring.await()
+            val again = launch(Dispatchers.Default) { downloads.enqueue(episode) }
+            delay(300) // the repeated ask is now waiting on A's lock
+            val applied = withTimeoutOrNull(5_000) { downloads.applyNetworkSetting() }
+            finish.complete(Unit)
+            transfer.join()
+            again.join()
+            assertTrue("the setting change waited for A's transfer", applied != null)
+        }
     }
 
     @Test

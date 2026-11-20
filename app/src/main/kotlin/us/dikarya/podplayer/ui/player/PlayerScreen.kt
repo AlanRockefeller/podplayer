@@ -205,6 +205,7 @@ private fun SeekBar(state: PlayerUiState, onSeek: (Long) -> Unit) {
     val duration = state.durationMs
     val drag = remember { SeekDrag() }
     val episodeId = state.episodeId
+    LaunchedEffect(episodeId) { drag.onEpisode(episodeId) }
     val dragging = drag.shown(episodeId)
     val description = stringResource(R.string.player_seek)
     if (duration != null && duration > 0) {

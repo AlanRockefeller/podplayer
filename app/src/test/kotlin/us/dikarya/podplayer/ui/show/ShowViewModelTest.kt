@@ -128,14 +128,21 @@ class ShowViewModelTest {
         awaitState(vm.state) { it.feed != null }
         env.downloads.unsubscribeFailure = java.io.IOException("disk full")
         vm.unsubscribe()
-        awaitState(vm.unsubscribeFailed) { it }
+        val first = awaitState(vm.unsubscribeFailed) { it != null }!!
         assertFalse("the page stays: the show is still subscribed", vm.state.value.gone)
         assertTrue(env.repos.feeds.get(feed) != null)
+
+        // Try again fails too: a new failure, so the screen reports it again even if it never saw the retry start.
+        env.downloads.unsubscribeFailure = java.io.IOException("still full")
+        vm.unsubscribe()
+        val second = awaitState(vm.unsubscribeFailed) { it != null && it != first }!!
+        vm.unsubscribeFailureShown(first)
+        assertEquals("an older failure's dismissal leaves the newer one", second, vm.unsubscribeFailed.value)
 
         vm.unsubscribe()
         awaitState(vm.state) { it.gone }
         eventually { runBlocking { env.repos.feeds.get(feed) } == null }
-        assertFalse(vm.unsubscribeFailed.value)
+        assertEquals("a success is no failure", null, vm.unsubscribeFailed.value)
     }
 
     @Test

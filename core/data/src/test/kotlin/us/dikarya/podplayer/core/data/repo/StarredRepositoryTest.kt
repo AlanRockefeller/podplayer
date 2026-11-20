@@ -139,14 +139,28 @@ class StarredRepositoryTest {
         repos.starred.setStarred(ids[2], true)
         clock.advance(1)
         repos.starred.setStarred(otherIds[0], true)
+        // A decoy that matches "100%" and "real_talk" only if they were wildcards (CodeRabbit review, PR 3).
+        repos.feeds.applyRefresh(
+            otherFeedId,
+            parsedFeed(
+                listOf(
+                    episode(1, guid = "o1", title = "100% real_talk", url = "https://cdn.example.com/o1.mp3"),
+                    episode(2, guid = "o2", title = "1000 realXtalk", url = "https://cdn.example.com/o2.mp3"),
+                ),
+                title = "Gardening",
+            ),
+        )
+        val decoy = repos.episodes.forFeed(otherFeedId).first().single { it.guid == "o2" }.id
+        clock.advance(1)
+        repos.starred.setStarred(decoy, true)
 
         assertEquals(listOf(ids[2], ids[0]), starredIds("science"))
         assertEquals(listOf(ids[2]), starredIds("episode 3"))
-        assertEquals(listOf(otherIds[0]), starredIds("garden"))
+        assertEquals(listOf(decoy, otherIds[0]), starredIds("garden"))
         assertEquals("% is a character, not a wildcard", listOf(otherIds[0]), starredIds("100%"))
         assertEquals("_ is a character, not a wildcard", listOf(otherIds[0]), starredIds("real_talk"))
         assertEquals(emptyList<Long>(), starredIds("real-talk"))
-        assertEquals("blank searches list everything", 3, starredIds("   ").size)
+        assertEquals("blank searches list everything", 4, starredIds("   ").size)
     }
 
     @Test

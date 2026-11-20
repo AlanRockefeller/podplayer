@@ -8,6 +8,7 @@ package us.dikarya.podplayer.core.data
 
 import android.content.Context
 import androidx.core.net.toUri
+import java.io.IOException
 import java.io.InputStream
 import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -16,10 +17,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -125,6 +130,14 @@ class DataLayer(
     /** The repositories once the database is open, or null if it couldn't be opened. */
     suspend fun awaitRepositories(): Repositories? = (state.first { it !is DataState.Opening } as? DataState.Ready)?.repositories
 
+    /**
+     * The library as it changes: null while it is damaged or couldn't be opened, then the repositories once
+     * [startFresh] opens an empty one. Screens observe this rather than [awaitRepositories] once, so they don't
+     * stay on "library closed" after recovery.
+     */
+    val repositories: Flow<Repositories?> =
+        state.filter { it !is DataState.Opening }.map { (it as? DataState.Ready)?.repositories }.distinctUntilChanged()
+
     private suspend fun awaitDatabase(): PodDatabase? = (state.first { it !is DataState.Opening } as? DataState.Ready)?.database
 
     /** Stages [candidate] for the next start (the caller restarts the app on [StageResult.Staged]). */
@@ -133,13 +146,24 @@ class DataLayer(
     /** Stages a backup file the owner picked. */
     suspend fun restore(open: () -> InputStream): StageResult = backups.stage(open)
 
-    /** After [DataState.Damaged]: keeps the damaged file aside and starts with an empty library. */
-    suspend fun startFresh() = withContext(io) {
+    /**
+     * After [DataState.Damaged]: keeps the damaged file aside and starts with an empty library. False when the
+     * damaged file couldn't be kept aside: then nothing else happens and the state stays [DataState.Damaged], so
+     * the library is never emptied without its old file being kept. True says only that the file was kept: whether
+     * the empty library then opened is in [state] (Ready, or Failed, which the shell shows as its own dialog).
+     */
+    suspend fun startFresh(): Boolean = withContext(io) {
         openLock.withLock {
-            if (state.value !is DataState.Damaged) return@withLock
-            DatabaseOpener.keepAside(files.databaseFile, files.damagedDir, "damaged-${clock()}.db")
+            if (state.value !is DataState.Damaged) return@withLock true
+            try {
+                DatabaseOpener.keepAside(files.databaseFile, files.damagedDir, "damaged-${clock()}.db")
+            } catch (e: IOException) {
+                log.e(TAG, "Couldn't keep the damaged database aside; the library was not emptied", e)
+                return@withLock false
+            }
             log.w(TAG, "Started with an empty library; the damaged database was kept")
             openRoom(null)
+            true
         }
     }
 
@@ -153,10 +177,16 @@ class DataLayer(
     private suspend fun open() {
         val f = files
         val applied = try {
+            // A move aside (Start fresh, a restore) that stopped part-way gets the library's side files back first.
+            DatabaseOpener.undoInterruptedMove(f.databaseFile, f.damagedDir)
             PendingRestore.apply(f, clock())
         } catch (e: Exception) {
-            log.e(TAG, "Applying the staged restore failed", e)
-            null
+            // Stop here: the library may already have been moved aside, and opening now could start an empty one
+            // that the restore, still pending, would replace at the next start (CodeRabbit review, PR 3). The
+            // staged restore is kept, so the next start tries again.
+            log.e(TAG, "Applying the staged restore failed; the library was not opened", e)
+            _state.value = DataState.Failed(OpenProblem.CouldNotOpen)
+            return
         }
         if (applied != null) log.i(TAG, "Applying a restored backup")
         val prepared = DatabaseOpener.prepare(f.databaseFile, targetVersion) { from ->
@@ -192,14 +222,20 @@ class DataLayer(
         }
         val repositories = Repositories(db, clock) { device.deviceId() }
         if (applied != null) {
-            applied.settingsJson?.let { if (!settings.restore(it)) log.w(TAG, "The restored settings couldn't be read") }
-            val reconciled = repositories.media.reconcileWithDisk(paths)
-            PendingRestore.finish(files)
-            log.i(
-                TAG,
-                "Restore finished; ${reconciled.droppedRecords} download records without their files were dropped " +
-                    "and ${reconciled.deletedFiles} media files no record owned were deleted",
-            )
+            // Until Ready is published, nothing else can reach this database to close it.
+            try {
+                applied.settingsJson?.let { if (!settings.restore(it)) log.w(TAG, "The restored settings couldn't be read") }
+                val reconciled = repositories.media.reconcileWithDisk(paths)
+                PendingRestore.finish(files)
+                log.i(
+                    TAG,
+                    "Restore finished; ${reconciled.droppedRecords} download records without their files were dropped " +
+                        "and ${reconciled.deletedFiles} media files no record owned were deleted",
+                )
+            } catch (e: Throwable) {
+                db.close()
+                throw e
+            }
         }
         _state.value = DataState.Ready(repositories, db)
     }

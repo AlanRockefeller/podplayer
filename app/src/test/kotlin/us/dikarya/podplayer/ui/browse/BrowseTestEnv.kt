@@ -18,6 +18,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -152,8 +153,18 @@ class BrowseTestEnv(root: File) {
         answer(url)
     }
 
+    /** False: the screens see the library closed (damaged), as before Start fresh; true again opens it. */
+    val libraryOpen = MutableStateFlow(true)
+
+    /** Runs before each one-off repositories lookup by a screen; a test can throw here to fail a write. */
+    var beforeRepositories: suspend () -> Unit = {}
+
+    /** Runs inside each subscribe before anything is written; a test can suspend here to hold it open. */
+    var beforeSubscribe: suspend () -> Unit = {}
+
     val deps = BrowseDeps(
-        repositories = { data.awaitRepositories() },
+        repositories = { beforeRepositories(); data.awaitRepositories() },
+        library = combine(data.repositories, libraryOpen) { repos, open -> repos.takeIf { open } },
         settings = data.settings,
         playback = playback,
         downloads = downloads,
@@ -161,7 +172,7 @@ class BrowseTestEnv(root: File) {
         online = online,
         search = AppleSearch(gate),
         previewer = FeedPreviewer(gate, androidFeedParser()),
-        subscriptions = Subscriptions({ data.awaitRepositories() }, { data.settings.autoDownloadNewShows.first() }) { refreshes += it },
+        subscriptions = Subscriptions({ data.awaitRepositories() }, { beforeSubscribe(); data.settings.autoDownloadNewShows.first() }) { refreshes += it },
         log = log,
         importPacer = { Pacer(clock = { pacerNow }) { ms -> pacedWaits += ms; pacerNow += ms } },
     )

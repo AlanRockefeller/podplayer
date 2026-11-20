@@ -11,7 +11,6 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import us.dikarya.podplayer.core.data.logs.AppLog
 import us.dikarya.podplayer.core.data.repo.Repositories
@@ -41,6 +40,8 @@ interface DownloadActions {
  */
 class BrowseDeps(
     val repositories: suspend () -> Repositories?,
+    /** The library as it changes (`DataLayer.repositories`): null while closed, then the repositories after recovery. */
+    val library: Flow<Repositories?>,
     val settings: AppSettings,
     val playback: PlaybackControls,
     val downloads: DownloadActions,
@@ -59,8 +60,11 @@ class BrowseDeps(
     /** Whether the refresh [refresh] asked for (one feed, or all for null) is running, for pull-to-refresh. */
     val refreshRunning: (feedId: Long?) -> Flow<Boolean> = { flowOf(false) },
 ) {
-    /** [block] over the open library, or just [closed] when the library couldn't be opened (DataLayer). */
+    /**
+     * [block] over the open library, or [closed] while the library is closed (DataLayer). It keeps following the
+     * library, so a screen switches to [block] when Start fresh opens an empty one.
+     */
     @OptIn(ExperimentalCoroutinesApi::class)
     fun <T> withRepositories(closed: T, block: (Repositories) -> Flow<T>): Flow<T> =
-        flow { emit(repositories()) }.flatMapLatest { repos -> if (repos == null) flowOf(closed) else block(repos) }
+        library.flatMapLatest { repos -> if (repos == null) flowOf(closed) else block(repos) }
 }

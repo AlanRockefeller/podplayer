@@ -44,8 +44,9 @@ class LogExport(
     suspend fun appLines(maxLines: Int = VIEWER_LINES): List<String> = withContext(Dispatchers.IO) {
         log.flush()
         val lines = ArrayDeque<String>()
-        for (file in log.files()) {
-            readText(file, MAX_FILE_BYTES).lineSequence().filter { it.isNotEmpty() }.forEach { line ->
+        // One snapshot under the log's lock: reading file by file could miss one that rolled during the read.
+        for (text in log.snapshot(MAX_FILE_BYTES)) {
+            text.lineSequence().filter { it.isNotEmpty() }.forEach { line ->
                 lines.addLast(scrubUrls(line))
                 if (lines.size > maxLines) lines.removeFirst()
             }
@@ -56,7 +57,7 @@ class LogExport(
     /** Crash files, newest first, redacted. */
     suspend fun crashes(): List<CrashReport> = withContext(Dispatchers.IO) {
         val files = crashDir().listFiles { f -> f.isFile && f.name.startsWith("crash-") }.orEmpty()
-        files.sortedByDescending { it.name }.map { CrashReport(it.name, scrubUrls(readText(it, MAX_FILE_BYTES))) }
+        CrashHandler.newestFirst(files.toList()).map { CrashReport(it.name, scrubUrls(readText(it, MAX_FILE_BYTES))) }
     }
 
     /** Writes the whole export as UTF-8 text. Returns the number of bytes written. */

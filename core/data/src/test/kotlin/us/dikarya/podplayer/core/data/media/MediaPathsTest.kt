@@ -11,6 +11,7 @@ import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -60,6 +61,26 @@ class MediaPathsTest {
         )
         for (path in bad) assertNull(path, paths.resolve(path))
         assertNull(paths.resolve(null))
+    }
+
+    @Test
+    fun aFolderThatCantBeReadDuringTheWalkGivesNoFilesInsteadOfThrowing() {
+        // CodeRabbit review (PR 3): Files.walk reports a failure below the root as UncheckedIOException, which
+        // escaped and aborted the reconcile after a restore.
+        val media = File(filesDir, "media").apply { mkdirs() }
+        File(media, "1").mkdirs()
+        File(media, "1/2.mp3").writeText("audio")
+        val locked = File(media, "9").apply { mkdirs() }
+        File(locked, "3.mp3").writeText("audio")
+        assertTrue(locked.setReadable(false))
+        try {
+            // Root ignores folder permissions; there the walk can't be made to fail this way, so skip.
+            assumeFalse("running with root privileges", locked.canRead())
+            assertEquals(emptyList<File>(), paths.mediaFiles())
+        } finally {
+            locked.setReadable(true)
+        }
+        assertEquals(2, paths.mediaFiles().size)
     }
 
     @Test

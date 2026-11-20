@@ -265,7 +265,8 @@ class FeedRepositoryTest {
     @Test
     fun toStringNeverShowsTokens() = runBlocking {
         val id = subscribe()
-        repos.feeds.applyRefresh(id, parsedFeed(listOf(episode(1))))
+        // CodeRabbit review (PR 3): a GUID can be a URL with a token in it.
+        repos.feeds.applyRefresh(id, parsedFeed(listOf(episode(1, guid = "https://example.invalid/item?token=SECRETGUID"))))
         val text = repos.feeds.feeds().first().toString() + repos.episodes.forFeed(id).first().toString() +
             db.feeds().get(id).toString() + db.episodes().get(repos.episodes.forFeed(id).first().single().id).toString()
         assertFalse(text, "SECRET" in text)

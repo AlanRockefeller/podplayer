@@ -76,21 +76,27 @@ class Subscriptions(
         }
     }
 
-    /** OPML import (SPEC §4): every feed with [ownerTyped] false, then one refresh of everything. */
+    /**
+     * OPML import (SPEC §4): every feed with [ownerTyped] false, then one refresh of everything. A failed write
+     * throws, but the feeds subscribed before it stay and are still refreshed.
+     */
     suspend fun importAll(feeds: List<OpmlFeed>): ImportSummary? {
         val repos = repositories() ?: return null
         var added = 0
         var already = 0
         var refused = 0
         val autoDownload = autoDownloadDefault()
-        for (feed in feeds) {
-            when (repos.feeds.subscribe(feed.feedUrl, ownerTyped = false, autoDownload = autoDownload)) {
-                is SubscribeResult.Subscribed -> added++
-                is SubscribeResult.AlreadySubscribed -> already++
-                is SubscribeResult.Refused -> refused++
+        try {
+            for (feed in feeds) {
+                when (repos.feeds.subscribe(feed.feedUrl, ownerTyped = false, autoDownload = autoDownload)) {
+                    is SubscribeResult.Subscribed -> added++
+                    is SubscribeResult.AlreadySubscribed -> already++
+                    is SubscribeResult.Refused -> refused++
+                }
             }
+        } finally {
+            if (added > 0) refresh(null)
         }
-        if (added > 0) refresh(null)
         return ImportSummary(added, already, refused)
     }
 }

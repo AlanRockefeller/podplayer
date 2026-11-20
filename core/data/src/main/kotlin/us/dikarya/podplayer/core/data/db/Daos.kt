@@ -126,6 +126,16 @@ interface FeedDao {
     )
     suspend fun unusedKeptAsideIds(loadedEpisodeId: Long?, before: Long): List<Long>
 
+    /** True when any episode of [feedId] holds owner data: a star, a queue entry, a download, or a playback record. */
+    @Query(
+        """SELECT EXISTS (SELECT 1 FROM episodes e WHERE e.feedId = :feedId AND (
+             e.starred = 1
+             OR EXISTS (SELECT 1 FROM queue_entries q WHERE q.episodeId = e.id)
+             OR EXISTS (SELECT 1 FROM media_files m WHERE m.episodeId = e.id)
+             OR EXISTS (SELECT 1 FROM playback_records p WHERE p.episodeId = e.id)))""",
+    )
+    suspend fun holdsOwnerData(feedId: Long): Boolean
+
     @Query(
         """UPDATE feeds SET etag = :etag, lastModified = :lastModified, lastRefreshSuccessAt = :at,
            consecutiveFailures = 0, nextRefreshAt = NULL WHERE id = :id""",
@@ -400,6 +410,9 @@ interface LogDao {
 
     @Query("SELECT * FROM download_log WHERE episodeId = :episodeId ORDER BY at DESC, id DESC LIMIT :limit")
     fun observeDownloadsFor(episodeId: Long, limit: Int): Flow<List<DownloadLogEntity>>
+
+    @Query("SELECT * FROM download_log WHERE event = :event AND id > :afterId AND at >= :since ORDER BY id ASC LIMIT :limit")
+    suspend fun downloadsAfter(event: DownloadEvent, afterId: Long, since: Long, limit: Int): List<DownloadLogEntity>
 
     @Query("DELETE FROM refresh_log WHERE id NOT IN (SELECT id FROM refresh_log ORDER BY id DESC LIMIT :keep)")
     suspend fun trimRefresh(keep: Int): Int

@@ -163,6 +163,27 @@ class PlaybackRepository internal constructor(private val db: PodDatabase, priva
         true
     }
 
+    /**
+     * An imported position, written only while the library has no progress of its own: no record, or one that
+     * is unplayed at 0. Checked and written in one transaction, so a position the player saves meanwhile always
+     * wins. Returns true when the position was written.
+     */
+    suspend fun importPosition(episodeId: Long, positionMs: Long): Boolean = db.withTransaction {
+        if (!db.episodes().exists(episodeId)) return@withTransaction false
+        val old = db.playback().get(episodeId)
+        if (old != null && (old.played || old.positionMs != 0L)) return@withTransaction false
+        db.playback().upsert(
+            PlaybackRecordEntity(
+                episodeId = episodeId,
+                positionMs = positionMs.coerceAtLeast(0),
+                durationMs = old?.durationMs,
+                played = false,
+                updatedAt = clock(),
+            ),
+        )
+        true
+    }
+
     /** Marking played starts the episode over next time; marking unplayed keeps the position. */
     suspend fun setPlayed(episodeId: Long, played: Boolean): Boolean = db.withTransaction {
         if (!db.episodes().exists(episodeId)) return@withTransaction false
@@ -383,6 +404,13 @@ class LogRepository internal constructor(private val db: PodDatabase, private va
     fun downloadLog(limit: Int): Flow<List<DownloadLogEntity>> = db.logs().observeDownloads(limit)
 
     fun downloadLog(episodeId: Long, limit: Int): Flow<List<DownloadLogEntity>> = db.logs().observeDownloadsFor(episodeId, limit)
+
+    /**
+     * Up to [limit] [event] rows logged at or after [since] with an id above [afterId], oldest first: a reader
+     * that keeps the last id it saw reads every row once, however many arrive at a time (ids only grow).
+     */
+    suspend fun downloadsAfter(event: DownloadEvent, afterId: Long, since: Long, limit: Int): List<DownloadLogEntity> =
+        db.logs().downloadsAfter(event, afterId, since, limit)
 
     /** SPEC §10: one row per position change. [PositionChange.at] is ignored; the row gets this clock's time. */
     suspend fun addPosition(change: PositionChange) {

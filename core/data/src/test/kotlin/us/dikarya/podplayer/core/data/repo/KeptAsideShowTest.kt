@@ -204,6 +204,27 @@ class KeptAsideShowTest {
         assertNotNull(repos.feeds.get(aside))
     }
 
+    @Test
+    fun aKeptAsideShowHoldingAStarAQueueEntryOrAPositionDoesNotGiveWay() = runBlocking {
+        // CodeRabbit review (PR 3): only a download stopped the move, so a redirect silently deleted the stars,
+        // queue entries and positions of a show the owner had been listening to without subscribing.
+        val marks: List<suspend (Long) -> Unit> = listOf(
+            { ep -> repos.starred.setStarred(ep, true) },
+            { ep -> repos.queue.add(ep) },
+            { ep -> repos.playback.savePosition(ep, 600_000, 1_800_000) },
+            { ep -> repos.playback.setPlayed(ep, true) },
+        )
+        marks.forEachIndexed { i, mark ->
+            val url = "https://new$i.example.com/rss"
+            val aside = keepAside(url)
+            val episode = episodeIds(aside).first()
+            mark(episode)
+            val subscribed = (repos.feeds.subscribe("https://old$i.example.com/rss", false) as SubscribeResult.Subscribed).feedId
+            assertEquals("mark $i", MoveResult.AlreadySubscribed(aside), repos.feeds.moveUrl(subscribed, url))
+            assertNotNull(repos.episodes.get(episode))
+        }
+    }
+
     private companion object {
         const val PAST_A_WEEK = FeedRepository.KEPT_ASIDE_GRACE_MS + 1
     }

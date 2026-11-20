@@ -75,6 +75,20 @@ class LogsViewModelTest {
     }
 
     @Test
+    fun theLogsShowOnceTheLibraryOpensAfterStartFresh() {
+        // Found while fixing the CodeRabbit review (PR 1): the library was looked up once, so after Start fresh the
+        // download and refresh tabs stayed empty until the app was restarted.
+        seed()
+        env.browse.libraryOpen.value = false
+        val vm = LogsViewModel(env.deps)
+        vm.select(LogTab.Downloads)
+        awaitState(vm.state) { s -> s.tab == LogTab.Downloads }
+        env.browse.libraryOpen.value = true
+        val downloads = awaitState(vm.state) { s -> s.tab == LogTab.Downloads && s.entries.isNotEmpty() }
+        assertEquals("Alpha 1", downloads.entries.single().subject)
+    }
+
+    @Test
     fun theDownloadRefreshAndCrashTabsShowTheirLogs() {
         seed()
         val vm = LogsViewModel(env.deps)

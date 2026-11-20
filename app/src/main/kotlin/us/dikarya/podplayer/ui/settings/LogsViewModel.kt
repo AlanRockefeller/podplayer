@@ -144,7 +144,7 @@ class LogsViewModel(private val deps: SettingsDeps) : ViewModel() {
     }
 
     private fun withRepositories(block: (Repositories) -> Flow<List<LogEntry>>): Flow<List<LogEntry>> =
-        flow { emit(deps.repositories()) }.flatMapLatest { repos -> if (repos == null) flowOf(emptyList()) else block(repos) }
+        deps.library.flatMapLatest { repos -> if (repos == null) flowOf(emptyList()) else block(repos) }
 
     private suspend fun episodeTitles(repos: Repositories, ids: List<Long>): Map<Long, String?> {
         val titles = HashMap<Long, String?>()

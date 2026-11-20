@@ -13,6 +13,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -83,20 +84,28 @@ class BackupManager internal constructor(
     @Volatile
     private var reference: Set<String>? = null
 
-    suspend fun backupNow(tag: String? = null): BackupReport = withContext(io) { mutex.withLock { backupLocked(tag) } }
+    // Every entry point that needs the open database waits for it *before* taking [mutex]: while an older
+    // database opens, the opener needs the mutex for its pre-migration backup ([backupClosedDatabase]), so
+    // waiting inside it would deadlock (Codex and CodeRabbit review, PR 3).
+
+    suspend fun backupNow(tag: String? = null): BackupReport = withContext(io) {
+        val db = database()
+        mutex.withLock { backupLocked(db, tag) }
+    }
 
     /** The daily automatic backup: runs when the last one is [DUE_AFTER_MS] old (or there is none). */
     suspend fun backupIfDue(): BackupReport? = withContext(io) {
+        val db = database()
         mutex.withLock {
             val last = device.backupStatusNow().lastBackupAt
-            if (last != null && clock() - last in 0 until DUE_AFTER_MS) null else backupLocked(null)
+            if (last != null && clock() - last in 0 until DUE_AFTER_MS) null else backupLocked(db, null)
         }
     }
 
     /** Manual export to a file the owner picked. Returns null on success. The caller closes [out]. */
     suspend fun exportTo(out: OutputStream): BackupProblem? = withContext(io) {
+        val db = database() ?: return@withContext BackupProblem.DatabaseNotReady
         mutex.withLock {
-            val db = database() ?: return@withLock BackupProblem.DatabaseNotReady
             val snapshot = tempFile("export")
             try {
                 DatabaseSnapshot.take(db.openHelper.writableDatabase, snapshot)
@@ -140,6 +149,7 @@ class BackupManager internal constructor(
      * changes unless the backup is good and a safety backup of the current library was written first.
      */
     private suspend fun stageWith(readInto: (File) -> BackupArchive.ReadResult): StageResult = withContext(io) {
+        database() // Waits out Opening here, outside the mutex; looked up again below for the safety backup.
         mutex.withLock {
             val f = files()
             clearStaging(f)
@@ -160,8 +170,11 @@ class BackupManager internal constructor(
                     is BackupArchive.ReadResult.Ok -> read
                 }
                 validate(incoming, ok.manifest, ok.settingsJson)?.let { return@withLock refuse(f, it) }
-                if (database() != null) {
-                    val safety = backupLocked("before-restore")
+                // Looked up again: Start fresh may have opened a library while the backup was read. This can't wait
+                // under the mutex: the state already left Opening above and never returns to it.
+                val current = database()
+                if (current != null) {
+                    val safety = backupLocked(current, "before-restore")
                     if (!safety.appStorage) return@withLock refuse(f, RestoreProblem.SafetyBackupFailed)
                 }
                 Files.move(incoming.toPath(), f.stagedDatabase.toPath(), StandardCopyOption.REPLACE_EXISTING)
@@ -174,6 +187,13 @@ class BackupManager internal constructor(
                 StageResult.Staged(ok.manifest.createdAt)
             } catch (e: IOException) {
                 log.w(TAG, "Staging the restore failed", e)
+                refuse(f, RestoreProblem.Unreadable)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A hostile or odd file, or a provider that throws something other than IOException: a refusal,
+                // never a crash (the restore dialog runs this on the app scope, which has no handler).
+                log.w(TAG, "Staging the restore failed unexpectedly", e)
                 refuse(f, RestoreProblem.Unreadable)
             } finally {
                 RawDatabase.deleteWithSidecars(incoming)
@@ -202,8 +222,9 @@ class BackupManager internal constructor(
         }
     }
 
-    private suspend fun backupLocked(tag: String?): BackupReport {
-        val db = database() ?: return BackupReport(null, false, FolderOutcome.NotChosen, BackupProblem.DatabaseNotReady)
+    /** Runs under [mutex]; [db] was resolved before taking it. */
+    private suspend fun backupLocked(db: PodDatabase?, tag: String?): BackupReport {
+        db ?: return BackupReport(null, false, FolderOutcome.NotChosen, BackupProblem.DatabaseNotReady)
         val snapshot = tempFile("snapshot")
         try {
             try {
@@ -222,7 +243,16 @@ class BackupManager internal constructor(
     private suspend fun writeEverywhere(dbFile: File, schemaVersion: Int, tag: String?): BackupReport {
         val now = clock()
         val manifest = manifest(schemaVersion, now)
-        val settingsJson = settings.snapshot()
+        val settingsJson = try {
+            settings.snapshot()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Never write a backup whose settings are a read error's empty fallback: restoring it would clear them.
+            log.e(TAG, "Couldn't read the settings for the backup", e)
+            device.recordBackup(null, BackupFailure.SnapshotFailed)
+            return BackupReport(null, false, FolderOutcome.NotChosen, BackupProblem.SnapshotFailed)
+        }
         val local = runCatching { writeTo(FileBackupFolder(files().localBackupsDir), KEEP_LOCAL, now, tag, manifest, dbFile, settingsJson) }
         local.exceptionOrNull()?.let { log.e(TAG, "Couldn't write the app's backup copy", it) }
         val folderUri = device.backupStatusNow().folderUri
@@ -259,7 +289,7 @@ class BackupManager internal constructor(
         val taken = existing.map { it.name }.toSet()
         var name = BackupNames.create(now, tag)
         var n = 2
-        while (name in taken) name = BackupNames.create(now, listOfNotNull(tag, "${n++}").joinToString("-"))
+        while (name in taken) name = BackupNames.create(now, tag, sequence = n++)
         folder.write(name) { out -> BackupArchive.write(out, manifest, dbFile, settingsJson) }
         // Rotation: only our own names, oldest beyond [keep] deleted. Other files in the folder are never touched.
         (existing + BackupEntry(name, name))

@@ -10,7 +10,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
-import java.time.format.DateTimeParseException
+import java.time.DateTimeException
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -71,16 +71,21 @@ object ImportFile {
         isLenient = false
     }
 
-    /** A cheap check before trying: does this text start like an import file? */
-    fun looksLikeOne(text: String): Boolean {
-        val start = text.trimStart()
-        return start.startsWith("{") && start.take(200).contains("\"$FORMAT\"")
-    }
+    /**
+     * A cheap check before trying: is this text meant as an import file rather than a list of shows? Any JSON
+     * object is (CodeRabbit review, PR 3): `format` may come anywhere in a valid file, and treating JSON as a
+     * list would send its lines, feed addresses with their tokens among them, to Apple's search as show names.
+     * JSON that isn't an import file is then refused by [parse] with a plain message.
+     */
+    fun looksLikeOne(text: String): Boolean = text.trimStart { it.isWhitespace() || it == BOM }.startsWith("{")
+
+    /** A byte-order mark some editors put at the start of a UTF-8 file. */
+    private val BOM = Char(0xFEFF)
 
     fun parse(bytes: ByteArray): ImportFileResult {
         if (bytes.size > MAX_BYTES) return ImportFileResult.Refused(ImportFileProblem.TooLarge)
         val file = try {
-            json.decodeFromString(FileDto.serializer(), bytes.decodeToString())
+            json.decodeFromString(FileDto.serializer(), bytes.decodeToString().removePrefix(BOM.toString()))
         } catch (_: SerializationException) {
             return ImportFileResult.Refused(ImportFileProblem.NotAnImportFile)
         } catch (_: IllegalArgumentException) {
@@ -123,7 +128,11 @@ object ImportFile {
             } else {
                 runCatching { Instant.parse(value) }.getOrNull()?.toEpochMilli() ?: OffsetDateTime.parse(value).toInstant().toEpochMilli()
             }
-        } catch (_: DateTimeParseException) {
+        } catch (_: DateTimeException) {
+            // Includes DateTimeParseException.
+            null
+        } catch (_: ArithmeticException) {
+            // A valid date too far from 1970 for epoch milliseconds (+999999999-12-31T23:59:59Z).
             null
         }
     }

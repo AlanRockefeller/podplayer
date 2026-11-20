@@ -51,18 +51,75 @@ internal object DatabaseOpener {
             }
         }
 
-    /** Moves a database and its side files into [dir] under [name], keeping the newest [keep] such copies. */
+    private val SIDECARS = listOf("-wal", "-shm", "-journal")
+
+    private const val MOVING = ".moving"
+
+    /**
+     * Moves a database and its side files into [dir] under [name], keeping the newest [keep] such copies.
+     *
+     * A marker (`name.moving`) is written first and removed once the database itself has moved, side files move
+     * before the database, and a failed database move puts them back. So an interruption at any point leaves either
+     * the whole family in place or the whole family moved; [undoInterruptedMove] (run here first, and at every
+     * start) puts back the side files of a move the marker shows unfinished. Only those are ever moved back:
+     * side files left by pruning or anything else carry no marker. Side files whose database is gone are moved
+     * out of the way too, so a new database is never put next to another one's write-ahead log.
+     */
     fun keepAside(database: File, dir: File, name: String, keep: Int = 3) {
-        if (!database.exists()) return
+        undoInterruptedMove(database, dir)
+        val strays = SIDECARS.map { File(database.path + it) }.filter { it.exists() }
+        if (!database.exists() && strays.isEmpty()) return
         if (!dir.isDirectory && !dir.mkdirs()) throw IOException("can't create ${dir.name}")
-        for (suffix in listOf("", "-wal", "-shm", "-journal")) {
-            val from = File(database.path + suffix)
-            if (from.exists()) Files.move(from.toPath(), File(dir, name + suffix).toPath(), StandardCopyOption.REPLACE_EXISTING)
+        if (!database.exists()) {
+            for (stray in strays) move(stray, File(dir, "$name.orphan${stray.name.removePrefix(database.name)}"))
+            return
         }
+        val marker = File(dir, name + MOVING)
+        if (!marker.exists() && !marker.createNewFile()) throw IOException("can't mark the move")
+        try {
+            for (suffix in SIDECARS) {
+                val from = File(database.path + suffix)
+                if (from.exists()) move(from, File(dir, name + suffix))
+            }
+            move(database, File(dir, name))
+        } catch (e: IOException) {
+            // Never leave the database here without its log: put back what already moved.
+            runCatching { undoInterruptedMove(database, dir) }
+            throw e
+        }
+        marker.delete()
         dir.listFiles { f -> f.name.endsWith(".db") }
             ?.sortedByDescending { it.lastModified() }
             ?.drop(keep)
-            ?.forEach { old -> listOf("", "-wal", "-shm", "-journal").forEach { File(old.path + it).delete() } }
+            // Side files first, so an interrupted prune never leaves a database without its log.
+            ?.forEach { old -> (SIDECARS + "").forEach { File(old.path + it).delete() } }
+    }
+
+    /**
+     * Puts back the side files of a [keepAside] into [dir] that stopped before [database] itself moved, so the
+     * database is checked and opened with its write-ahead log. Run at start before anything looks at [database].
+     */
+    fun undoInterruptedMove(database: File, dir: File) {
+        val markers = dir.listFiles { f -> f.name.endsWith(MOVING) }.orEmpty()
+        for (marker in markers) {
+            val name = marker.name.removeSuffix(MOVING)
+            // The database still here means it never moved (it moves last, and the marker goes right after).
+            if (database.exists()) {
+                for (suffix in SIDECARS) {
+                    val moved = File(dir, name + suffix)
+                    val home = File(database.path + suffix)
+                    if (moved.exists() && !home.exists()) move(moved, home)
+                }
+            }
+            marker.delete()
+        }
+    }
+
+    /** True when a side file (write-ahead log, shared memory, journal) sits next to where [database] would be. */
+    fun hasSidecars(database: File): Boolean = SIDECARS.any { File(database.path + it).exists() }
+
+    private fun move(from: File, to: File) {
+        Files.move(from.toPath(), to.toPath(), StandardCopyOption.REPLACE_EXISTING)
     }
 }
 
@@ -86,6 +143,8 @@ internal object PendingRestore {
             db.parentFile?.mkdirs()
             // The library being replaced is kept (a safety backup was also written when staging).
             DatabaseOpener.keepAside(db, files.damagedDir, "replaced-$now.db")
+            // SQLite would read another database's write-ahead log as this one's.
+            if (db.exists() || DatabaseOpener.hasSidecars(db)) throw IOException("the replaced library wasn't fully moved aside")
             try {
                 Files.move(staged.toPath(), db.toPath(), StandardCopyOption.ATOMIC_MOVE)
             } catch (_: IOException) {

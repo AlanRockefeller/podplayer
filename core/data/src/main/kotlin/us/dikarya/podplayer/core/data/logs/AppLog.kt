@@ -90,6 +90,32 @@ class AppLog(
         return (fileCount - 1 downTo 0).map { fileAt(folder, it) }.filter { it.isFile }
     }
 
+    /**
+     * The text of every log file, oldest first, each cut to its first [maxBytesPerFile] bytes. Read under the
+     * same lock as writing, so a roll can't happen half-way and make the reader skip or repeat a file.
+     */
+    fun snapshot(maxBytesPerFile: Int): List<String> = synchronized(lock) {
+        files().map { file ->
+            try {
+                file.inputStream().use { input ->
+                    // InputStream.readNBytes is API 33+; minSdk is 29.
+                    val buffer = ByteArray(minOf(maxBytesPerFile.toLong(), file.length().coerceAtLeast(0)).toInt())
+                    var filled = 0
+                    while (filled < buffer.size) {
+                        val n = input.read(buffer, filled, buffer.size - filled)
+                        if (n < 0) break
+                        filled += n
+                    }
+                    String(buffer, 0, filled, Charsets.UTF_8)
+                }
+            } catch (_: IOException) {
+                ""
+            } catch (_: SecurityException) {
+                ""
+            }
+        }
+    }
+
     private fun fileAt(folder: File, index: Int) = File(folder, if (index == 0) "app.log" else "app.$index.log")
 
     private fun append(line: String) {

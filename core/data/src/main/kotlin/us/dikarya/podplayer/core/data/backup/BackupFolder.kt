@@ -39,10 +39,19 @@ object BackupNames {
     private val pattern = Regex("^podplayer-backup-(\\d{8}-\\d{6})(-[a-z0-9-]{1,40})?\\.zip$")
     private val stamp: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC)
 
-    fun create(at: Long, tag: String? = null): String {
-        val suffix = tag?.lowercase()?.filter { it in 'a'..'z' || it in '0'..'9' || it == '-' }?.take(40)?.trim('-')
-        return "podplayer-backup-${stamp.format(Instant.ofEpochMilli(at))}${if (suffix.isNullOrEmpty()) "" else "-$suffix"}.zip"
+    /**
+     * [sequence] (2, 3, …) tells apart backups made in the same second. It always survives: the tag is cut to
+     * make room for it, so each sequence number gives a different name.
+     */
+    fun create(at: Long, tag: String? = null, sequence: Int? = null): String {
+        val seq = sequence?.toString()
+        val room = MAX_TAG - (seq?.let { it.length + 1 } ?: 0)
+        val clean = tag?.lowercase()?.filter { it in 'a'..'z' || it in '0'..'9' || it == '-' }?.trim('-')?.take(room)?.trim('-')
+        val suffix = listOfNotNull(clean?.takeIf { it.isNotEmpty() }, seq).joinToString("-")
+        return "podplayer-backup-${stamp.format(Instant.ofEpochMilli(at))}${if (suffix.isEmpty()) "" else "-$suffix"}.zip"
     }
+
+    private const val MAX_TAG = 40
 
     /** When a backup with this name was made (to the second), or null if the name isn't one of ours. */
     fun parse(name: String): Long? {

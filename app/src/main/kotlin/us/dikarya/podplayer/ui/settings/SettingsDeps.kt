@@ -19,6 +19,8 @@ import us.dikarya.podplayer.core.data.settings.CleanUpSettings
 class SettingsDeps(
     val settings: AppSettings,
     val repositories: suspend () -> Repositories?,
+    /** The library as it changes (`DataLayer.repositories`), so the screens follow it after Start fresh. */
+    val library: Flow<Repositories?>,
     /** Stores the Wi-Fi-only choice and moves waiting downloads to it (`Jobs.setDownloadsWifiOnly`). */
     val setWifiOnly: suspend (Boolean) -> Unit,
     /** Auto-downloads' own network rule; waiting auto-downloads move to it (`Jobs.setAutoDownloadWifiOnly`). */

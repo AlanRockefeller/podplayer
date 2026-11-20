@@ -108,8 +108,9 @@ data class EpisodeEntity(
      */
     val autoDownloadedAt: Long? = null,
 ) {
+    // No guid: feeds often use a URL as the GUID, and it may carry a token (CodeRabbit review, PR 3).
     override fun toString() =
-        "EpisodeEntity(id=$id, feedId=$feedId, guid=$guid, title=$title, enclosure=${redact(enclosureUrl)}, inFeed=$inFeed, starred=$starred)"
+        "EpisodeEntity(id=$id, feedId=$feedId, title=$title, enclosure=${redact(enclosureUrl)}, inFeed=$inFeed, starred=$starred)"
 }
 
 /** A download. Media lives in app-private storage; [relativePath] is relative to the files folder (SPEC §7). */

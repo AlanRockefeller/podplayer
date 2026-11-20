@@ -12,10 +12,12 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.Timer
 import java.util.zip.ZipEntry
 import java.util.zip.ZipException
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
+import kotlin.concurrent.timerTask
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import us.dikarya.podplayer.core.data.db.PodDatabase
@@ -35,6 +37,11 @@ data class BackupLimits(
     /** Manifest, settings, and anything unknown (skipped, but still read). */
     val maxOtherBytes: Int = 256 * 1024,
     val maxEntries: Int = 16,
+    /**
+     * How long reading a backup may take (CLAUDE.md: every parser has a time limit). Generous: a 1 GiB library
+     * from a slow cloud provider is still a real backup. A provider that trickles or stalls is stopped here.
+     */
+    val maxReadMs: Long = 20L * 60 * 1000,
 )
 
 /** Why a backup can't be restored. */
@@ -96,8 +103,51 @@ internal object BackupArchive {
         zip.flush()
     }
 
-    /** Reads an archive, unpacking its database to [databaseOut]. Never throws for bad input. */
-    fun read(input: InputStream, databaseOut: File, limits: BackupLimits): ReadResult {
+    /**
+     * Reads an archive, unpacking its database to [databaseOut]. Never throws for bad input. Gives up after
+     * [BackupLimits.maxReadMs] ([now] is a monotonic clock in milliseconds): every read checks the time, and a
+     * watchdog closes [input] then, to end a read that never returns (where the stream supports that).
+     */
+    fun read(
+        input: InputStream,
+        databaseOut: File,
+        limits: BackupLimits,
+        now: () -> Long = { System.nanoTime() / 1_000_000 },
+    ): ReadResult {
+        val deadline = now() + limits.maxReadMs
+        val watchdog = Timer("podplayer-backup-read", true)
+        watchdog.schedule(timerTask { runCatching { input.close() } }, limits.maxReadMs.coerceAtLeast(1))
+        try {
+            val result = readTimed(TimedInput(input, deadline, now), databaseOut, limits)
+            // A stream the watchdog closed can end in what looks like a broken zip: it was too slow, not malformed.
+            return if (result is ReadResult.Refused && now() > deadline) ReadResult.Refused(RestoreProblem.Unreadable) else result
+        } finally {
+            watchdog.cancel()
+        }
+    }
+
+    /** Throws once the deadline has passed, before every read. */
+    private class TimedInput(private val input: InputStream, private val deadline: Long, private val now: () -> Long) : InputStream() {
+        private fun check() {
+            if (now() > deadline) throw IOException("reading the backup took too long")
+        }
+
+        override fun read(): Int {
+            check()
+            return input.read()
+        }
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int {
+            check()
+            return input.read(b, off, len)
+        }
+
+        override fun available(): Int = input.available()
+
+        override fun close() = input.close()
+    }
+
+    private fun readTimed(input: InputStream, databaseOut: File, limits: BackupLimits): ReadResult {
         val refused = { problem: RestoreProblem -> ReadResult.Refused(problem) }
         var manifestText: String? = null
         var settingsText: String? = null

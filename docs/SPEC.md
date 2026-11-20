@@ -40,7 +40,7 @@ One OkHttp client for the whole app, built in `:core:net` and passed everywhere 
 - Schemes: feed-supplied URLs `http` or `https` only. Cleartext HTTP is allowed for feeds, media and images
   (many feeds still use it) and the UI marks such feeds "not secure". Our own server is HTTPS only (M2+).
 - Address filter: a custom `Dns` rejects any resolved address that is loopback, private (10/8, 172.16/12,
-  192.168/16), link-local (169.254/16, fe80::/10), CGNAT (100.64/10), unique-local (fc00::/7), multicast,
+  192.168/16), link-local (169.254/16, fe80::/10), CGNAT (100.64/10), benchmarking (198.18/15), unique-local (fc00::/7), multicast,
   unspecified, or IPv4-mapped forms of these. Literal IP hosts are checked the same way.
   Exception: a feed whose URL the owner typed may use its own host; record that host as owner-approved.
 - Redirects: handled manually, at most 20 hops (podcast tracker chains reach 7+), each hop re-checked. A 301 or 308 on a feed URL updates the

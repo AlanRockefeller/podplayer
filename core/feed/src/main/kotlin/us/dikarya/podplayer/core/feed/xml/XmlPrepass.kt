@@ -15,7 +15,7 @@ data class Repairs(
     val illegalCharacters: Int = 0,
     /** `&` that started no valid reference and were escaped. */
     val bareAmpersands: Int = 0,
-    /** HTML named entities (`&nbsp;`) turned into character references. */
+    /** HTML named entities (`&nbsp;`) turned into character references, and HTML-only `&#X26;` spelt `&#x26;`. */
     val htmlEntities: Int = 0,
     /** A DOCTYPE without entity declarations was removed. */
     val doctypeRemoved: Boolean = false,
@@ -240,7 +240,13 @@ object XmlPrepass {
                         null -> Unit // malformed: escaped below
                         else -> {
                             if (codePoint in 0..0x10FFFF && isLegalCodePoint(codePoint.toInt())) {
-                                out.append(text, i, semicolon + 1)
+                                if (body[1] == 'X') {
+                                    // HTML accepts `&#X26;`; XML only `&#x26;`, and pull parsers reject the document.
+                                    out.append("&#x").append(body, 2, body.length).append(';')
+                                    entities++
+                                } else {
+                                    out.append(text, i, semicolon + 1)
+                                }
                             } else {
                                 illegal++
                             }

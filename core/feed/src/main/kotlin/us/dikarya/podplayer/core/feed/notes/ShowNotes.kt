@@ -73,19 +73,22 @@ object ShowNotes {
         val start = ticker.nanos()
         val budget = limits.maxDuration.inWholeNanoseconds
         val out = RichTextBuilder(durationMs)
+        val overBudget = { ticker.nanos() - start > budget }
         if (!htmlTag.containsMatchIn(html)) {
-            plainText(html, out)
-            return NotesResult.Ok(out.build())
+            if (!plainText(html, out, overBudget)) return NotesResult.Rejected(NotesProblem.TimeLimit)
+            val text = out.build()
+            if (overBudget()) return NotesResult.Rejected(NotesProblem.TimeLimit)
+            return NotesResult.Ok(text)
         }
         val body = Parser.htmlParser().setMaxDepth(MAX_TREE_DEPTH).parseInput(html, "").body()
-        if (ticker.nanos() - start > budget) return NotesResult.Rejected(NotesProblem.TimeLimit)
+        if (overBudget()) return NotesResult.Rejected(NotesProblem.TimeLimit)
 
         var elements = 0
         var nodes = 0
         var problem: NotesProblem? = null
         val walker = object : NodeFilter {
             override fun head(node: Node, depth: Int): NodeFilter.FilterResult {
-                if (++nodes % TIME_CHECK_EVERY == 0 && ticker.nanos() - start > budget) {
+                if (++nodes % TIME_CHECK_EVERY == 0 && overBudget()) {
                     problem = NotesProblem.TimeLimit
                     return NodeFilter.FilterResult.STOP
                 }
@@ -112,15 +115,18 @@ object ShowNotes {
         }
         NodeTraversor.filter(walker, body)
         problem?.let { return NotesResult.Rejected(it) }
-        return NotesResult.Ok(out.build())
+        val text = out.build()
+        if (overBudget()) return NotesResult.Rejected(NotesProblem.TimeLimit)
+        return NotesResult.Ok(text)
     }
 
     /**
      * Notes without markup: keep the publisher's lines, a blank line starts a paragraph. Entities are still HTML's
-     * (`&nbsp;`, `&amp;`): the field is HTML even when it has no tags.
+     * (`&nbsp;`, `&amp;`): the field is HTML even when it has no tags. False when the time budget ran out.
      */
-    private fun plainText(text: String, out: RichTextBuilder) {
-        for (line in text.replace("\r\n", "\n").replace('\r', '\n').split('\n')) {
+    private fun plainText(text: String, out: RichTextBuilder, overBudget: () -> Boolean): Boolean {
+        for ((index, line) in text.replace("\r\n", "\n").replace('\r', '\n').split('\n').withIndex()) {
+            if (index % TIME_CHECK_EVERY == 0 && overBudget()) return false
             if (line.isBlank()) {
                 out.requestBreak(2)
             } else {
@@ -128,6 +134,7 @@ object ShowNotes {
                 out.text(if ('&' in line) Parser.unescapeEntities(line, false) else line)
             }
         }
+        return true
     }
 
     /** The host a link goes to, from the parsed URL, or null when it isn't a usable link. */

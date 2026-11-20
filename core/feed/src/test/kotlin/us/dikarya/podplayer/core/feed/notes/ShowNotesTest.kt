@@ -213,6 +213,17 @@ class ShowNotesTest {
     }
 
     @Test
+    fun `notes without markup are held to the time limit too`() {
+        val limits = NotesLimits(maxDuration = 2.seconds)
+        assertEquals(
+            NotesResult.Rejected(NotesProblem.TimeLimit),
+            ShowNotes.sanitize("line one\nline two 12:34", limits = limits, ticker = FakeTicker(step = 3.seconds.inWholeNanoseconds)),
+        )
+        // Within the budget the same notes are fine.
+        assertTrue(ShowNotes.sanitize("line one\nline two 12:34", limits = limits, ticker = FakeTicker(step = 1)) is NotesResult.Ok)
+    }
+
+    @Test
     fun `the default input limit is generous`() {
         assertTrue(ShowNotes.sanitize("<p>" + "word ".repeat(100_000) + "</p>") is NotesResult.Ok)
     }

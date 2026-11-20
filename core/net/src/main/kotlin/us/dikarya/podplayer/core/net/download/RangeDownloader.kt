@@ -112,6 +112,12 @@ class RangeDownloader(
     suspend fun download(
         request: DownloadRequest,
         sink: DownloadSink,
+        /**
+         * Called on the reading thread when the validators that describe the bytes on disk change, before the
+         * first new byte is written. Cancellation returns no [DownloadResult], so a caller that keeps the
+         * partial file saves these for its resume.
+         */
+        onCheckpoint: (Validators) -> Unit = {},
         onProgress: DownloadProgressListener = DownloadProgressListener { _, _ -> },
     ): DownloadResult {
         val fallbackValidators = request.validators ?: Validators.None
@@ -131,7 +137,9 @@ class RangeDownloader(
         var resumedFrom = offset
         var restarted = false
         var continuations = 0
-        var outcome = attempt(request, sink, offset, ifRange, restart, resumedFrom, onProgress)
+        // The validators that describe the bytes on disk: what a failure hands back for the next resume.
+        val onDisk = if (offset > 0) fallbackValidators else Validators.None
+        var outcome = attempt(request, sink, offset, ifRange, onDisk, restart, resumedFrom, onCheckpoint, onProgress)
         while (true) {
             outcome = when (val current = outcome) {
                 is Attempt.Done -> return current.result
@@ -139,13 +147,13 @@ class RangeDownloader(
                     // One restart from zero per download; a second unusable answer is a failure.
                     if (restarted) {
                         return NetError.Network("the server sent an unusable partial response")
-                            .failed(sink, fallbackValidators, restart)
+                            .failed(sink, current.validators, restart)
                     }
                     restarted = true
                     restart = current.reason
-                    truncate(sink)?.let { return it.failed(sink, fallbackValidators, restart) }
+                    truncate(sink)?.let { return it.failed(sink, current.validators, restart) }
                     resumedFrom = 0
-                    attempt(request, sink, 0, null, restart, resumedFrom, onProgress)
+                    attempt(request, sink, 0, null, Validators.None, restart, resumedFrom, onCheckpoint, onProgress)
                 }
                 is Attempt.Continue -> {
                     // The server sent less than asked for and said so: ask for the rest, within reason.
@@ -153,7 +161,10 @@ class RangeDownloader(
                         return NetError.Network("the server split the file into more than $MAX_CONTINUATIONS pieces")
                             .failed(sink, current.validators, restart)
                     }
-                    attempt(request, sink, current.offset, current.ifRange, restart, resumedFrom, onProgress)
+                    attempt(
+                        request, sink, current.offset, current.ifRange, current.validators, restart, resumedFrom,
+                        onCheckpoint, onProgress,
+                    )
                 }
             }
         }
@@ -162,21 +173,26 @@ class RangeDownloader(
     private sealed interface Attempt {
         class Done(val result: DownloadResult) : Attempt
 
-        /** Throw the partial file away and start over, for [reason]. */
-        class Retry(val reason: RestartReason) : Attempt
+        /** Throw the partial file away and start over, for [reason]. [validators] still describe the file. */
+        class Retry(val reason: RestartReason, val validators: Validators) : Attempt
 
         /** The response ended, as announced, before the end of the file: fetch on from [offset]. */
         class Continue(val offset: Long, val ifRange: String, val validators: Validators) : Attempt
     }
 
-    /** One request. [offset] > 0 asks for the rest of the file; [resumedFrom] is where the whole download started. */
+    /**
+     * One request. [offset] > 0 asks for the rest of the file, whose bytes [onDisk] describes; [resumedFrom] is
+     * where the whole download started.
+     */
     private suspend fun attempt(
         request: DownloadRequest,
         sink: DownloadSink,
         offset: Long,
         ifRange: String?,
+        onDisk: Validators,
         restart: RestartReason?,
         resumedFrom: Long,
+        onCheckpoint: (Validators) -> Unit,
         onProgress: DownloadProgressListener,
     ): Attempt {
         val httpRequest = Request.Builder().url(request.url).get()
@@ -185,7 +201,7 @@ class RangeDownloader(
             .apply { if (offset > 0 && ifRange != null) header("Range", "bytes=$offset-").header("If-Range", ifRange) }
             .build()
         val call = gate.client(request.policy).newCall(httpRequest)
-        val transfer = Transfer(request, sink, offset, ifRange, restart, resumedFrom, onProgress)
+        val transfer = Transfer(request, sink, offset, ifRange, onDisk, restart, resumedFrom, onCheckpoint, onProgress)
         return coroutineScope {
             val watchdog = launch { watchForStall(call, transfer) }
             try {
@@ -196,8 +212,7 @@ class RangeDownloader(
                     e is SinkFailure -> NetError.Storage(NetError.describe(e.cause ?: e))
                     else -> NetError.from(e)
                 }
-                val validators = transfer.seenValidators.get() ?: request.validators ?: Validators.None
-                Attempt.Done(error.failed(sink, validators, transfer.restart))
+                Attempt.Done(error.failed(sink, transfer.onDisk.get(), transfer.restart))
             } finally {
                 watchdog.cancel()
             }
@@ -225,22 +240,28 @@ class RangeDownloader(
         var offset: Long,
         /** The `If-Range` value sent with this attempt, if any. */
         val ifRange: String?,
+        onDisk: Validators,
         var restart: RestartReason?,
         var resumedFrom: Long,
+        val onCheckpoint: (Validators) -> Unit,
         val onProgress: DownloadProgressListener,
     ) {
         val received = AtomicLong(0)
         val stalled = AtomicBoolean(false)
-        val seenValidators = AtomicReference<Validators?>(null)
+
+        /**
+         * The validators that describe the bytes in the sink. A response's own validators replace them only
+         * when its body starts a new file: an error or a refused response says nothing about the saved bytes.
+         */
+        val onDisk = AtomicReference(onDisk)
 
         fun handle(response: Response): Attempt {
             val validators = Validators.from(response)
-            seenValidators.set(validators)
             return when (response.code) {
                 206 -> handlePartial(response, validators)
                 200 -> handleFull(response, validators)
                 416 -> handleUnsatisfiable(response, validators)
-                else -> Attempt.Done(NetError.HttpStatus(response.code).failed(sink, validators, restart))
+                else -> Attempt.Done(NetError.HttpStatus(response.code).failed(sink, onDisk.get(), restart))
             }
         }
 
@@ -248,11 +269,13 @@ class RangeDownloader(
             val range = ContentRange.parse(response.header("Content-Range"))
             val multipart = response.header("Content-Type")?.startsWith("multipart/", ignoreCase = true) == true
             if (range?.first != offset || multipart) {
-                if (offset > 0) return Attempt.Retry(RestartReason.BadContentRange)
-                return Attempt.Done(NetError.Network("unexpected partial response").failed(sink, validators, restart))
+                if (offset > 0) return Attempt.Retry(RestartReason.BadContentRange, onDisk.get())
+                return Attempt.Done(NetError.Network("unexpected partial response").failed(sink, onDisk.get(), restart))
             }
-            val total = range.total ?: response.body.contentLength().takeIf { it >= 0 }?.let { it + offset }
-            return writeBody(response, validators, total, announcedEnd = range.last?.plus(1))
+            // A 206 that continues the file matched the If-Range sent, so the saved validators still hold.
+            if (offset == 0L) startNewFile(validators)
+            // An unknown total stays unknown: this response's Content-Length is the length of the piece only.
+            return writeBody(response, validators, range.total, announcedEnd = range.last?.plus(1))
         }
 
         private fun handleFull(response: Response, validators: Validators): Attempt {
@@ -264,7 +287,13 @@ class RangeDownloader(
                 offset = 0
                 resumedFrom = 0
             }
+            startNewFile(validators)
             return writeBody(response, validators, declared, announcedEnd = declared)
+        }
+
+        private fun startNewFile(validators: Validators) {
+            onDisk.set(validators)
+            onCheckpoint(validators)
         }
 
         private fun handleUnsatisfiable(response: Response, validators: Validators): Attempt {
@@ -272,13 +301,14 @@ class RangeDownloader(
             if (offset > 0 && total == offset) {
                 return Attempt.Done(complete(response, validators, bytes = offset))
             }
-            if (offset > 0) return Attempt.Retry(RestartReason.RangeNotSatisfiable)
-            return Attempt.Done(NetError.HttpStatus(416).failed(sink, validators, restart))
+            if (offset > 0) return Attempt.Retry(RestartReason.RangeNotSatisfiable, onDisk.get())
+            return Attempt.Done(NetError.HttpStatus(416).failed(sink, onDisk.get(), restart))
         }
 
         /**
          * Streams the body to the sink. [total] is the whole file's size when known; [announcedEnd] is where
          * the server said this response's bytes end (from Content-Range, or Content-Length for a full response).
+         * A partial response of unknown total has an [announcedEnd] but no [total].
          */
         private fun writeBody(response: Response, validators: Validators, total: Long?, announcedEnd: Long?): Attempt {
             if (total != null && total > request.maxBytes) throw BodyTooLargeException(request.maxBytes)
@@ -313,35 +343,42 @@ class RangeDownloader(
                     if (failure == null) throw SinkFailure(e) else failure.addSuppressed(e)
                 }
             }
-            if (total != null && onDisk != total) {
+            // A piece of unknown total may or may not end the file: only a later answer can tell (a piece with a
+            // known total, or a 416 saying the file ends here), so it is never complete on its own.
+            if ((total != null && onDisk != total) || (total == null && announcedEnd != null && response.code == 206)) {
                 if (reported != onDisk) onProgress.onProgress(onDisk, total)
-                return shortBody(onDisk, total, announcedEnd, validators)
+                return shortBody(onDisk, total, announcedEnd)
             }
             if (reported != onDisk) onProgress.onProgress(onDisk, total ?: onDisk)
             return Attempt.Done(complete(response, validators, onDisk))
         }
 
         /**
-         * The body ended cleanly before the end of the file. A server may answer a Range request with a
-         * smaller piece than asked for (RFC 9110 §15.3.7) and say so in Content-Range: then the download
-         * carries on from where the piece ended, with the validator the server has already accepted. Anything
-         * else (bytes missing from what was announced, no validator, pieces too small to be a server capping
-         * ranges in good faith) is a failure that the next attempt resumes from.
+         * The body ended cleanly before the end of the file, or of unknown total. A server may answer a Range
+         * request with a smaller piece than asked for (RFC 9110 §15.3.7) and say so in Content-Range: then the
+         * download carries on from where the piece ended, with the validator the server has already accepted.
+         * Anything else (bytes missing from what was announced, no validator, pieces too small to be a server
+         * capping ranges in good faith) is a failure that the next attempt resumes from.
          */
-        private fun shortBody(onDisk: Long, total: Long, announcedEnd: Long?, validators: Validators): Attempt {
+        private fun shortBody(onDisk: Long, total: Long?, announcedEnd: Long?): Attempt {
+            val saved = this.onDisk.get()
+            val of = total?.let { "of $it " } ?: "of an unknown total "
             val failure = when {
-                onDisk != announcedEnd -> "the transfer ended after $onDisk of $total bytes"
-                onDisk - offset < MIN_CONTINUATION_BYTES ->
+                onDisk != announcedEnd -> "the transfer ended after $onDisk ${of}bytes"
+                onDisk - offset < MIN_CONTINUATION_BYTES -> if (total != null) {
                     "the server sent only ${onDisk - offset} bytes of the remaining ${total - offset}"
+                } else {
+                    "the server sent only ${onDisk - offset} bytes of a file of unknown size"
+                }
                 else -> null
             }
-            if (failure != null) return Attempt.Done(NetError.Network(failure).failed(sink, validators, restart))
-            val next = ifRange ?: validators.ifRangeValue
+            if (failure != null) return Attempt.Done(NetError.Network(failure).failed(sink, saved, restart))
+            val next = ifRange ?: saved.ifRangeValue
                 ?: return Attempt.Done(
-                    NetError.Network("the server sent $onDisk of $total bytes and no validator to fetch the rest with")
-                        .failed(sink, validators, restart),
+                    NetError.Network("the server sent $onDisk ${of}bytes and no validator to fetch the rest with")
+                        .failed(sink, saved, restart),
                 )
-            return Attempt.Continue(onDisk, next, validators)
+            return Attempt.Continue(onDisk, next, saved)
         }
 
         private fun complete(response: Response, validators: Validators, bytes: Long) = DownloadResult.Complete(

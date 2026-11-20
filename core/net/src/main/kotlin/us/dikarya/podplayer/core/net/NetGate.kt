@@ -177,22 +177,28 @@ private const val READ_CHUNK = 8L * 1024
  */
 internal suspend fun <T> Call.awaitResponse(dispatcher: CoroutineDispatcher, block: (Response) -> T): T {
     val response = awaitHeaders()
-    return coroutineScope {
-        val reading = async(dispatcher) {
+    try {
+        return coroutineScope {
+            val reading = async(dispatcher) {
+                try {
+                    response.use(block)
+                } catch (e: IOException) {
+                    // A read that failed because this coroutine was cancelled is a cancellation, not a network error.
+                    ensureActive()
+                    throw e
+                }
+            }
             try {
-                response.use(block)
-            } catch (e: IOException) {
-                // A read that failed because this coroutine was cancelled is a cancellation, not a network error.
-                ensureActive()
-                throw e
+                reading.await()
+            } catch (cancelled: CancellationException) {
+                cancel()
+                throw cancelled
             }
         }
-        try {
-            reading.await()
-        } catch (cancelled: CancellationException) {
-            cancel()
-            throw cancelled
-        }
+    } finally {
+        // coroutineScope returns only once the reader has finished, so this never closes a body mid-read. It
+        // matters when cancellation came before the reader started: then its body never ran to close the response.
+        response.close()
     }
 }
 

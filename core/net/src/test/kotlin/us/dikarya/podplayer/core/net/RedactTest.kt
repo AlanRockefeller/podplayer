@@ -9,6 +9,7 @@ package us.dikarya.podplayer.core.net
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** CLAUDE.md: feed URLs are secrets; logs strip query, fragment and userinfo. */
@@ -74,6 +75,19 @@ class RedactTest {
     }
 
     @Test
+    fun extraSlashesBeforeTheAuthorityDoNotHideTheUserinfo() {
+        // OkHttp reads `https:///alice:SECRET@example.com` as userinfo alice:SECRET on example.com, and the
+        // feed URL check accepts it, so a stored feed URL can look like this.
+        assertEquals("https:///example.com/feed", redact("https:///alice:SECRET@example.com/feed?token=x"))
+        assertEquals("https:////example.com/feed", redact("https:////alice:SECRET@example.com/feed"))
+        assertEquals("https://\\example.com/feed", redact("https://\\alice:SECRET@example.com/feed"))
+        assertEquals("https:/example.com/feed", redact("https:/alice:SECRET@example.com/feed"))
+        assertEquals("https:\\\\example.com/feed", redact("https:\\\\alice:SECRET@example.com/feed"))
+        assertEquals(" https:///example.com/feed", redact(" https:///alice:SECRET@example.com/feed"))
+        assertEquals("https://example.com/feed", redact("https:///alice:SECRET@example.com/feed".toHttpUrl()))
+    }
+
+    @Test
     fun backslashesEndTheAuthorityLikeInBrowsers() {
         assertEquals("https://example.com\\feed", redact("https://u:p@example.com\\feed?x=1"))
     }
@@ -99,6 +113,61 @@ class RedactTest {
     @Test
     fun scrubDoesNotStopAtAParenthesisInsideAUrl() {
         assertEquals("see https://x.example/a(b)", scrubUrls("see https://x.example/a(b)?token=1"))
+    }
+
+    @Test
+    fun scrubDoesNotStopAtAnApostropheInsideAUrl() {
+        assertEquals("failed https://example.com/o'brien/feed", scrubUrls("failed https://example.com/o'brien/feed?token=SECRET"))
+    }
+
+    @Test
+    fun scrubStillRedactsEachOfSeveralUrlsJoinedByQuotes() {
+        // Apostrophes no longer end a URL, so quoted URLs written side by side arrive as one candidate.
+        val scrubbed = scrubUrls("tried 'https://a.example/x','https://u:pw@b.example/y' and 'https://c.example/z?k=SECRET'")
+        assertFalse(scrubbed, "pw" in scrubbed || "SECRET" in scrubbed || '@' in scrubbed)
+        assertEquals("tried 'https://a.example/x','https://b.example/y' and 'https://c.example/z", scrubbed)
+    }
+
+    @Test
+    fun scrubDropsAUrlNestedInAQuery() {
+        assertEquals("go https://t.example/r", scrubUrls("go https://t.example/r?u=https://u:pw@cdn.example/a.mp3"))
+    }
+
+    @Test
+    fun scrubIsLinearInARunOfNestedSchemes() {
+        // Exception messages can carry server text (a malformed status line), so a hostile run must stay cheap.
+        val hostile = "a://".repeat(262_144)
+        val elapsed = kotlin.time.measureTime { scrubUrls(hostile) }
+        assertTrue("$elapsed", elapsed < kotlin.time.Duration.parse("2s"))
+    }
+
+    @Test
+    fun scrubIsLinearInALongUrlWithManySchemeLikeRunsThatNeverEndInSlashes() {
+        // Every `a.` could start a scheme; none is followed by `://`. A search that retries each start rescans the tail.
+        val hostile = "https://x.example/" + "a.".repeat(131_072)
+        val endsInAScheme = hostile + "b://u:pw@y.example/z"
+        val elapsed = kotlin.time.measureTime {
+            scrubUrls(hostile)
+            assertFalse("pw" in scrubUrls(endsInAScheme))
+        }
+        assertTrue("$elapsed", elapsed < kotlin.time.Duration.parse("2s"))
+    }
+
+    @Test
+    fun scrubIsLinearInTextFullOfSchemeLikeRunsWithoutAnyUrl() {
+        // On main the URL regex itself backtracked here: about 14 s for 64 KB of `a.`.
+        val hostile = "a.".repeat(131_072)
+        val elapsed = kotlin.time.measureTime { assertEquals(hostile, scrubUrls(hostile)) }
+        assertTrue("$elapsed", elapsed < kotlin.time.Duration.parse("2s"))
+    }
+
+    @Test
+    fun scrubFindsUrlsWhereverTheyStartAndEnd() {
+        val text = "x(HTTPS://u:p@a.example/b?c)\t<http://d.example/e#f> \"svn+ssh://g@h/i\" a.b-c+d://j@k/l nothing:// here://"
+        assertEquals(
+            "x(HTTPS://a.example/b\t<http://d.example/e> \"svn+ssh://h/i\" a.b-c+d://k/l nothing:// here://",
+            scrubUrls(text),
+        )
     }
 
     @Test

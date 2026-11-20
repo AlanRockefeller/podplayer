@@ -76,7 +76,8 @@ data class FeedChanges(
  * Episode identity and merge (SPEC §4, LESSONS "Episode identity") as a pure function.
  *
  * Identity within a feed:
- * 1. GUID, when it is unique within this copy of the feed.
+ * 1. GUID, when it is unique within this copy of the feed and names one stored episode (or, when several
+ *    stored episodes share it, the one with the item's enclosure URL).
  * 2. Otherwise, or when the GUID is new (publishers change GUIDs when they move hosts): the enclosure URL,
  *    when exactly one unresolved item and one unmatched stored episode have it.
  * 3. Then the normalized title plus the publication day (a day either way, for hosts that shift times
@@ -117,10 +118,14 @@ object EpisodeMerge {
         val storedByGuid = stored.filter { it.guid != null }.groupBy { it.guid }
         for ((index, item) in items.withIndex()) {
             if (item.guid == null || guidCounts[item.guid] != 1) continue
-            val candidates = storedByGuid[item.guid] ?: continue
-            val pick = candidates.firstOrNull { it.id !in taken && it.enclosureUrl == item.enclosure?.url }
-                ?: candidates.firstOrNull { it.id !in taken }
-                ?: continue
+            val candidates = storedByGuid[item.guid].orEmpty().filter { it.id !in taken }
+            // Several stored episodes with this GUID (it was reused before): only a matching enclosure tells
+            // which one this is; otherwise the fallbacks below decide.
+            val pick = if (candidates.size == 1) {
+                candidates.single()
+            } else {
+                candidates.singleOrNull { it.enclosureUrl == item.enclosure?.url } ?: continue
+            }
             matched[index] = pick to MatchedBy.Guid
             taken += pick.id
         }

@@ -55,7 +55,9 @@ val Response.redirectChain: RedirectChain
  *
  * A URL with userinfo (`https://user:pass@host/feed`, as some private feeds are written) is sent as HTTP
  * Basic auth to that host, since OkHttp never sends userinfo itself, and the userinfo leaves the URL, so it
- * is dropped with the header when a redirect changes host. An explicit `Authorization` header wins.
+ * is dropped with the header when a redirect changes host or leaves https. Userinfo in a redirect's `Location`
+ * is sent the same way to the host it names, over https only. An explicit `Authorization` header wins, and so
+ * do the credentials already sent to the same origin.
  */
 internal class RedirectInterceptor(private val maxRedirects: Int) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -76,32 +78,49 @@ internal class RedirectInterceptor(private val maxRedirects: Int) : Interceptor 
             val target = request.url.resolve(location)
                 ?: throw BadRedirectException("redirect to a URL that is not http or https")
             hops += RedirectHop(request.url, target, response.code)
-            request = nextRequest(request, target, response.code)
+            request = followUp(request, target, response.code)
         }
     }
 
-    private fun userinfoAsBasicAuth(request: Request): Request {
-        val url = request.url
-        if (url.username.isEmpty() && url.password.isEmpty()) return request
-        val builder = request.newBuilder().url(url.newBuilder().username("").password("").build())
-        if (request.header("Authorization") == null) {
-            builder.header("Authorization", Credentials.basic(url.username, url.password, Charsets.UTF_8))
+    companion object {
+        private val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
+        private val FOLLOWED_METHODS = setOf("GET", "HEAD")
+        private val CREDENTIAL_HEADERS = listOf("Authorization", "Cookie", "Proxy-Authorization")
+
+        /**
+         * The request a redirect to [target] leads to, with the credentials it may carry. Credentials already
+         * sent stay only on the same origin (so never across an https-to-http downgrade). Userinfo in the
+         * Location becomes Basic auth only over https: a server's redirect never gets to send credentials in
+         * the clear. The owner's own http feed with userinfo is the one cleartext case, and that is their URL.
+         */
+        internal fun followUp(previous: Request, target: HttpUrl, code: Int): Request {
+            val next = nextRequest(previous, target, code)
+            return if (target.isHttps) userinfoAsBasicAuth(next) else withoutUserinfo(next)
         }
-        return builder.build()
-    }
 
-    private fun nextRequest(previous: Request, target: HttpUrl, code: Int): Request {
-        val builder = previous.newBuilder().url(target)
-        if (code == 303 && previous.method != "HEAD") builder.get()
-        val sameOrigin = target.scheme == previous.url.scheme && target.host == previous.url.host &&
-            target.port == previous.url.port
-        if (!sameOrigin) CREDENTIAL_HEADERS.forEach { builder.removeHeader(it) }
-        return builder.build()
-    }
+        private fun userinfoAsBasicAuth(request: Request): Request {
+            val url = request.url
+            if (url.username.isEmpty() && url.password.isEmpty()) return request
+            val builder = withoutUserinfo(request).newBuilder()
+            if (request.header("Authorization") == null) {
+                builder.header("Authorization", Credentials.basic(url.username, url.password, Charsets.UTF_8))
+            }
+            return builder.build()
+        }
 
-    private companion object {
-        val REDIRECT_CODES = setOf(301, 302, 303, 307, 308)
-        val FOLLOWED_METHODS = setOf("GET", "HEAD")
-        val CREDENTIAL_HEADERS = listOf("Authorization", "Cookie", "Proxy-Authorization")
+        private fun withoutUserinfo(request: Request): Request {
+            val url = request.url
+            if (url.username.isEmpty() && url.password.isEmpty()) return request
+            return request.newBuilder().url(url.newBuilder().username("").password("").build()).build()
+        }
+
+        private fun nextRequest(previous: Request, target: HttpUrl, code: Int): Request {
+            val builder = previous.newBuilder().url(target)
+            if (code == 303 && previous.method != "HEAD") builder.get()
+            val sameOrigin = target.scheme == previous.url.scheme && target.host == previous.url.host &&
+                target.port == previous.url.port
+            if (!sameOrigin) CREDENTIAL_HEADERS.forEach { builder.removeHeader(it) }
+            return builder.build()
+        }
     }
 }

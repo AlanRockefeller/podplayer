@@ -37,10 +37,17 @@ class XmlPrepassTest {
 
     @Test
     fun `valid references are kept`() {
-        val xml = "<rss>&amp; &lt; &gt; &quot; &apos; &#38; &#x26; &#X26; &#128512;</rss>"
+        val xml = "<rss>&amp; &lt; &gt; &quot; &apos; &#38; &#x26; &#x1F399; &#128512;</rss>"
         val result = ready(xml)
         assertEquals(xml, result.xml)
         assertEquals(Repairs.NONE, result.repairs)
+    }
+
+    @Test
+    fun `an uppercase X in a hex reference, valid in HTML only, is rewritten as XML spells it`() {
+        val result = ready("<rss>&#X26; &#X1f399;</rss>")
+        assertEquals("<rss>&#x26; &#x1f399;</rss>", result.xml)
+        assertEquals(2, result.repairs.htmlEntities)
     }
 
     @Test

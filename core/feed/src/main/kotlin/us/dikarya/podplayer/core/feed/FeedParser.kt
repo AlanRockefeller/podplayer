@@ -51,7 +51,10 @@ class FeedParser(
                 root == "feed" && AtomReader.isAtomNamespace(namespace) -> AtomReader(context, namespace).read()
                 else -> return FeedParseResult.Failure(ParseProblem.NotAFeed(safeName(root)))
             }
-            FeedParseResult.Success(feed, warnings(prepared, context, feed))
+            val warnings = warnings(prepared, context, feed)
+            // The reader checks the clock only every so many events; the budget must hold to the end.
+            deadline.check()
+            FeedParseResult.Success(feed, warnings)
         } catch (e: XmlLimitException) {
             FeedParseResult.Failure(e.problem)
         } catch (e: XmlPullParserException) {

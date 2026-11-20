@@ -7,15 +7,19 @@
 package us.dikarya.podplayer.core.feed.opml
 
 import java.time.Instant
+import kotlin.time.Duration.Companion.seconds
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
+import org.xmlpull.v1.XmlPullParser
 import us.dikarya.podplayer.core.feed.NONCHARACTER
 import us.dikarya.podplayer.core.feed.ParseProblem
 import us.dikarya.podplayer.core.feed.kxml
+import us.dikarya.podplayer.core.feed.xml.Ticker
 import us.dikarya.podplayer.core.feed.xml.XmlLimits
+import us.dikarya.podplayer.core.feed.xml.XmlParserProvider
 import us.dikarya.podplayer.core.net.UrlProblem
 import us.dikarya.podplayer.core.testing.Fixtures
 
@@ -30,6 +34,30 @@ class OpmlTest {
 
     private fun OpmlParseResult.problem(): ParseProblem =
         (this as? OpmlParseResult.Failure ?: fail("Expected failure, got $this") as Nothing).problem
+
+    @Test
+    fun `a budget that runs out after the last time check still rejects the file`() {
+        // A small file has fewer events than the periodic time check needs; the parser must look before success.
+        val clock = object : Ticker {
+            var now = 0L
+
+            override fun nanos() = now
+        }
+        val parsers = XmlParserProvider {
+            val inner = Fixtures.xmlPullParser()
+            object : XmlPullParser by inner {
+                override fun next(): Int {
+                    val event = inner.next()
+                    if (event == XmlPullParser.END_TAG && inner.depth == 1) clock.now = 11.seconds.inWholeNanoseconds
+                    return event
+                }
+            }
+        }
+        val opml = "<opml version=\"2.0\"><body><outline type=\"rss\" xmlUrl=\"https://feeds.example.com/a\"/></body></opml>"
+        assertEquals(ParseProblem.TimeLimit, OpmlParser(parsers, XmlLimits(), clock).parse(opml.toByteArray()).problem())
+        // Within the budget the same file parses.
+        assertEquals(1, OpmlParser(kxml, XmlLimits(), Ticker { 0L }).parse(opml.toByteArray()).success().feeds.size)
+    }
 
     @Test
     fun `nested categories are flattened in document order`() {

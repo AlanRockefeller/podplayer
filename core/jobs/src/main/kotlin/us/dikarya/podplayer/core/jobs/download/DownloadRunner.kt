@@ -35,6 +35,7 @@ import us.dikarya.podplayer.core.net.NetError
 import us.dikarya.podplayer.core.net.NetLimits
 import us.dikarya.podplayer.core.net.UrlCheck
 import us.dikarya.podplayer.core.net.UrlPolicy
+import us.dikarya.podplayer.core.net.Validators
 import us.dikarya.podplayer.core.net.download.DownloadRequest
 import us.dikarya.podplayer.core.net.download.DownloadResult
 import us.dikarya.podplayer.core.net.download.DownloadSink
@@ -227,6 +228,8 @@ class DownloadRunner(
 
             val request = DownloadRequest(url, policy, validators, maxBytes = budget.coerceAtMost(NetLimits.MEDIA_MAX_BYTES))
             bytesOnDisk.set(partial)
+            // The validators of the bytes on disk, saved when the download is stopped so the next one resumes.
+            val checkpoint = AtomicReference<Validators?>(null)
             val result = try {
                 coroutineScope {
                     // The database shows progress too, a few times a second at most.
@@ -237,7 +240,7 @@ class DownloadRunner(
                         }
                     }
                     try {
-                        engine.download(request, sinkFactory(file)) { bytes, total ->
+                        engine.download(request, sinkFactory(file), onCheckpoint = { checkpoint.set(it) }) { bytes, total ->
                             bytesOnDisk.set(bytes)
                             if (total != null) totalBytes.set(total)
                             onProgress(bytes, total)
@@ -247,7 +250,10 @@ class DownloadRunner(
                     }
                 }
             } catch (e: CancellationException) {
-                withContext(NonCancellable) { stopped() }
+                withContext(NonCancellable) {
+                    checkpoint.get()?.let { repos.media.saveValidators(id, it) }
+                    stopped()
+                }
                 throw e
             }
             return when (result) {

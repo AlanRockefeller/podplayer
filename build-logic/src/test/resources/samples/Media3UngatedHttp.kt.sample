@@ -1,0 +1,20 @@
+/*
+ * This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this
+ * file, You can obtain one at https://mozilla.org/MPL/2.0/.
+ */
+
+package sample
+
+import android.content.Context
+import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+
+// Media3's own HTTP stack runs on HttpURLConnection, outside the gate.
+fun http() = DefaultHttpDataSource.Factory()
+
+// Both fall back to DefaultHttpDataSource for http(s) URIs.
+fun any(context: Context) = DefaultDataSource.Factory(context)
+
+fun sources(context: Context) = DefaultMediaSourceFactory(context)

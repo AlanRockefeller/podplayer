@@ -116,7 +116,9 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
 - Integrity check on start; if the database is corrupt, offer restore from the newest backup.
 
 ## 8. Feed refresh (`:core:jobs`)
-- Periodic WorkManager job (default every 4 hours, network required) plus manual pull-to-refresh.
+- Periodic WorkManager job plus manual pull-to-refresh. A setting (owner, 2026-11-18, replacing the 4-hour
+  default): by default every 15 minutes on Wi-Fi (15 min, 30 min, 1 h or 4 h) and every hour on mobile data
+  (1 h, 4 h, 12 h, or only on Wi-Fi).
 - One refresh at a time (unique work); cancelable; per-feed exponential backoff on errors.
 - Only subscriptions are refreshed in the background; a show kept aside (§12) only when the owner pulls its page.
 - Refresh log per feed: last success, last error (plain language), next scheduled time.
@@ -183,11 +185,13 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
   Tapping a search result opens a preview page (owner, 2026-11-18): the show's title, author, sanitized description
   and every episode with audio (title, date, length), with Subscribe. The feed is fetched only on that tap, from its
   own host, through the gate with no host approved (a search result is never owner-typed); the art is the search
-  result's. Nothing is stored until Subscribe. A show already in the library opens its page instead.
+  result's. Opening the preview stores nothing; Subscribe stores the show, and so do Play and opening an episode
+  (below). A show already in the library opens its page instead.
   Listen without subscribing (owner, 2026-11-18): each episode in the preview has Play, and tapping it opens its
   episode page. Either stores the show "kept aside" (feeds.subscribed = false) from the feed already fetched, so
   playback, positions, queue, star and download work as for any episode. A kept-aside show is not in Library, Home's
-  rows or New episodes, is never refreshed in the background or auto-downloaded, and its page says "Not subscribed"
+  rows or New episodes, is never refreshed in the background or auto-downloaded (a starred episode of one is still
+  downloaded when "Keep starred episodes downloaded" is on, as starring asks for), and its page says "Not subscribed"
   with Subscribe in place of Unsubscribe. Subscribing (from the preview, its page, search, a typed URL or an import)
   turns it into a subscription, keeping what was played. Housekeeping removes a kept-aside show once it was opened
   and played more than a week ago and none of its episodes is queued, downloaded, starred, started and unfinished,
@@ -220,9 +224,10 @@ OPML: same XML safety rules; import adds feeds with a preview and confirmation; 
     enclosure URL, which can carry tokens).
 - Import a list of shows (owner, 2026-11-15), in Discover:
   - The owner pastes, or shares into the app, a list of show names (one per line) or links.
-  - Each line is matched through Apple's podcast search (feed URLs and links go to the typed-URL preview).
-    A preview lists every line with its best match, lets the owner pick another result or skip it, and
-    subscribes only after confirmation (`ownerTyped = false` for search matches).
+  - Each name is matched through Apple's podcast search, and a podcasts.apple.com link through Apple's lookup by
+    its id. A feed address is listed as it is (shown redacted) and not fetched until the owner confirms; unlike a
+    URL typed into Discover, it approves no host. A preview lists every line with its best match, lets the owner
+    pick another result or skip it, and subscribes only after confirmation, always with `ownerTyped = false`.
   - Lines are untrusted input: limits on count (500) and length, no fetches until the owner confirms the preview
     except the search requests themselves, which are paced.
   - The same importer accepts the file a one-off adb export from another app writes (M1-S9c): show names, and

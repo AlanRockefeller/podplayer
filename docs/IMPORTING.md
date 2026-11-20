@@ -8,7 +8,8 @@ Podplayer imports two things:
 - **Episode marks:** an import file (below) sets played, a resume position or a star on episodes. Open it from
   Import a list › Open a file, or share its text into the app.
 
-Nothing is subscribed or changed until you confirm. Marks never overwrite progress Podplayer already has.
+Nothing is subscribed or changed until you confirm. A resume position never overwrites progress Podplayer
+already has, but a played mark does mark a started episode played.
 
 ## The import file (format v1)
 
@@ -31,10 +32,13 @@ Nothing is subscribed or changed until you confirm. Marks never overwrite progre
 }
 ```
 
-- A show is found by `feedUrl`, else by `title` through Apple's search. Episodes are matched by title, then by a
-  `published` date within 2 days. Two episodes with the same title less than 2 days apart can't be told apart,
-  so neither gets the mark; the summary lists it under "Episodes that didn't match".
-- Limits: 4 MiB, 500 shows, 20,000 episodes, 300 characters per text. A file over a limit is refused as a whole.
+- A show is found by `feedUrl`, else by `title` through Apple's search. Episodes are matched by title. When only
+  one episode of the show has that title, it gets the mark whatever its date (feeds re-date re-posts). When
+  several do, the `published` date picks the one within 2 days. Two episodes with the same title less than 2
+  days apart can't be told apart, so neither gets the mark; the summary lists it under "Episodes that didn't
+  match".
+- Limits: 4 MiB, 500 shows, 20,000 episodes. A file over a limit is refused as a whole. Longer texts are cut
+  to 300 characters instead; an episode title cut that way may no longer match its episode.
 - The file holds feed addresses, and private feeds carry tokens in them. Delete the file after importing, and
   don't share it.
 
@@ -115,9 +119,11 @@ This needs a copy of Podplayer's database, which only a **debug build** allows (
    python3 tools/podbean_export.py favorites favorites.json
    ```
 
-2. Copy Podplayer's database (both files, so recent changes are included):
+2. Copy Podplayer's database (both files, so recent changes are included). Stop Podplayer first, so the two
+   files are copied as one consistent state:
 
    ```sh
+   adb shell am force-stop us.dikarya.podplayer
    adb exec-out run-as us.dikarya.podplayer cat databases/podplayer.db > podplayer.db
    adb exec-out run-as us.dikarya.podplayer cat databases/podplayer.db-wal > podplayer.db-wal
    ```

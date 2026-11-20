@@ -20,12 +20,15 @@ Do not write product code yourself. For each session, one at a time:
    and opening a pull request. Report back: the pull request number, what was built, tests added, deviations,
    and manual checks for the owner."
 
-3. When the subagent reports, verify before merging:
+3. When the subagent reports, record the pull request's head commit
+   (`gh pr view <number> --json headRefOid -q .headRefOid`), then verify before merging:
    - the pull request exists and `gh pr checks <number> --watch` ends green;
    - the diff adds no dependency outside the allowlist in docs/SPEC.md and does not touch CLAUDE.md,
      docs/SPEC.md or .claude/;
    - docs/PROGRESS.md has no new "Questions for owner" from this session.
-4. If everything passes, merge with `gh pr merge <number> --squash --delete-branch` and go to the next session.
+4. If everything passes, merge with `gh pr merge <number> --squash --delete-branch --match-head-commit <sha>`,
+   using the head commit recorded in step 3, and go to the next session. If the merge is refused because the
+   head changed, stop the batch and tell me.
 
 Stop the whole batch, without merging, and tell me why, if:
 - a check fails and one fix attempt by a new subagent does not resolve it;

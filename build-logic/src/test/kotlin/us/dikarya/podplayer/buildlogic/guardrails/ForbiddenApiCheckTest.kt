@@ -113,6 +113,23 @@ class ForbiddenApiCheckTest {
     }
 
     @Test
+    fun media3sOwnHttpStackIsRefused() {
+        // CodeRabbit review (PR 6): DefaultHttpDataSource runs on HttpURLConnection, outside the gate.
+        for (context in listOf(app, playback)) {
+            val found = ForbiddenApis.scan(context, mainKt, Samples.text("Media3UngatedHttp.kt"))
+                .filter { it.ruleId == "media3-ungated-http" }
+                .map { it.match }
+                .toSet()
+            assertEquals(context.projectPath, setOf("DefaultHttpDataSource", "DefaultDataSource", "DefaultMediaSourceFactory"), found)
+        }
+    }
+
+    @Test
+    fun theGatedOkHttpDataSourceIsAllowed() {
+        assertEquals(emptySet<String>(), rules(playback, "GatedMedia3Http.kt"))
+    }
+
+    @Test
     fun okHttpClientIsRefusedOutsideTheNetModule() {
         val jobs = ModuleContext(projectPath = ":core:jobs", plainKotlin = false)
         for (context in listOf(app, playback, sandbox, feed, jobs)) {

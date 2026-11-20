@@ -196,6 +196,21 @@ class SandboxClientTest {
     }
 
     @Test
+    fun aCallerThatGivesUpMidDecodeLeavesNoSandboxBound() = runBlocking<Unit> {
+        val release = CountDownLatch(1)
+        val inside = CountDownLatch(1)
+        val connector = FakeConnector { stub { inside.countDown(); release.await(10, TimeUnit.SECONDS); 1 } }
+        val client = client(connector, idle = 100.milliseconds)
+        val request = async(Dispatchers.Default) { client.decode(TestImages.png()) }
+        assertTrue(inside.await(5, TimeUnit.SECONDS))
+        request.cancel()
+        runCatching { request.await() }
+        delay(600)
+        release.countDown()
+        assertEquals("the sandbox the cancelled request used is let go", 1, connector.disconnects)
+    }
+
+    @Test
     fun anIdleSandboxIsReleased() = runBlocking<Unit> {
         val connector = FakeConnector { realSandbox() }
         val client = client(connector, idle = 100.milliseconds)

@@ -25,6 +25,7 @@ only stored, never run. Python 3.8+, standard library only; needs `adb` on PATH 
 import argparse
 import datetime
 import json
+import os
 import re
 import sqlite3
 import subprocess
@@ -44,8 +45,18 @@ TOP, BOTTOM = 0.11, 0.85
 DATE_SLACK_DAYS = 2
 
 
+class AdbError(Exception):
+    """An adb command failed: usually the phone disconnected (Samsung's Auto Blocker, a loose cable)."""
+
+
 def adb(*args):
-    return subprocess.run(["adb", *args], capture_output=True, text=True, timeout=30)
+    try:
+        result = subprocess.run(["adb", *args], capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as e:
+        raise AdbError(f"adb {args[0]}: {e}") from e
+    if result.returncode != 0:
+        raise AdbError(f"adb {args[0]} failed ({result.returncode}): {(result.stderr or result.stdout).strip()[:200]}")
+    return result
 
 
 def screen_height():
@@ -56,6 +67,9 @@ def screen_height():
 
 def screen_texts(dump_path, height):
     """The visible texts, top to bottom, inside the list area."""
+    # Never reread an earlier screen: the dump is pulled fresh each time, and a failed pull stops collection.
+    if os.path.exists(dump_path):
+        os.remove(dump_path)
     adb("shell", "uiautomator", "dump", "/sdcard/ui.xml")
     adb("pull", "/sdcard/ui.xml", dump_path)
     adb("shell", "rm", "/sdcard/ui.xml")
@@ -97,23 +111,34 @@ def episode_rows(texts):
 
 
 def collect(kind, out):
-    """Scrolls the open screen to its end (three scrolls that add nothing) and saves its rows."""
-    height = screen_height()
+    """Scrolls the open screen to its end (three scrolls that add nothing) and saves its rows.
+
+    If adb fails part-way, the rows read so far go to `<out>.partial` and the run stops with an error; `out` is
+    only written by a run that reached the end.
+    """
     parse = library_rows if kind == "library" else episode_rows
-    with tempfile.TemporaryDirectory() as tmp:
-        dump = f"{tmp}/ui.xml"
-        seen, rows, quiet = set(), [], 0
-        while quiet < 3:
-            added = 0
-            for row in parse(screen_texts(dump, height)):
-                key = (row["title"], row.get("date") or row.get("author"))
-                if key not in seen:
-                    seen.add(key)
-                    rows.append(row)
-                    added += 1
-            quiet = quiet + 1 if added == 0 else 0
-            adb("shell", "input", "swipe", "540", str(int(height * 0.72)), "540", str(int(height * 0.34)), "500")
-            time.sleep(1.2)
+    seen, rows, quiet = set(), [], 0
+    try:
+        height = screen_height()
+        with tempfile.TemporaryDirectory() as tmp:
+            dump = os.path.join(tmp, "ui.xml")
+            while quiet < 3:
+                added = 0
+                for row in parse(screen_texts(dump, height)):
+                    key = (row["title"], row.get("date") or row.get("author"))
+                    if key not in seen:
+                        seen.add(key)
+                        rows.append(row)
+                        added += 1
+                quiet = quiet + 1 if added == 0 else 0
+                adb("shell", "input", "swipe", "540", str(int(height * 0.72)), "540", str(int(height * 0.34)), "500")
+                time.sleep(1.2)
+    except AdbError as e:
+        partial = out + ".partial"
+        with open(partial, "w", encoding="utf-8") as f:
+            json.dump(rows, f, indent=1, ensure_ascii=False)
+        sys.exit(f"Stopped: {e}\nIncomplete: {len(rows)} {kind} rows so far -> {partial}. "
+                 "Reconnect the phone (check `adb devices`) and run this step again.")
     with open(out, "w", encoding="utf-8") as f:
         json.dump(rows, f, indent=1, ensure_ascii=False)
     print(f"{len(rows)} {kind} rows -> {out}")
@@ -138,6 +163,13 @@ def seconds(length):
     for part in length.split(":"):
         total = total * 60 + int(part)
     return total
+
+
+def iso_utc(epoch_ms):
+    """`2026-03-04T08:30:00Z` (with `.123` when there are milliseconds), as the import file takes it."""
+    moment = datetime.datetime.fromtimestamp(epoch_ms // 1000, datetime.timezone.utc)
+    millis = f".{epoch_ms % 1000:03d}" if epoch_ms % 1000 else ""
+    return moment.strftime("%Y-%m-%dT%H:%M:%S") + millis + "Z"
 
 
 def write_marks(db_path, out, history, favorites, stars):
@@ -173,7 +205,9 @@ def write_marks(db_path, out, history, favorites, stars):
         key = (url, norm(row["title"]), published)
         mark = marks.get(key)
         if mark is None:
-            mark = marks[key] = {"title": row["title"], "published": day.isoformat()}
+            # The matched episode's own time, not the screen's date: the importer settles same-title episodes
+            # within an exact 48 hours of it, while the match above allows 2 calendar days.
+            mark = marks[key] = {"title": row["title"], "published": iso_utc(published)}
             shows.setdefault(url, {"title": show, "feedUrl": url, "episodes": []})["episodes"].append(mark)
         if star:
             mark["starred"] = True

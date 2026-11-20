@@ -106,7 +106,15 @@ class DownloadRunner(
      * Records that the owner wants this episode downloaded. Returns false when there is nothing to queue:
      * an unknown episode, or a download that is already complete.
      */
-    suspend fun queue(episodeId: Long): Boolean = locks.withLock(episodeId) {
+    suspend fun queue(episodeId: Long): Boolean {
+        // Already waiting or running: answer now. A running transfer holds the episode's lock until it ends, and
+        // neither the owner's tap nor an auto-download pass should wait for that. Checked again under the lock.
+        val state = repositories()?.media?.get(episodeId)?.state
+        if (state == DownloadState.Queued || state == DownloadState.Downloading) return true
+        return queueLocked(episodeId)
+    }
+
+    private suspend fun queueLocked(episodeId: Long): Boolean = locks.withLock(episodeId) {
         val repos = repositories() ?: return@withLock false
         val episode = repos.episodes.get(episodeId) ?: return@withLock false
         val existing = repos.media.get(episodeId)

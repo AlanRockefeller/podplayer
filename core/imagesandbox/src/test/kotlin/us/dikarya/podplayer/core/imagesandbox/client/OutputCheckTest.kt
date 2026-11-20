@@ -128,6 +128,28 @@ class OutputCheckTest {
     }
 
     @Test
+    fun aFrameHeaderTooShortForItsFieldsIsRefusedNotThrown() {
+        invalid(bytes(0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x02))
+        invalid(bytes(0xFF, 0xD8, 0xFF, 0xC0, 0x00, 0x05, 0x08, 0x00, 0x10))
+    }
+
+    @Test
+    fun aScanHeaderIsCheckedBeforeTheScanIsAccepted() {
+        val jpeg = TestImages.jpeg(64, 48)
+        valid(jpeg)
+        val sos = indexOfMarker(jpeg, 0xDA)
+        val sosEnd = sos + 2 + ((jpeg[sos + 2].toInt() and 0xFF) shl 8 or (jpeg[sos + 3].toInt() and 0xFF))
+        // The SOS segment replaced by one with no fields at all, the entropy data and EOI left as they were.
+        invalid(jpeg.copyOfRange(0, sos) + bytes(0xFF, 0xDA, 0x00, 0x02) + jpeg.copyOfRange(sosEnd, jpeg.size))
+        // A component the frame doesn't have.
+        invalid(jpeg.copyOf().also { it[sos + 5] = 0x09 })
+        // A progressive spectral selection in a baseline frame.
+        invalid(jpeg.copyOf().also { it[sosEnd - 2] = 0x05 })
+        // A component count that doesn't match the segment length.
+        invalid(jpeg.copyOf().also { it[sos + 4] = 0x02 })
+    }
+
+    @Test
     fun otherFormatsAndNoiseAreRefused() {
         invalid(TestImages.animatedGif)
         invalid(TestImages.svg)

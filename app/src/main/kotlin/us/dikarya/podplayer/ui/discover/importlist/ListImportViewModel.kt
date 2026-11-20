@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
@@ -334,14 +335,22 @@ class ListImportViewModel(private val deps: BrowseDeps) : ViewModel() {
             try {
                 for (row in rows.filter { it.included }) {
                     val url = row.chosenHit!!.feedUrl
-                    val preview = if (row.episodes.isNotEmpty() && url !in state.value.subscribedUrls) {
+                    // Marks need the show's episodes: fetched for a new show, and for one subscribed but not yet refreshed.
+                    val existingId = state.value.subscribedUrls[url]
+                    val needsEpisodes = row.episodes.isNotEmpty() &&
+                        (existingId == null || deps.repositories()?.episodes?.forFeed(existingId)?.first().isNullOrEmpty())
+                    val preview = if (needsEpisodes) {
                         (deps.previewer.preview(url, ownerTyped = false) as? PreviewOutcome.Ready)?.preview?.feed
                     } else {
                         null
                     }
                     val feedId = when (val outcome = deps.subscriptions.subscribe(url, ownerTyped = false, preview = preview)) {
                         is SubscribeOutcome.Subscribed -> outcome.feedId.also { added++ }
-                        is SubscribeOutcome.AlreadySubscribed -> outcome.feedId.also { already++ }
+                        is SubscribeOutcome.AlreadySubscribed -> outcome.feedId.also {
+                            already++
+                            // Same parser and limits as a refresh, as when subscribing with a preview.
+                            if (preview != null) deps.repositories()?.feeds?.applyRefresh(it, preview)
+                        }
                         is SubscribeOutcome.Refused, SubscribeOutcome.LibraryClosed -> null.also { refused++ }
                     }
                     if (feedId != null && row.episodes.isNotEmpty()) {

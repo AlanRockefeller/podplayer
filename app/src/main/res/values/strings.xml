@@ -1,0 +1,457 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+-->
+<resources>
+    <string name="app_name">Podplayer</string>
+
+    <string name="nav_home">Home</string>
+    <string name="nav_discover">Discover</string>
+    <string name="nav_library">Library</string>
+    <string name="nav_queue">Queue</string>
+
+    <string name="open_settings">Settings</string>
+    <string name="navigate_back">Back</string>
+
+    <!-- Browsing (M1-S8) -->
+    <string name="show_title">Show</string>
+    <string name="episode_title">Episode</string>
+    <string name="untitled_episode">Untitled episode</string>
+    <string name="untitled_show">Untitled show</string>
+    <string name="offline_banner">You\'re offline. Downloaded episodes still play.</string>
+    <string name="library_closed">Your library couldn\'t be opened.</string>
+    <string name="find_shows">Find a show</string>
+    <string name="not_secure">Not secure</string>
+    <string name="not_secure_feed">Not secure: this feed doesn\'t use https, so others on the network can see and change it.</string>
+
+    <string name="episode_played">Played</string>
+    <string name="episode_left">%1$s left</string>
+    <string name="duration_minutes">%1$d min</string>
+    <string name="duration_hours">%1$d h %2$d min</string>
+
+    <string name="action_play">Play</string>
+    <string name="action_pause">Pause</string>
+    <string name="action_resume">Resume</string>
+    <string name="action_play_episode">Play %1$s</string>
+    <string name="action_pause_episode">Pause %1$s</string>
+    <string name="action_queue_episode">Add %1$s to the queue</string>
+    <string name="action_unqueue_episode">Remove %1$s from the queue</string>
+    <string name="action_download_episode">Download %1$s</string>
+    <string name="action_cancel_download">Stop downloading %1$s</string>
+    <string name="state_downloaded">%1$s is downloaded</string>
+    <string name="action_add_to_queue">Add to queue</string>
+    <string name="action_remove_from_queue">Remove from queue</string>
+    <string name="action_download">Download</string>
+    <string name="action_cancel_download_short">Stop download</string>
+    <string name="download_waiting_for_wifi">Waiting for Wi-Fi. Turn off \"Download on Wi-Fi only\" in Settings to use mobile data.</string>
+    <string name="download_waiting">Waiting to download.</string>
+    <string name="download_failed_because">Couldn\'t download “%1$s”: %2$s</string>
+    <string name="download_failed">Couldn\'t download “%1$s”. Settings › Logs says why.</string>
+    <string name="action_retry_download">Try download again</string>
+    <string name="action_resume_download">Resume download</string>
+    <string name="action_delete_download">Delete download</string>
+    <string name="action_mark_played">Mark played</string>
+    <string name="action_mark_unplayed">Mark unplayed</string>
+    <string name="action_subscribe">Subscribe</string>
+    <string name="action_unsubscribe">Unsubscribe</string>
+    <string name="action_refresh_all">Refresh all shows</string>
+    <string name="action_refresh_show">Refresh this show</string>
+
+    <string name="home_empty">You haven\'t subscribed to any shows yet.</string>
+    <string name="home_continue">Continue</string>
+    <string name="home_your_shows">Your shows</string>
+    <string name="home_new_episodes">New episodes</string>
+    <string name="home_no_new_episodes">Nothing new. Everything here is played.</string>
+
+    <string name="discover_field">Search or paste a feed address</string>
+    <string name="discover_field_hint">Searching asks Apple\'s podcast directory. A feed address is checked before you subscribe.</string>
+    <string name="discover_search">Search</string>
+    <string name="discover_preview">Preview feed</string>
+    <string name="discover_import_opml">Import OPML file</string>
+    <string name="discover_no_results">No shows found.</string>
+    <string name="discover_subscribed">Subscribed</string>
+    <plurals name="discover_episode_count">
+        <item quantity="one">%1$d episode</item>
+        <item quantity="other">%1$d episodes</item>
+    </plurals>
+    <string name="opml_title">Import OPML</string>
+    <string name="opml_import">Subscribe to all</string>
+    <plurals name="opml_found">
+        <item quantity="one">%1$d show found:</item>
+        <item quantity="other">%1$d shows found:</item>
+    </plurals>
+    <plurals name="opml_skipped">
+        <item quantity="one">%1$d entry left out (no usable address, or a duplicate).</item>
+        <item quantity="other">%1$d entries left out (no usable address, or duplicates).</item>
+    </plurals>
+    <plurals name="opml_more">
+        <item quantity="one">and %1$d more</item>
+        <item quantity="other">and %1$d more</item>
+    </plurals>
+    <string name="opml_done">Added %1$d. Already subscribed: %2$d. Refused: %3$d. New shows refresh when there is a network.</string>
+
+    <string name="problem_offline">You\'re offline, so nothing was sent. Try again when there is a network.</string>
+    <string name="problem_search_answer">The search service sent an answer this app can\'t read.</string>
+    <string name="problem_file_too_large">That file is too large to be an OPML subscription list.</string>
+    <string name="problem_file_unreadable">That file couldn\'t be read.</string>
+    <string name="problem_library_closed">Your library isn\'t open, so nothing was changed.</string>
+    <string name="problem_not_opml">That file isn\'t an OPML subscription list.</string>
+    <string name="problem_not_a_feed_page">That address is a web page, not a podcast feed. Look for the show\'s RSS link.</string>
+    <string name="problem_not_a_feed">That address didn\'t return a feed this app can read.</string>
+    <string name="problem_url_scheme">Only http and https addresses work.</string>
+    <string name="problem_url_too_long">That address is too long.</string>
+    <string name="problem_url_malformed">That doesn\'t look like a web address.</string>
+    <string name="problem_net_blocked">That address is on a private network. Only an address you typed yourself may use one.</string>
+    <string name="problem_net_forbidden">The server refused access (HTTP %1$d). A private feed may need a new address.</string>
+    <string name="problem_net_not_found">There is nothing at that address (HTTP %1$d).</string>
+    <string name="problem_net_status">The server answered HTTP %1$d.</string>
+    <string name="problem_net_too_large">The server sent more than this app accepts.</string>
+    <string name="problem_net_timeout">The server took too long to answer.</string>
+    <string name="problem_net_redirects">The address redirects somewhere this app won\'t follow.</string>
+    <string name="problem_net_unreachable">Couldn\'t reach the server. Check the address and the network.</string>
+
+    <string name="library_empty">Shows you subscribe to appear here.</string>
+    <plurals name="library_count">
+        <item quantity="one">%1$d show</item>
+        <item quantity="other">%1$d shows</item>
+    </plurals>
+    <string name="library_sort">Sort shows</string>
+    <string name="library_sort_title">Title</string>
+    <string name="library_sort_newest">Newest episode</string>
+    <string name="library_sort_subscribed">Recently subscribed</string>
+    <string name="library_show_list">Show as a list</string>
+    <string name="library_show_grid">Show as a grid</string>
+    <string name="library_newest">Newest episode %1$s</string>
+
+    <string name="show_more">More</string>
+    <string name="show_less">Less</string>
+    <string name="show_sort_oldest">Show oldest first</string>
+    <string name="show_sort_newest">Show newest first</string>
+    <string name="show_not_refreshed">Episodes appear after the first refresh.</string>
+    <string name="show_no_episodes">This feed has no episodes.</string>
+    <string name="unsubscribe_title">Unsubscribe from %1$s?</string>
+    <string name="unsubscribe_body">Its episodes, downloads, positions and queue entries are removed from this phone.</string>
+    <string name="speed_default_label">Speed: %1$s (default)</string>
+    <string name="speed_show_label">Speed: %1$s (this show)</string>
+    <string name="speed_use_default">Default speed (%1$s)</string>
+
+    <string name="episode_gone">This episode is no longer in your library.</string>
+    <string name="episode_offline_stream">You\'re offline: this episode isn\'t downloaded, so it can\'t play until there is a network.</string>
+    <string name="notes_none">No show notes.</string>
+    <string name="notes_rejected">These show notes are too large or complex to show safely.</string>
+
+    <string name="link_open_title">Open link?</string>
+    <string name="link_open_body">This opens %1$s outside the app.</string>
+    <string name="link_open">Open</string>
+    <string name="link_no_app">No app on this phone can open that link.</string>
+
+    <string name="mini_player_open">Open the player</string>
+
+    <string name="settings_title">Settings</string>
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_theme">Theme</string>
+    <string name="theme_dark">Dark</string>
+    <string name="theme_light">Light</string>
+    <string name="theme_system">Use system setting</string>
+
+    <string name="settings_backup">Backup and restore</string>
+    <string name="backup_folder_none">No backup folder chosen. Backups are only kept on this phone, which won\'t help if the phone is lost.</string>
+    <string name="backup_folder_chosen">Daily backups go to %1$s. The newest 7 are kept.</string>
+    <string name="backup_folder_unnamed">the chosen folder</string>
+    <string name="backup_choose_folder">Choose backup folder</string>
+    <string name="backup_change_folder">Change backup folder</string>
+    <string name="backup_last">Last backup: %1$s</string>
+    <string name="backup_never">No backup yet</string>
+    <string name="backup_now">Back up now</string>
+    <string name="backup_export">Export a backup file</string>
+    <string name="backup_restore">Restore from a backup file</string>
+    <string name="backup_working">Working…</string>
+    <string name="backup_done">Backup saved.</string>
+    <string name="backup_exported">Backup exported.</string>
+    <string name="backup_failed_folder">Couldn\'t write to the backup folder. Choose it again.</string>
+    <string name="backup_failed_snapshot">The library couldn\'t be copied for the backup. The app log has details.</string>
+    <string name="backup_failed">The backup failed. The app log has details.</string>
+    <string name="backup_not_ready">The library isn\'t open, so it can\'t be backed up.</string>
+
+    <string name="restore_confirm_title">Replace your library?</string>
+    <string name="restore_confirm_body">Your subscriptions, queue, positions and settings will be replaced by the ones in the backup. A copy of the current library is saved first. The app restarts to finish.</string>
+    <string name="restore_confirm">Restore</string>
+    <string name="cancel">Cancel</string>
+    <string name="ok">OK</string>
+    <string name="restore_not_a_backup">That file isn\'t a Podplayer backup.</string>
+    <string name="restore_too_large">That backup is too large to restore.</string>
+    <string name="restore_newer">That backup is from a newer version of Podplayer.</string>
+    <string name="restore_damaged">That backup is damaged.</string>
+    <string name="restore_unexpected">That backup doesn\'t look like one Podplayer made, so it wasn\'t used.</string>
+    <string name="restore_unreadable">The backup file couldn\'t be read.</string>
+    <string name="restore_safety_failed">Your current library couldn\'t be saved first, so nothing was changed.</string>
+
+    <string name="db_damaged_title">Your library is damaged</string>
+    <string name="db_damaged_body_backup">The library database failed its check when the app started. You can restore the backup from %1$s, or start with an empty library. The damaged file is kept either way.</string>
+    <string name="db_damaged_body_none">The library database failed its check when the app started, and there is no backup to restore. You can start with an empty library; the damaged file is kept.</string>
+    <string name="db_damaged_restore">Restore backup</string>
+    <string name="db_damaged_start_fresh">Start empty</string>
+    <string name="db_problem_title">Your library couldn\'t be opened</string>
+    <string name="db_failed_newer">It was saved by a newer version of Podplayer. Install that version again; nothing was changed.</string>
+    <string name="db_failed_backup">It needs updating, but the backup before the update failed, so it wasn\'t changed. Free some storage and restart the app.</string>
+    <string name="db_failed_open">The app log has details.</string>
+
+    <!-- Artwork (M1-S6) -->
+    <string name="artwork">Artwork</string>
+
+    <!-- Player (M1-S9) -->
+    <string name="player_title">Now playing</string>
+    <string name="player_nothing">Nothing is playing. Pick an episode from Home, a show or the queue.</string>
+    <string name="player_seek">Position</string>
+    <string name="player_elapsed">%1$s played</string>
+    <string name="player_remaining">%1$s left</string>
+    <string name="player_remaining_short">-%1$s</string>
+    <plurals name="player_skip_back">
+        <item quantity="one">Back %1$d second</item>
+        <item quantity="other">Back %1$d seconds</item>
+    </plurals>
+    <plurals name="player_skip_forward">
+        <item quantity="one">Forward %1$d second</item>
+        <item quantity="other">Forward %1$d seconds</item>
+    </plurals>
+    <string name="player_open_episode">Episode details</string>
+    <string name="player_open_queue">Open the queue</string>
+    <string name="player_speed">Playback speed, %1$s</string>
+    <string name="player_sleep">Sleep timer</string>
+    <string name="player_sleep_minutes_left">Sleep timer, %1$s left</string>
+    <string name="player_sleep_end">Sleep timer, end of episode</string>
+    <string name="speed_sheet_title">Playback speed</string>
+    <string name="speed_for_all">Every show</string>
+    <string name="speed_for_show">This show only</string>
+    <string name="speed_scope">Apply to</string>
+    <string name="speed_show_uses_own">This show plays at %1$s.</string>
+    <string name="speed_use_default_for_show">Use the default for this show</string>
+    <string name="sleep_sheet_title">Sleep timer</string>
+    <string name="sleep_sheet_body">Counts listening time: a pause doesn\'t use it up. The last 10 seconds fade out.</string>
+    <plurals name="sleep_minutes">
+        <item quantity="one">%1$d minute</item>
+        <item quantity="other">%1$d minutes</item>
+    </plurals>
+    <string name="sleep_end_of_episode">End of this episode</string>
+    <string name="sleep_off">Turn off the timer</string>
+    <string name="sleep_running">%1$s of listening left</string>
+    <string name="sleep_running_end">Stops at the end of this episode</string>
+
+    <!-- Queue (M1-S9) -->
+    <string name="queue_empty">The queue is empty. Add episodes from Home, a show or an episode page; they play in order.</string>
+    <string name="queue_drag">Drag to reorder %1$s</string>
+    <string name="queue_move_up">Move up</string>
+    <string name="queue_move_down">Move down</string>
+    <string name="queue_play_next">Play next</string>
+    <string name="queue_remove">Remove from queue</string>
+    <string name="queue_more">More actions for %1$s</string>
+    <string name="queue_now_playing">Playing now</string>
+
+    <!-- Settings (M1-S9) -->
+    <string name="settings_playback">Playback</string>
+    <string name="settings_speed">Default speed</string>
+    <string name="settings_speed_body">Shows with their own speed keep it.</string>
+    <string name="settings_skip_back">Skip back</string>
+    <string name="settings_skip_forward">Skip forward</string>
+    <string name="settings_seconds">%1$d s</string>
+    <string name="settings_rewind_after_pause">Rewind after a long pause</string>
+    <string name="settings_rewind_body">Go back %1$d s when playback resumes after a pause of %2$s or more.</string>
+    <string name="settings_rewind_by">Rewind by</string>
+    <string name="settings_rewind_after">After a pause of</string>
+    <string name="settings_minutes">%1$d min</string>
+    <string name="settings_hours">%1$d h</string>
+    <string name="settings_refresh">Checking for new episodes</string>
+    <string name="settings_refresh_last">Last checked %1$s</string>
+    <string name="settings_refresh_never">Not checked yet</string>
+    <string name="settings_refresh_next">next check about %1$s</string>
+    <string name="settings_refresh_wifi">On Wi-Fi</string>
+    <string name="settings_refresh_mobile">On mobile data</string>
+    <string name="settings_refresh_body">Most checks are tiny, but some shows send their whole feed every time, so frequent checks on mobile data can add up. Pull down on Home, Library or a show to check now.</string>
+    <string name="settings_refresh_never_on_mobile">Only on Wi-Fi</string>
+    <string name="settings_every">Every %1$s</string>
+    <string name="settings_downloads">Downloads and storage</string>
+    <string name="settings_wifi_only">Download on Wi-Fi only</string>
+    <string name="settings_wifi_only_body">Downloads wait for Wi-Fi or another unmetered network. Changing this also applies to downloads that are waiting.</string>
+    <string name="settings_storage_cap">Storage limit for downloads</string>
+    <string name="settings_storage_used">Downloads use %1$s of %2$s.</string>
+    <plurals name="settings_storage_episodes">
+        <item quantity="one">%1$d episode is downloaded.</item>
+        <item quantity="other">%1$d episodes are downloaded.</item>
+    </plurals>
+    <string name="settings_storage_free">%1$s free on this phone.</string>
+    <string name="settings_auto_download">Automatic downloads</string>
+    <string name="settings_auto_new_shows">Download new episodes for new shows</string>
+    <string name="settings_auto_new_shows_body">Shows you subscribe to from now on start with “Download new episodes” on. Each show can change it on its page.</string>
+    <string name="settings_auto_wifi_only">Automatic downloads on Wi-Fi only</string>
+    <string name="settings_auto_wifi_only_body">Off: automatic downloads use any connection, including mobile data. Separate from the setting above for your own downloads.</string>
+    <string name="settings_auto_stopped">Automatic downloads stopped: downloads reached the storage limit. Nothing was deleted to make room. Delete some downloads or raise the limit.</string>
+    <string name="settings_clean_up">Clean-up</string>
+    <string name="settings_clean_up_body">Starred episodes, episodes in the queue and the episode in the player are never deleted. Every deletion is in the download log.</string>
+    <string name="settings_clean_played">Delete played episodes</string>
+    <string name="settings_clean_unplayed">Delete unplayed downloads</string>
+    <string name="settings_never">Never</string>
+    <plurals name="settings_clean_played_after">
+        <item quantity="one">%1$d day after they were played</item>
+        <item quantity="other">%1$d days after they were played</item>
+    </plurals>
+    <plurals name="settings_clean_unplayed_after">
+        <item quantity="one">%1$d day after they were downloaded</item>
+        <item quantity="other">%1$d days after they were downloaded</item>
+    </plurals>
+    <string name="settings_keep_starred">Keep starred episodes downloaded</string>
+    <string name="settings_keep_starred_body">Starred episodes that aren’t downloaded are downloaded automatically, once each.</string>
+    <string name="settings_logs">Logs</string>
+    <string name="settings_view_logs">View logs</string>
+    <string name="settings_autoplay_title">Ignore automatic Play from</string>
+    <string name="settings_autoplay_body">Some cars send Play every time they connect. Tick yours: its first Play after connecting is ignored, and pressing Play again plays. Other devices are not affected.</string>
+    <string name="settings_autoplay_empty">Bluetooth audio devices appear here once they have connected to this phone. Connect your car, then come back to tick it.</string>
+    <!-- A storage limit in whole gigabytes, e.g. "10 GB". -->
+    <string name="settings_storage_gb">%1$d GB</string>
+    <string name="settings_logs_body">The app, playback, download, refresh and crash logs. They stay on this phone unless you export them.</string>
+    <string name="settings_about">About</string>
+    <string name="settings_version">Podplayer %1$s</string>
+    <string name="settings_license">Free software under the Mozilla Public License 2.0. No analytics, no ads, no tracking.</string>
+    <string name="settings_license_link">Read the license</string>
+    <string name="settings_licenses">Open-source licenses</string>
+    <string name="choose">Choose</string>
+
+    <!-- Logs (M1-S9) -->
+    <string name="logs_title">Logs</string>
+    <string name="logs_tab_app">App</string>
+    <string name="logs_tab_playback">Playback</string>
+    <string name="logs_tab_downloads">Downloads</string>
+    <string name="logs_tab_refresh">Refresh</string>
+    <string name="logs_tab_crashes">Crashes</string>
+    <string name="logs_empty">Nothing logged yet.</string>
+    <string name="logs_export">Export logs</string>
+    <string name="logs_export_body">Makes one text file of every log and opens the share sheet. Addresses have their query, fragment and user name removed.</string>
+    <string name="logs_exporting">Preparing the export…</string>
+    <string name="logs_export_failed">The export couldn\'t be written. Free some storage and try again.</string>
+    <string name="logs_share_title">Share Podplayer logs</string>
+    <string name="logs_no_share_app">No app on this phone can receive the file.</string>
+    <string name="logs_position">%1$s → %2$s</string>
+    <string name="logs_from_stream">stream</string>
+    <string name="logs_from_file">file</string>
+    <string name="logs_refresh_counts">New: %1$d, updated: %2$d</string>
+    <string name="logs_cause_seek">Seek</string>
+    <string name="logs_cause_skip_back">Skip back</string>
+    <string name="logs_cause_skip_forward">Skip forward</string>
+    <string name="logs_cause_restore">Restored saved position</string>
+    <string name="logs_cause_rewind">Rewind after a pause</string>
+    <string name="logs_cause_next">Next episode</string>
+    <string name="logs_cause_to_file">Switched to the download</string>
+    <string name="logs_cause_to_stream">Download failed; back to the stream</string>
+    <string name="logs_cause_player">Adjusted by the player</string>
+    <string name="logs_cause_unexplained">Unexplained jump</string>
+    <string name="logs_cause_silent_recovery">Reloaded: it was playing without sound</string>
+    <string name="logs_event_queued">Queued</string>
+    <string name="logs_event_started">Started</string>
+    <string name="logs_event_resumed">Resumed</string>
+    <string name="logs_event_restarted">Started over</string>
+    <string name="logs_event_completed">Completed</string>
+    <string name="logs_event_failed">Failed</string>
+    <string name="logs_event_cancelled">Stopped</string>
+    <string name="logs_event_deleted">Deleted</string>
+    <string name="logs_outcome_updated">Updated</string>
+    <string name="logs_outcome_not_modified">No change</string>
+    <string name="logs_outcome_failed">Failed</string>
+
+    <!-- Open-source licenses (M1-S9) -->
+    <string name="licenses_body">Podplayer is built with these open-source projects. Each keeps its own license.</string>
+
+    <!-- Starred episodes (M1-S9a) -->
+    <string name="action_star_episode">Star %1$s</string>
+    <string name="action_unstar_episode">Remove star from %1$s</string>
+    <string name="starred_done">Starred</string>
+    <string name="unstarred_done">Removed from Starred</string>
+    <string name="undo">Undo</string>
+    <string name="starred_title">Starred</string>
+    <string name="library_starred">Starred</string>
+    <string name="home_starred">Starred</string>
+    <string name="home_starred_all">See all</string>
+    <string name="show_starred_only">Starred only</string>
+    <string name="show_no_starred">No starred episodes in this show.</string>
+    <string name="show_auto_download">Download new episodes</string>
+    <string name="show_auto_download_body">Episodes published from now on download after each refresh.</string>
+    <string name="starred_search">Search starred episodes</string>
+    <string name="starred_share">Share starred episodes</string>
+    <string name="starred_share_heading">Starred episodes</string>
+    <string name="starred_empty">Nothing starred yet. Tap the star on an episode to keep it here.</string>
+    <string name="starred_no_matches">No starred episode matches that search.</string>
+
+    <!-- Downloads list (owner, 2026-11-18) -->
+    <string name="downloads_title">Downloads</string>
+    <string name="library_downloads">Downloads</string>
+    <string name="downloads_empty">No downloads yet. Tap Download on an episode to keep it on this phone for listening offline.</string>
+    <plurals name="downloads_summary">
+        <item quantity="one">%1$d episode ready to play offline, %2$s.</item>
+        <item quantity="other">%1$d episodes ready to play offline, %2$s.</item>
+    </plurals>
+
+    <!-- A search result's show before subscribing (owner, 2026-11-18) -->
+    <string name="preview_title">Preview</string>
+    <string name="preview_try_again">Try again</string>
+    <string name="preview_no_episodes">This show has no episodes with audio yet.</string>
+    <string name="discover_open_preview">Preview %1$s</string>
+    <string name="preview_play_episode">Play %1$s</string>
+    <string name="preview_open_problem">Couldn\'t open this episode. Try again.</string>
+    <string name="show_not_subscribed">Not subscribed: this show isn\'t in your library and isn\'t checked for new episodes.</string>
+
+    <!-- Copy or share a link (owner, 2026-11-18) -->
+    <string name="share_menu">Share or copy link</string>
+    <string name="share_copy_link">Copy link</string>
+    <string name="share_copy_show_site">Copy the show\'s website (no episode page)</string>
+    <string name="share_send">Share…</string>
+    <string name="share_copied">Link copied</string>
+    <string name="share_clip_label">Podcast link</string>
+    <string name="share_no_link">This feed gives no web page to link to</string>
+
+    <!-- Import a list of shows (M1-S9a) -->
+    <string name="discover_import_list">Import a list</string>
+    <string name="import_list_title">Import a list of shows</string>
+    <string name="import_list_intro">Paste show names or links, one per line. Each name is looked up on Apple\'s podcast search; you check every match before anything is subscribed.</string>
+    <string name="import_list_field">Shows, one per line</string>
+    <string name="import_list_find">Find shows</string>
+    <string name="import_list_file">Open a file</string>
+    <string name="import_list_searching">Searching, a few seconds apart so Apple doesn\'t refuse…</string>
+    <string name="import_list_searching_one">Searching…</string>
+    <string name="import_list_waiting">Waiting to search</string>
+    <string name="import_list_no_match">No match found</string>
+    <string name="import_list_failed">The search didn\'t work</string>
+    <string name="import_list_failed_retrying">The search didn\'t work. Trying again shortly…</string>
+    <string name="import_list_skipped">Skipped</string>
+    <string name="import_list_address">Feed address: checked when you subscribe</string>
+    <string name="import_list_change">Change</string>
+    <string name="import_list_skip">Skip</string>
+    <string name="import_list_include">Include</string>
+    <string name="import_list_retry">Search again</string>
+    <string name="import_list_start_over">Start over</string>
+    <string name="import_list_done">Added %1$d. Already subscribed: %2$d. Skipped: %3$d. Couldn\'t add: %4$d.</string>
+    <string name="import_list_not_found">Not found</string>
+    <string name="import_list_unmatched_episodes">Episodes that didn\'t match</string>
+    <string name="import_list_problem_empty">There\'s nothing to import.</string>
+    <string name="import_list_problem_too_many">That\'s more than 500 shows. Import them in smaller lists.</string>
+    <string name="import_list_problem_too_large">That\'s too much text for a list of shows.</string>
+    <string name="import_list_problem_unreadable">That file couldn\'t be read.</string>
+    <string name="import_list_problem_not_import_file">That isn\'t an import file this app understands.</string>
+    <string name="import_list_problem_newer">That import file is from a newer version of the app.</string>
+    <string name="import_list_problem_offline">You\'re offline. Searching needs a connection.</string>
+    <plurals name="import_list_will_subscribe">
+        <item quantity="one">%1$d of %2$d lines will be subscribed</item>
+        <item quantity="other">%1$d of %2$d lines will be subscribed</item>
+    </plurals>
+    <plurals name="import_list_subscribe">
+        <item quantity="one">Subscribe to %1$d show</item>
+        <item quantity="other">Subscribe to %1$d shows</item>
+    </plurals>
+    <plurals name="import_list_left_out">
+        <item quantity="one">%1$d line left out (a repeat, too long, or a link that can\'t be used)</item>
+        <item quantity="other">%1$d lines left out (repeats, too long, or links that can\'t be used)</item>
+    </plurals>
+    <plurals name="import_list_marks">
+        <item quantity="one">%1$d episode mark (starred, played or position) to apply</item>
+        <item quantity="other">%1$d episode marks (starred, played or positions) to apply</item>
+    </plurals>
+</resources>

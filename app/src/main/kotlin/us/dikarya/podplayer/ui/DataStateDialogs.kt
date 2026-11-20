@@ -17,6 +17,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import us.dikarya.podplayer.R
@@ -40,6 +41,7 @@ fun DataStateDialogs() {
     val state by graph.data.state.collectAsStateWithLifecycle()
     var busy by remember { mutableStateOf(false) }
     var problem by remember { mutableStateOf<RestoreProblem?>(null) }
+    var startFreshFailed by remember { mutableStateOf(false) }
     var dismissedFailure by remember { mutableStateOf(false) }
 
     when (val current = state) {
@@ -54,7 +56,8 @@ fun DataStateDialogs() {
                     } else {
                         stringResource(R.string.db_damaged_body_backup, formatTime(context, newest.createdAt))
                     }
-                    Text(problem?.let { stringResource(it.text()) + "\n\n" + body } ?: body)
+                    val failed = if (startFreshFailed) stringResource(R.string.db_damaged_start_fresh_failed) + "\n\n" else ""
+                    Text(failed + (problem?.let { stringResource(it.text()) + "\n\n" + body } ?: body))
                 },
                 confirmButton = {
                     if (newest != null) {
@@ -87,8 +90,17 @@ fun DataStateDialogs() {
                         onClick = {
                             busy = true
                             graph.appScope.launch(Dispatchers.IO) {
-                                graph.data.startFresh()
-                                busy = false
+                                try {
+                                    // False: the damaged file couldn't be kept, so nothing was emptied.
+                                    startFreshFailed = !graph.data.startFresh()
+                                } catch (e: CancellationException) {
+                                    throw e
+                                } catch (e: Exception) {
+                                    graph.log.e("Data", "Starting with an empty library failed", e)
+                                    startFreshFailed = true
+                                } finally {
+                                    busy = false
+                                }
                             }
                         },
                     ) { Text(stringResource(R.string.db_damaged_start_fresh)) }

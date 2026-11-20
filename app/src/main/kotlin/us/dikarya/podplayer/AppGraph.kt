@@ -142,6 +142,7 @@ class AppGraph(context: Context) {
         val gateFetch = GateFetch { url, limit, policy -> netGate.fetch(url, limit, policy) }
         BrowseDeps(
             repositories = { data.awaitRepositories() },
+            library = data.repositories,
             settings = settings,
             playback = playback,
             downloads = object : DownloadActions {

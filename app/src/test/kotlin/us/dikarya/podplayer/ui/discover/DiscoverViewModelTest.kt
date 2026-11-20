@@ -7,8 +7,10 @@
 package us.dikarya.podplayer.ui.discover
 
 import android.app.Application
+import android.database.sqlite.SQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.ByteArrayInputStream
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -125,5 +127,52 @@ class DiscoverViewModelTest {
         val added = env.repos.feeds.feeds().first().single { it.url == "https://one.example.com/feed" }
         assertNull("OPML imports never approve a private host", added.ownerApprovedHost)
         eventually { env.refreshes == listOf<Long?>(null) }
+    }
+
+    @Test
+    fun aWriteThatFailsPartWayThroughAnOpmlImportSaysSoAndKeepsWhatWasAdded() = runBlocking {
+        // CodeRabbit review (PR 1): the exception escaped the import, leaving the Importing dialog (or crashing).
+        val opml = """<?xml version="1.0"?><opml version="2.0"><body>
+            <outline text="One" type="rss" xmlUrl="https://one.example.com/feed"/>
+            <outline text="Two" type="rss" xmlUrl="https://two.example.com/feed"/></body></opml>"""
+        // The second insert fails as a full disk would.
+        SQLiteDatabase.openDatabase(env.data.files.databaseFile.path, null, SQLiteDatabase.OPEN_READWRITE).use {
+            it.execSQL("CREATE TRIGGER full_disk BEFORE INSERT ON feeds WHEN NEW.url LIKE '%two.example.com%' BEGIN SELECT RAISE(ABORT, 'disk full'); END")
+        }
+        val vm = DiscoverViewModel(env.deps)
+        vm.opmlPicked { ByteArrayInputStream(opml.toByteArray()) }
+        awaitState(vm.state) { it.opml is OpmlState.Ready }
+
+        vm.importOpml()
+        val failed = awaitState(vm.state) { it.opml !is OpmlState.Importing && it.opml !is OpmlState.Ready }
+        assertEquals(OpmlState.Failed(DiscoverProblem.CouldNotSave), failed.opml)
+        assertEquals(listOf("https://one.example.com/feed"), env.repos.feeds.feeds().first().map { it.url })
+        eventually { env.refreshes == listOf<Long?>(null) }
+    }
+
+    @Test
+    fun anEarlierSubscribeFinishingLeavesTheNewerPreviewAlone() = runBlocking {
+        // CodeRabbit review (PR 1): subscribing to preview A, cancelling it and previewing B; when A's subscribe
+        // finished it cleared B's address and preview and opened A.
+        env.answer = { url -> success(rss(if (url.host.startsWith("a.")) "Show A" else "Show B").toByteArray(), "application/rss+xml") }
+        val hold = CompletableDeferred<Unit>()
+        env.beforeSubscribe = { hold.await() }
+        val vm = DiscoverViewModel(env.deps)
+        vm.onQueryChange("https://a.example.com/feed.xml")
+        vm.submit()
+        awaitState(vm.state) { it.preview is PreviewState.Ready }
+        vm.subscribePreview()
+        awaitState(vm.state) { it.subscribing.isNotEmpty() }
+
+        vm.dismissPreview()
+        vm.onQueryChange("https://b.example.com/feed.xml")
+        vm.submit()
+        awaitState(vm.state) { (it.preview as? PreviewState.Ready)?.preview?.title == "Show B" }
+        hold.complete(Unit)
+        val after = awaitState(vm.state) { it.subscribing.isEmpty() }
+        assertEquals("Show B", (after.preview as PreviewState.Ready).preview.title)
+        assertEquals("https://b.example.com/feed.xml", after.query)
+        assertNull(after.openShow)
+        assertEquals(1, env.repos.feeds.feeds().first().size)
     }
 }

@@ -11,6 +11,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
@@ -63,4 +64,52 @@ class DownloadFailuresTest {
         Thread.sleep(300)
         assertEquals(listOf(DownloadFailure("Alpha 2", "192.168.1.1 is on a private network address.")), got.toList())
     }
+
+    @Test
+    fun aBurstLargerThanOneReadIsReportedInFullOldestFirst() {
+        // CodeRabbit review (PR 1): only the newest 50 log rows were read, so the oldest of a larger burst was lost.
+        val feed = env.show("Alpha", episodes = 1)
+        val episode = env.episodeIds(feed).single()
+        val since = System.currentTimeMillis()
+        runBlocking { repeat(120) { logs().addDownload(episode, DownloadEvent.Failed, "failure $it") } }
+        val got = Collections.synchronizedList(mutableListOf<DownloadFailure>())
+        scope.launch { downloadFailures(env.deps, since).collect { got += it } }
+
+        eventually { got.size >= 120 }
+        Thread.sleep(300)
+        assertEquals((0 until 120).map { "failure $it" }, got.map { it.reason })
+    }
+
+    @Test
+    fun failuresAreReportedAgainOnceTheLibraryOpensAfterStartFresh() {
+        // CodeRabbit review (PR 1): with the library closed the reader ended for good, so after Start fresh no
+        // download failure reached the screen until the app was restarted.
+        val feed = env.show("Alpha", episodes = 1)
+        val episode = env.episodeIds(feed).single()
+        env.libraryOpen.value = false
+        val since = System.currentTimeMillis()
+        val got = Collections.synchronizedList(mutableListOf<DownloadFailure>())
+        scope.launch { downloadFailures(env.deps, since).collect { got += it } }
+        Thread.sleep(200)
+
+        env.libraryOpen.value = true
+        runBlocking { logs().addDownload(episode, DownloadEvent.Failed, "refused") }
+        eventually { got.isNotEmpty() }
+        assertEquals(listOf(DownloadFailure("Alpha 1", "refused")), got.toList())
+    }
+
+    @Test
+    fun aScreenShowsTheLibraryOnceItOpensAfterStartFresh() {
+        // CodeRabbit review (PR 1): withRepositories looked the library up once, so a screen stayed on
+        // "library closed" after Start fresh opened an empty library.
+        env.libraryOpen.value = false
+        val seen = Collections.synchronizedList(mutableListOf<String>())
+        scope.launch { env.deps.withRepositories("closed") { repos -> repos.feeds.feeds().map { "open ${it.size}" } }.collect { seen += it } }
+        eventually { seen.isNotEmpty() }
+        env.libraryOpen.value = true
+        eventually { seen.lastOrNull() == "open 0" }
+        assertEquals("closed", seen.first())
+    }
+
+    private fun logs() = env.repos.logs
 }

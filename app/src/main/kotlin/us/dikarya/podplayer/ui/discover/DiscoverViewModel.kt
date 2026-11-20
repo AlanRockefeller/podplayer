@@ -9,6 +9,7 @@ package us.dikarya.podplayer.ui.discover
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.InputStream
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -153,8 +154,12 @@ class DiscoverViewModel(private val deps: BrowseDeps) : ViewModel() {
                 else -> null
             }
             local.update {
-                if (feedId != null) {
+                // The owner may have cancelled this preview and started another meanwhile: leave that one alone.
+                val stillShown = (it.preview as? PreviewState.Ready)?.preview === preview
+                if (feedId != null && stillShown) {
                     it.copy(subscribing = it.subscribing - preview.url, preview = PreviewState.None, query = "", openShow = feedId)
+                } else if (feedId != null) {
+                    it.copy(subscribing = it.subscribing - preview.url)
                 } else {
                     it.copy(subscribing = it.subscribing - preview.url, message = problemOf(outcome))
                 }
@@ -188,8 +193,17 @@ class DiscoverViewModel(private val deps: BrowseDeps) : ViewModel() {
         val ready = local.value.opml as? OpmlState.Ready ?: return
         local.update { it.copy(opml = OpmlState.Importing) }
         viewModelScope.launch {
-            val summary = deps.subscriptions.importAll(ready.feeds)
-            local.update { it.copy(opml = if (summary == null) OpmlState.Failed(DiscoverProblem.LibraryClosed) else OpmlState.Done(summary)) }
+            val opml = try {
+                val summary = deps.subscriptions.importAll(ready.feeds)
+                if (summary == null) OpmlState.Failed(DiscoverProblem.LibraryClosed) else OpmlState.Done(summary)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Only the exception's type: its message could quote a feed address (a secret).
+                deps.log.w(TAG, "OPML import stopped: a write failed (${e.javaClass.simpleName})")
+                OpmlState.Failed(DiscoverProblem.CouldNotSave)
+            }
+            local.update { it.copy(opml = opml) }
         }
     }
 
@@ -203,5 +217,6 @@ class DiscoverViewModel(private val deps: BrowseDeps) : ViewModel() {
 
     private companion object {
         const val STOP_AFTER_MS = 5_000L
+        const val TAG = "Discover"
     }
 }

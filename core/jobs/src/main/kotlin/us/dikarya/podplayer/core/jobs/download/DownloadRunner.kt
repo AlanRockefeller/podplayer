@@ -7,6 +7,7 @@
 package us.dikarya.podplayer.core.jobs.download
 
 import java.io.File
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
@@ -15,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -84,6 +86,52 @@ class KeyedLocks {
 }
 
 /**
+ * The storage cap across downloads that run at the same time (SPEC §9). Each running download's bytes on disk are
+ * counted live; the downloads not running count with the bytes the database records for them, read again whenever
+ * one starts or ends. A write that would take the total over the cap is refused.
+ */
+internal class StorageLedger {
+    private val mutex = Mutex()
+    private val running = ConcurrentHashMap<Long, AtomicLong>()
+
+    /** Bytes of the downloads not running, as the database had them at the last start or end. */
+    @Volatile
+    private var resting = 0L
+
+    /** [id] starts with [onDisk] bytes already there. Returns its live counter. */
+    suspend fun enter(repos: Repositories, id: Long, onDisk: Long): AtomicLong = mutex.withLock {
+        val counter = AtomicLong(onDisk)
+        running[id] = counter
+        recount(repos)
+        counter
+    }
+
+    /** [id] ended; its record now holds what it left on disk. */
+    suspend fun leave(repos: Repositories, id: Long) = mutex.withLock {
+        running.remove(id)
+        recount(repos)
+    }
+
+    /**
+     * Adds [count] bytes to [counter] if all downloads together stay within [cap]. If not, returns false and
+     * [counter] gives its bytes back: the refused download fails and its file is deleted, so the others go on.
+     */
+    fun take(counter: AtomicLong, count: Long, cap: Long): Boolean = synchronized(this) {
+        if (resting + running.values.sumOf { it.get() } + count > cap) {
+            counter.set(0)
+            return false
+        }
+        counter.addAndGet(count)
+        true
+    }
+
+    private suspend fun recount(repos: Repositories) {
+        val all = repos.media.observeAll().first()
+        resting = all.filter { !running.containsKey(it.episodeId) }.sumOf { it.bytesDownloaded }
+    }
+}
+
+/**
  * Downloads one episode (SPEC §9, LESSONS "Downloads"): through the gated engine with the feed's address
  * policy, into a generated path in app-private storage, resuming a partial file with `Range` + `If-Range`.
  * The storage cap is the engine's byte limit. A finished transfer only becomes [DownloadState.Complete] when
@@ -101,6 +149,7 @@ class DownloadRunner(
     private val clock: () -> Long = System::currentTimeMillis,
     private val sinkFactory: (File) -> DownloadSink = ::FileDownloadSink,
 ) : DownloadTask {
+    private val ledger = StorageLedger()
 
     /**
      * Records that the owner wants this episode downloaded. Returns false when there is nothing to queue:
@@ -209,7 +258,51 @@ class DownloadRunner(
         val bytesOnDisk = AtomicLong(0)
         val totalBytes = AtomicReference<Long?>(record.totalBytes)
 
+        /** This transfer's bytes on disk, counted against the cap together with every other running download. */
+        private var counted = AtomicLong(0)
+        private var capBytes = Long.MAX_VALUE
+
+        /** Set when a write was refused because all running downloads together would pass the cap. */
+        @Volatile
+        private var capReached = false
+
+        /**
+         * The transfer writes through this one rather than the runner's: the same sinks, but each write first takes
+         * its bytes from what the storage cap leaves for all running downloads together.
+         */
+        private val sinkFactory: (File) -> DownloadSink = { CappedSink(this@DownloadRunner.sinkFactory(it)) }
+
+        private inner class CappedSink(private val inner: DownloadSink) : DownloadSink {
+            override fun length(): Long = inner.length()
+
+            override fun truncate() {
+                inner.truncate()
+                counted.set(0)
+            }
+
+            override fun write(bytes: ByteArray, offset: Int, count: Int) {
+                if (!ledger.take(counted, count.toLong(), capBytes)) {
+                    capReached = true
+                    throw IOException("all running downloads together would pass the storage limit")
+                }
+                inner.write(bytes, offset, count)
+            }
+
+            override fun close() = inner.close()
+        }
+
         suspend fun run(): DownloadOutcome {
+            capBytes = storageCap()
+            val onDisk = withContext(Dispatchers.IO) { if (file.isFile) file.length() else 0L }
+            counted = ledger.enter(repos, id, onDisk)
+            try {
+                return transfer()
+            } finally {
+                withContext(NonCancellable) { ledger.leave(repos, id) }
+            }
+        }
+
+        private suspend fun transfer(): DownloadOutcome {
             val url = when (val check = UrlPolicy.checkFeedUrl(episode.enclosure.url)) {
                 is UrlCheck.Allowed -> check.url
                 is UrlCheck.Rejected -> return fail(repos, id, record, file, "The episode's address isn't one this app can use (${check.problem.name}).")
@@ -291,6 +384,7 @@ class DownloadRunner(
             val error = result.error
             val message = when {
                 error is NetError.TooLarge && error.limitBytes < NetLimits.MEDIA_MAX_BYTES -> Messages.storageCap(cap)
+                error is NetError.Storage && capReached -> Messages.storageCap(cap)
                 else -> Messages.net(error)
             }
             val permanent = when (error) {

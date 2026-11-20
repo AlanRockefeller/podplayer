@@ -83,6 +83,21 @@ class ImportFileTest {
     }
 
     @Test
+    fun aDateTooFarOutForMillisecondsIsNoDateNotACrash() {
+        // Codex review (PR 3): Instant.parse accepted these, then toEpochMilli() threw ArithmeticException.
+        val result = ok(
+            """
+            {"format":"podplayer-import","version":1,"shows":[{"title":"Far","episodes":[
+              {"title":"Z","published":"+999999999-12-31T23:59:59Z"},
+              {"title":"Offset","published":"+999999999-12-31T23:59:59-18:00"},
+              {"title":"Past","published":"-999999999-01-01T00:00:00Z"}
+            ]}]}
+            """.trimIndent(),
+        )
+        assertEquals(listOf(null, null, null), result.shows.single().episodes.map { it.publishedAt })
+    }
+
+    @Test
     fun hostileValuesAreCleanedOrDropped() {
         val bell = Char(7)
         val rlo = Char(0x202E)

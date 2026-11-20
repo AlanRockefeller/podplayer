@@ -9,6 +9,7 @@ package us.dikarya.podplayer.ui.discover
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import java.io.InputStream
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -135,9 +136,20 @@ class DiscoverViewModel(private val deps: BrowseDeps) : ViewModel() {
         if (hit.feedUrl in local.value.subscribing) return
         local.update { it.copy(subscribing = it.subscribing + hit.feedUrl) }
         viewModelScope.launch {
-            val outcome = deps.subscriptions.subscribe(hit.feedUrl, ownerTyped = false)
-            local.update { it.copy(subscribing = it.subscribing - hit.feedUrl, message = problemOf(outcome)) }
+            val problem = guardWrite { problemOf(deps.subscriptions.subscribe(hit.feedUrl, ownerTyped = false)) }
+            local.update { it.copy(subscribing = it.subscribing - hit.feedUrl, message = problem) }
         }
+    }
+
+    /** A thrown write (storage full, say) as [DiscoverProblem.CouldNotSave], not a crash: this scope has no handler. */
+    private suspend fun guardWrite(block: suspend () -> DiscoverProblem?): DiscoverProblem? = try {
+        block()
+    } catch (e: CancellationException) {
+        throw e
+    } catch (e: Exception) {
+        // Only the exception's type: its message could quote a feed address (a secret).
+        deps.log.w(TAG, "Subscribing failed: a write failed (${e.javaClass.simpleName})")
+        DiscoverProblem.CouldNotSave
     }
 
     /** The previewed address the owner typed: owner-typed, applied at once, then the show opens. */
@@ -146,17 +158,26 @@ class DiscoverViewModel(private val deps: BrowseDeps) : ViewModel() {
         if (preview.url in local.value.subscribing) return
         local.update { it.copy(subscribing = it.subscribing + preview.url) }
         viewModelScope.launch {
-            val outcome = deps.subscriptions.subscribe(preview.url, ownerTyped = true, preview = preview.feed)
-            val feedId = when (outcome) {
-                is SubscribeOutcome.Subscribed -> outcome.feedId
-                is SubscribeOutcome.AlreadySubscribed -> outcome.feedId
-                else -> null
+            var feedId: Long? = null
+            val problem = guardWrite {
+                val outcome = deps.subscriptions.subscribe(preview.url, ownerTyped = true, preview = preview.feed)
+                feedId = when (outcome) {
+                    is SubscribeOutcome.Subscribed -> outcome.feedId
+                    is SubscribeOutcome.AlreadySubscribed -> outcome.feedId
+                    else -> null
+                }
+                problemOf(outcome)
             }
+            val id = feedId
             local.update {
-                if (feedId != null) {
-                    it.copy(subscribing = it.subscribing - preview.url, preview = PreviewState.None, query = "", openShow = feedId)
+                // The owner may have cancelled this preview and started another meanwhile: leave that one alone.
+                val stillShown = (it.preview as? PreviewState.Ready)?.preview === preview
+                if (id != null && stillShown) {
+                    it.copy(subscribing = it.subscribing - preview.url, preview = PreviewState.None, query = "", openShow = id)
+                } else if (id != null) {
+                    it.copy(subscribing = it.subscribing - preview.url)
                 } else {
-                    it.copy(subscribing = it.subscribing - preview.url, message = problemOf(outcome))
+                    it.copy(subscribing = it.subscribing - preview.url, message = problem)
                 }
             }
         }
@@ -188,8 +209,17 @@ class DiscoverViewModel(private val deps: BrowseDeps) : ViewModel() {
         val ready = local.value.opml as? OpmlState.Ready ?: return
         local.update { it.copy(opml = OpmlState.Importing) }
         viewModelScope.launch {
-            val summary = deps.subscriptions.importAll(ready.feeds)
-            local.update { it.copy(opml = if (summary == null) OpmlState.Failed(DiscoverProblem.LibraryClosed) else OpmlState.Done(summary)) }
+            val opml = try {
+                val summary = deps.subscriptions.importAll(ready.feeds)
+                if (summary == null) OpmlState.Failed(DiscoverProblem.LibraryClosed) else OpmlState.Done(summary)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Only the exception's type: its message could quote a feed address (a secret).
+                deps.log.w(TAG, "OPML import stopped: a write failed (${e.javaClass.simpleName})")
+                OpmlState.Failed(DiscoverProblem.CouldNotSave)
+            }
+            local.update { it.copy(opml = opml) }
         }
     }
 
@@ -203,5 +233,6 @@ class DiscoverViewModel(private val deps: BrowseDeps) : ViewModel() {
 
     private companion object {
         const val STOP_AFTER_MS = 5_000L
+        const val TAG = "Discover"
     }
 }

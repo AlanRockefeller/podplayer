@@ -36,6 +36,9 @@ sealed interface DiscoverProblem {
 
     /** A previewed episode couldn't be found once the show was kept aside (SPEC §12). */
     data object EpisodeUnavailable : DiscoverProblem
+
+    /** Writing to the library failed part-way (storage full, for one); what was saved before it stays. */
+    data object CouldNotSave : DiscoverProblem
 }
 
 /** The message shown for [problem]. No URL is ever quoted (feed URLs are secrets). */
@@ -46,6 +49,7 @@ fun Resources.message(problem: DiscoverProblem): String = when (problem) {
     DiscoverProblem.FileUnreadable -> getString(R.string.problem_file_unreadable)
     DiscoverProblem.LibraryClosed -> getString(R.string.problem_library_closed)
     DiscoverProblem.EpisodeUnavailable -> getString(R.string.preview_open_problem)
+    DiscoverProblem.CouldNotSave -> getString(R.string.problem_could_not_save)
     is DiscoverProblem.NotOpml -> getString(R.string.problem_not_opml)
     is DiscoverProblem.NotAFeed -> when (problem.problem) {
         is ParseProblem.NotAFeed, ParseProblem.HtmlPage -> getString(R.string.problem_not_a_feed_page)

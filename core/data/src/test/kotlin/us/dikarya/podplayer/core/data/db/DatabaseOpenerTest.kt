@@ -14,6 +14,7 @@ import java.io.RandomAccessFile
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -122,6 +123,38 @@ class DatabaseOpenerTest {
         assertTrue(layer.awaitRepositories()!!.feeds.feeds().first().isEmpty())
         val kept = layers.files.damagedDir.listFiles()!!.single { it.name.endsWith(".db") }
         assertArrayEquals(damagedBytes, kept.readBytes())
+        layer.close()
+    }
+
+    @Test
+    fun theLibraryFlowFollowsStartingFresh() = runBlocking {
+        // CodeRabbit review (PR 1): screens that looked up the repositories once stayed on "library closed" after
+        // Start fresh opened an empty library in the same process.
+        libraryWithABackup()
+        damage(dbFile)
+        val layer = layers.open()
+        assertEquals(null, withTimeout(5_000) { layer.repositories.first() })
+        val seen = async { withTimeout(5_000) { layer.repositories.first { it != null } } }
+        assertTrue(layer.startFresh())
+        assertTrue(seen.await()!!.feeds.feeds().first().isEmpty())
+        layer.close()
+    }
+
+    @Test
+    fun startingFreshFailsWithoutEmptyingTheLibraryWhenTheDamagedFileCantBeKept() = runBlocking {
+        // CodeRabbit review (PR 1): an IOException from keepAside escaped startFresh and left the dialog busy.
+        libraryWithABackup()
+        damage(dbFile)
+        val damagedBytes = dbFile.readBytes()
+        val damagedDir = layers.files.damagedDir
+        damagedDir.deleteRecursively()
+        damagedDir.parentFile!!.mkdirs()
+        damagedDir.writeText("a file where the folder should be")
+        val layer = layers.open()
+        assertTrue(layer.state.first { it !is DataState.Opening } is DataState.Damaged)
+        assertFalse(layer.startFresh())
+        assertTrue(layer.state.value is DataState.Damaged)
+        assertArrayEquals(damagedBytes, dbFile.readBytes())
         layer.close()
     }
 

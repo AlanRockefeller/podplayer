@@ -179,6 +179,25 @@ class SettingsViewModelTest {
     }
 
     @Test
+    fun usageAndTheLastCheckFollowTheLibraryOnceItOpensAfterStartFresh() = runBlocking {
+        // Found while fixing the CodeRabbit review (PR 1): the library was looked up once, so after Start fresh
+        // storage usage and the last check stayed empty until the app was restarted.
+        val e = open()
+        val feed = e.browse.show("Alpha", episodes = 1)
+        val one = e.browse.episodeIds(feed).single()
+        e.browse.repos.media.upsert(MediaFile(one, "media/$feed/$one.mp3", DownloadState.Complete, 300L * MIB, 300L * MIB, 1_000, 1))
+        e.browse.repos.feeds.recordRefreshSuccess(feed, null, at = 1_800_000_000_000L)
+        e.browse.libraryOpen.value = false
+        val vm = SettingsViewModel(e.deps)
+        val closed = awaitState(vm.state) { !it.loading }
+        assertEquals(0L, closed.usedBytes)
+        assertEquals(null, closed.lastRefreshAt)
+        e.browse.libraryOpen.value = true
+        val open = awaitState(vm.state) { it.usedBytes == 300L * MIB && it.lastRefreshAt != null }
+        assertEquals(1_800_000_000_000L, open.lastRefreshAt)
+    }
+
+    @Test
     fun storageUsageCountsTheDownloadsOnDisk() = runBlocking {
         val e = open()
         val feed = e.browse.show("Alpha", episodes = 2)

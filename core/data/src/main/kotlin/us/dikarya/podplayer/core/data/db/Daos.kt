@@ -401,6 +401,9 @@ interface LogDao {
     @Query("SELECT * FROM download_log WHERE episodeId = :episodeId ORDER BY at DESC, id DESC LIMIT :limit")
     fun observeDownloadsFor(episodeId: Long, limit: Int): Flow<List<DownloadLogEntity>>
 
+    @Query("SELECT * FROM download_log WHERE event = :event AND id > :afterId AND at >= :since ORDER BY id ASC LIMIT :limit")
+    suspend fun downloadsAfter(event: DownloadEvent, afterId: Long, since: Long, limit: Int): List<DownloadLogEntity>
+
     @Query("DELETE FROM refresh_log WHERE id NOT IN (SELECT id FROM refresh_log ORDER BY id DESC LIMIT :keep)")
     suspend fun trimRefresh(keep: Int): Int
 

@@ -13,6 +13,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import kotlin.coroutines.cancellation.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -174,6 +175,13 @@ class BackupManager internal constructor(
                 StageResult.Staged(ok.manifest.createdAt)
             } catch (e: IOException) {
                 log.w(TAG, "Staging the restore failed", e)
+                refuse(f, RestoreProblem.Unreadable)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // A hostile or odd file, or a provider that throws something other than IOException: a refusal,
+                // never a crash (the restore dialog runs this on the app scope, which has no handler).
+                log.w(TAG, "Staging the restore failed unexpectedly", e)
                 refuse(f, RestoreProblem.Unreadable)
             } finally {
                 RawDatabase.deleteWithSidecars(incoming)

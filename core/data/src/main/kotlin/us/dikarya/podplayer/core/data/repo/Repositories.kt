@@ -384,6 +384,13 @@ class LogRepository internal constructor(private val db: PodDatabase, private va
 
     fun downloadLog(episodeId: Long, limit: Int): Flow<List<DownloadLogEntity>> = db.logs().observeDownloadsFor(episodeId, limit)
 
+    /**
+     * Up to [limit] [event] rows logged at or after [since] with an id above [afterId], oldest first: a reader
+     * that keeps the last id it saw reads every row once, however many arrive at a time (ids only grow).
+     */
+    suspend fun downloadsAfter(event: DownloadEvent, afterId: Long, since: Long, limit: Int): List<DownloadLogEntity> =
+        db.logs().downloadsAfter(event, afterId, since, limit)
+
     /** SPEC §10: one row per position change. [PositionChange.at] is ignored; the row gets this clock's time. */
     suspend fun addPosition(change: PositionChange) {
         db.withTransaction {

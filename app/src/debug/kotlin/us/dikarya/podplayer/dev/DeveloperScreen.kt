@@ -83,7 +83,8 @@ import us.dikarya.podplayer.ui.artwork.rememberArtwork
 @Composable
 fun DeveloperScreen() {
     val graph = LocalContext.current.appGraph
-    val repos by produceState<Repositories?>(null) { value = graph.data.awaitRepositories() }
+    // Follows the library, so the screen opens once Start fresh replaces a damaged one.
+    val repos by graph.data.repositories.collectAsStateWithLifecycle(null)
     val current = repos
     if (current == null) {
         Text(stringResource(R.string.dev_opening), modifier = Modifier.padding(16.dp))

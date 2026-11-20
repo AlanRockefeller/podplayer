@@ -97,6 +97,7 @@
     <string name="problem_file_too_large">That file is too large to be an OPML subscription list.</string>
     <string name="problem_file_unreadable">That file couldn\'t be read.</string>
     <string name="problem_library_closed">Your library isn\'t open, so nothing was changed.</string>
+    <string name="problem_could_not_save">The library couldn\'t be saved to. Anything already added is kept, and trying again is safe. Check that the phone has free storage.</string>
     <string name="problem_not_opml">That file isn\'t an OPML subscription list.</string>
     <string name="problem_not_a_feed_page">That address is a web page, not a podcast feed. Look for the show\'s RSS link.</string>
     <string name="problem_not_a_feed">That address didn\'t return a feed this app can read.</string>
@@ -193,6 +194,7 @@
     <string name="db_damaged_body_none">The library database failed its check when the app started, and there is no backup to restore. You can start with an empty library; the damaged file is kept.</string>
     <string name="db_damaged_restore">Restore backup</string>
     <string name="db_damaged_start_fresh">Start empty</string>
+    <string name="db_damaged_start_fresh_failed">The damaged file couldn\'t be set aside, so the library was not emptied. Check that the phone has free storage, then try again.</string>
     <string name="db_problem_title">Your library couldn\'t be opened</string>
     <string name="db_failed_newer">It was saved by a newer version of Podplayer. Install that version again; nothing was changed.</string>
     <string name="db_failed_backup">It needs updating, but the backup before the update failed, so it wasn\'t changed. Free some storage and restart the app.</string>
@@ -429,6 +431,7 @@
     <string name="import_list_retry">Search again</string>
     <string name="import_list_start_over">Start over</string>
     <string name="import_list_done">Added %1$d. Already subscribed: %2$d. Skipped: %3$d. Couldn\'t add: %4$d.</string>
+    <string name="import_list_stopped">The library couldn\'t be saved to, so the import stopped part-way. What it added is kept, and importing the same list again is safe. Check that the phone has free storage.</string>
     <string name="import_list_not_found">Not found</string>
     <string name="import_list_unmatched_episodes">Episodes that didn\'t match</string>
     <string name="import_list_problem_empty">There\'s nothing to import.</string>

@@ -156,7 +156,9 @@ def write_marks(db_path, out, history, favorites, stars):
             wanted = {norm(s) for s in stars}
             rows += [(r, True) for r in json.load(f) if norm(r["title"]) in wanted]
 
-    shows, missed = {}, []
+    # One mark per matched library episode: the importer matches each episode once, so a second mark for the same
+    # episode (it is in both history and favorites) would be dropped and its star lost. Fields are merged instead.
+    shows, marks, missed = {}, {}, []
     for row, star in rows:
         day = datetime.datetime.strptime(row["date"], "%b %d, %Y").date()
         candidates = [
@@ -167,17 +169,19 @@ def write_marks(db_path, out, history, favorites, stars):
         if len(candidates) != 1:
             missed.append(f"{row['title']} ({row['date']}): {len(candidates)} matches")
             continue
-        _, show, url = candidates[0]
-        mark = {"title": row["title"], "published": day.isoformat()}
+        published, show, url = candidates[0]
+        key = (url, norm(row["title"]), published)
+        mark = marks.get(key)
+        if mark is None:
+            mark = marks[key] = {"title": row["title"], "published": day.isoformat()}
+            shows.setdefault(url, {"title": show, "feedUrl": url, "episodes": []})["episodes"].append(mark)
         if star:
             mark["starred"] = True
         if row.get("played"):
             mark["played"] = True
-        elif row.get("left") is not None and row.get("length"):
+            mark.pop("positionMs", None)
+        elif not mark.get("played") and "positionMs" not in mark and row.get("left") is not None and row.get("length"):
             mark["positionMs"] = int(seconds(row["length"]) * (1 - row["left"] / 100) * 1000)
-        entry = shows.setdefault(url, {"title": show, "feedUrl": url, "episodes": []})
-        if mark not in entry["episodes"]:
-            entry["episodes"].append(mark)
 
     data = {"format": "podplayer-import", "version": 1, "source": "Podbean (read over adb)",
             "shows": list(shows.values())}

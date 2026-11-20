@@ -283,6 +283,90 @@ class ListImportViewModelTest {
     }
 
     @Test
+    fun rowsCantBeChangedWhileSubscribing() = runBlocking {
+        // CodeRabbit review (PR 1): skipping a row during confirmation showed it skipped, yet it was subscribed.
+        appleAnswers()
+        val hold = CompletableDeferred<Unit>()
+        env.beforeSubscribe = { hold.await() }
+        val vm = ListImportViewModel(env.deps)
+        vm.onTextChange("Science Hour\nGardening")
+        vm.findShows()
+        val rows = vm.matched().rows
+        vm.confirm()
+        awaitState(vm.state) { it.subscribing }
+        vm.skip(rows[1].key)
+        vm.choose(rows[0].key, 2)
+        hold.complete(Unit)
+        val done = awaitState(vm.state) { it.summary != null }
+        assertEquals(listOf(false, false), done.rows.map { it.skipped })
+        assertEquals(listOf(0, 0), done.rows.map { it.chosen })
+        assertEquals(2, done.summary!!.added)
+    }
+
+    @Test
+    fun aNewListIsNotFilledWithTheResultsOfTheListBefore() = runBlocking {
+        // CodeRabbit review (PR 1): a search still running for the first list wrote its matches into the new
+        // list's row with the same key, so confirming could subscribe a show the owner never asked for.
+        appleAnswers()
+        val gate = CompletableDeferred<Unit>()
+        env.beforeAnswer = { url -> if (url.queryParameter("term") == "Alpha") gate.await() }
+        val vm = ListImportViewModel(env.deps)
+        vm.onTextChange("Alpha")
+        vm.findShows()
+        awaitState(vm.state) { s -> s.rows.firstOrNull()?.status == RowStatus.Searching }
+        vm.onTextChange("Beta")
+        vm.findShows()
+        gate.complete(Unit)
+        val row = awaitState(vm.state) { s -> s.rows.singleOrNull()?.let { it.label == "Beta" && it.status == RowStatus.Matched } == true && !s.matching }.rows.single()
+        assertEquals("Beta 1", row.chosenHit?.title)
+    }
+
+    @Test
+    fun aWriteThatFailsWhileImportingStopsWithASummaryOfWhatWasAdded() = runBlocking {
+        // CodeRabbit review (PR 1): an exception from applying the marks escaped confirm(), so the import never
+        // finished (and on a phone the uncaught exception ends the app).
+        appleAnswers()
+        val file = """
+            {"format":"podplayer-import","version":1,"shows":[
+              {"title":"Science Hour","feedUrl":"https://feeds.example.com/science.xml","episodes":[{"title":"Episode 3","starred":true}]},
+              {"title":"Gardening"}
+            ]}
+        """.trimIndent()
+        val vm = ListImportViewModel(env.deps)
+        vm.filePicked { file.byteInputStream() }
+        vm.matched()
+        env.beforeRepositories = { throw android.database.sqlite.SQLiteFullException("database or disk is full") }
+        vm.confirm()
+        val done = awaitState(vm.state) { it.summary != null }
+        assertTrue(done.summary!!.stoppedByError)
+        assertEquals(1, done.summary!!.added)
+        assertTrue(!done.subscribing)
+        assertEquals(listOf("https://feeds.example.com/science.xml"), env.repos.feeds.feeds().first().map { it.url })
+    }
+
+    @Test
+    fun marksForAShowAlreadySubscribedButWithoutEpisodesYetAreApplied() = runBlocking {
+        // CodeRabbit CLI review (PR 10): an existing subscription that hadn't been refreshed yet got no preview, so
+        // every imported mark came back unmatched.
+        appleAnswers()
+        env.repos.feeds.subscribe("https://feeds.example.com/science.xml", ownerTyped = false)
+        val file = """
+            {"format":"podplayer-import","version":1,"shows":[
+              {"title":"Science Hour","feedUrl":"https://feeds.example.com/science.xml","episodes":[{"title":"Episode 3","starred":true}]}
+            ]}
+        """.trimIndent()
+        val vm = ListImportViewModel(env.deps)
+        vm.filePicked { file.byteInputStream() }
+        awaitState(vm.state) { s -> s.rows.isNotEmpty() && !s.matching && s.subscribedUrls.isNotEmpty() }
+        vm.confirm()
+        val summary = awaitState(vm.state) { it.summary != null }.summary!!
+        assertEquals(1, summary.alreadySubscribed)
+        assertEquals(emptyList<String>(), summary.unmatchedEpisodes)
+        val science = env.repos.feeds.feeds().first().single()
+        assertTrue(env.repos.episodes.forFeed(science.id).first().single { it.title == "Episode 3" }.starred)
+    }
+
+    @Test
     fun aRefusedImportFileSaysWhy() {
         val vm = ListImportViewModel(env.deps)
         vm.filePicked { """{"format":"podplayer-import","version":9,"shows":[]}""".byteInputStream() }

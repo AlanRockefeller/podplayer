@@ -133,6 +133,8 @@
     <string name="show_no_episodes">This feed has no episodes.</string>
     <string name="unsubscribe_title">Unsubscribe from %1$s?</string>
     <string name="unsubscribe_body">Its episodes, downloads, positions and queue entries are removed from this phone.</string>
+    <string name="unsubscribe_failed">Couldn\'t unsubscribe. Settings › Logs says why.</string>
+    <string name="unsubscribe_try_again">Try again</string>
     <string name="speed_default_label">Speed: %1$s (default)</string>
     <string name="speed_show_label">Speed: %1$s (this show)</string>
     <string name="speed_use_default">Default speed (%1$s)</string>

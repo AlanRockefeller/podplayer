@@ -93,6 +93,43 @@ class BluetoothPlayGateTest {
     }
 
     @Test
+    fun beforeTheTickedListIsReadEveryFreshDeviceCountsAsTicked() {
+        // A cold start by the car: its Play can arrive before Settings has been read. Unknown is not "none
+        // ticked" (CLAUDE.md: never auto-start on Bluetooth connect), so the first outside Play is ignored.
+        var loaded: Set<String>? = null
+        outputs[78] = "Pixel Buds"
+        val gate = BluetoothPlayGate(
+            clock = { now },
+            processStartedAt = now,
+            bluetoothOutputs = { outputs.toMap() },
+            ignoreAutoPlayFrom = { loaded },
+            log = { logged += it },
+        )
+        now += 1_000
+        assertNotNull(gate.ignoreReason(mediaButton))
+        assertNull("the next press plays", gate.ignoreReason(mediaButton))
+        // Once read, the owner's list decides again.
+        loaded = setOf(CAR)
+        connect(gate, 79, "Pixel Buds")
+        assertNull(gate.ignoreReason(carController))
+        // A list read as empty (nothing ticked) is not "unread": nothing is ignored.
+        loaded = emptySet()
+        connect(gate, 80, CAR)
+        assertNull(gate.ignoreReason(carController))
+    }
+
+    @Test
+    fun beforeTheTickedListIsReadAPlayWithNoFreshDevicePlays() {
+        val gate = BluetoothPlayGate(
+            clock = { now },
+            processStartedAt = now - 3_600_000,
+            bluetoothOutputs = { outputs.toMap() },
+            ignoreAutoPlayFrom = { null },
+        )
+        assertNull(gate.ignoreReason(mediaButton))
+    }
+
+    @Test
     fun aCarThatSendsPlayHalfAMinuteAfterConnectingIsStillIgnored() {
         val gate = gate(startedAt = now - 3_600_000)
         connect(gate, 77, CAR)

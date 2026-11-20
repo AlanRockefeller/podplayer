@@ -85,6 +85,28 @@ internal fun formatTime(context: Context, at: Long): String = DateUtils.formatDa
 )
 
 /**
+ * Moves the backup folder from [old] to [new]: takes [new]'s lasting permission and saves it first, and only then
+ * gives up [old]'s, so a failure on the way leaves the old folder chosen and still writable. If saving fails, the
+ * permission just taken for [new] is given back. Throws what [take] or [save] threw.
+ */
+internal suspend fun switchBackupFolder(
+    old: String?,
+    new: String,
+    take: (String) -> Unit,
+    release: (String) -> Unit,
+    save: suspend () -> Unit,
+) {
+    take(new)
+    try {
+        save()
+    } catch (e: Exception) {
+        if (old != new) runCatching { release(new) }
+        throw e
+    }
+    if (old != null && old != new) runCatching { release(old) }
+}
+
+/**
  * Settings › Backup and restore (SPEC §7, minimal until M1-S9): the backup folder (Storage Access Framework,
  * persisted permission), back up now, export a file, restore from a file. Work runs in the app scope, so it
  * finishes even if the owner leaves the screen.
@@ -121,11 +143,13 @@ fun BackupSection() {
             work {
                 val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
                 val resolver = context.contentResolver
-                status.folderUri?.let { old ->
-                    if (old != uri.toString()) runCatching { resolver.releasePersistableUriPermission(old.toUri(), flags) }
-                }
-                resolver.takePersistableUriPermission(uri, flags)
-                data.device.setBackupFolder(uri.toString(), SafBackupFolder.displayName(resolver, uri))
+                switchBackupFolder(
+                    old = status.folderUri,
+                    new = uri.toString(),
+                    take = { resolver.takePersistableUriPermission(it.toUri(), flags) },
+                    release = { resolver.releasePersistableUriPermission(it.toUri(), flags) },
+                    save = { data.device.setBackupFolder(uri.toString(), SafBackupFolder.displayName(resolver, uri)) },
+                )
                 data.backups.backupNow().notice()
             }
         }

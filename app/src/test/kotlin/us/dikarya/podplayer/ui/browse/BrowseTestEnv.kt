@@ -79,8 +79,8 @@ class FakePlayback : PlaybackControls {
         commands += "forward"
     }
 
-    override fun setSpeed(speed: Float?, forShow: Boolean) {
-        commands += "speed $speed forShow=$forShow"
+    override fun setSpeed(speed: Float?, forShow: Boolean, feedId: Long?) {
+        commands += "speed $speed forShow=$forShow" + (feedId?.let { " feed=$it" } ?: "")
     }
 
     override fun sleepAfterMinutes(minutes: Int) {
@@ -114,8 +114,16 @@ class FakeDownloads(private val repos: suspend () -> Repositories?) : DownloadAc
         calls += "delete $episodeId"
     }
 
+    /** Thrown by the next unsubscribe, before the feed is removed (a delete that failed part way). */
+    @Volatile
+    var unsubscribeFailure: Exception? = null
+
     override suspend fun unsubscribe(feedId: Long) {
         calls += "unsubscribe $feedId"
+        unsubscribeFailure?.let {
+            unsubscribeFailure = null
+            throw it
+        }
         repos()?.feeds?.unsubscribe(feedId)
     }
 }

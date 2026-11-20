@@ -125,6 +125,19 @@ class SessionCallbackTest {
     }
 
     @Test
+    fun aShowsSpeedCarriesTheShowItWasSetFor() {
+        val args = Bundle().apply {
+            putFloat(SessionCallback.Commands.ARG_SPEED, 1.75f)
+            putBoolean(SessionCallback.Commands.ARG_FOR_SHOW, true)
+            putLong(SessionCallback.Commands.ARG_FEED_ID, 55)
+        }
+        val result = await(callback.onCustomCommand(session, ownUi, SessionCommand(SessionCallback.Commands.SET_SPEED, Bundle.EMPTY), args))
+        idle()
+        assertEquals(SessionResult.RESULT_SUCCESS, result.resultCode)
+        assertEquals(1.75f, h.store.showSpeeds[55])
+    }
+
+    @Test
     fun itemsAControllerSendsAreLookedUpByIdAndTheirUrisNeverUsed() {
         val hostile = listOf(
             MediaItem.Builder().setMediaId("1").setUri("file:///data/data/us.dikarya.podplayer/databases/podplayer.db").build(),

@@ -50,8 +50,11 @@ class BluetoothPlayGate(
     processStartedAt: Long = Process.getStartElapsedRealtime(),
     /** Connected Bluetooth audio outputs: device id → name. */
     private val bluetoothOutputs: () -> Map<Int, String>,
-    /** The names the owner ticked; read at each Play. */
-    private val ignoreAutoPlayFrom: () -> Set<String>,
+    /**
+     * The names the owner ticked; read at each Play. Null while Settings hasn't been read yet (a cold start by
+     * the car's own Play can get here first): then every armed device counts as ticked, so nothing auto-starts.
+     */
+    private val ignoreAutoPlayFrom: () -> Set<String>?,
     private val onDeviceSeen: (String) -> Unit = {},
     private val ownUid: Int = Process.myUid(),
     private val log: (String) -> Unit = {},
@@ -97,7 +100,7 @@ class BluetoothPlayGate(
             return null
         }
         val ticked = ignoreAutoPlayFrom()
-        val fresh = armed.filter { (id, at) -> present[id] in ticked && now - at < ARM_WINDOW_MS }
+        val fresh = armed.filter { (id, at) -> (ticked == null || present[id] in ticked) && now - at < ARM_WINDOW_MS }
         val connected = present.values.joinToString().ifEmpty { "no Bluetooth audio" }
         armed.clear()
         if (fresh.isEmpty()) {
@@ -105,7 +108,8 @@ class BluetoothPlayGate(
             return null
         }
         val (id, at) = fresh.entries.minBy { it.value }
-        val reason = "automatic Play ${(now - at) / 1000} s after ${present[id]} connected"
+        val unread = if (ticked == null) " (Settings not read yet)" else ""
+        val reason = "automatic Play ${(now - at) / 1000} s after ${present[id]} connected$unread"
         log("Play from ${controller.packageName}: ignored ($reason)")
         return reason
     }
@@ -139,7 +143,7 @@ class BluetoothPlayGate(
          */
         fun watching(
             context: Context,
-            ignoreAutoPlayFrom: () -> Set<String>,
+            ignoreAutoPlayFrom: () -> Set<String>?,
             onDeviceSeen: (String) -> Unit,
             log: (String) -> Unit = {},
         ): BluetoothPlayGate {

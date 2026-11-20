@@ -80,6 +80,7 @@ class SessionCallback(
             Commands.SET_SPEED -> engine.setSpeed(
                 if (args.containsKey(Commands.ARG_SPEED)) args.getFloat(Commands.ARG_SPEED) else null,
                 forShow = args.getBoolean(Commands.ARG_FOR_SHOW, false),
+                feedId = if (args.containsKey(Commands.ARG_FEED_ID)) args.getLong(Commands.ARG_FEED_ID) else null,
             )
             Commands.SLEEP_MINUTES -> engine.sleepAfterMinutes(args.getInt(Commands.ARG_MINUTES, 0))
             Commands.SLEEP_END_OF_EPISODE -> engine.sleepAtEndOfEpisode()
@@ -161,6 +162,9 @@ class SessionCallback(
         const val ARG_START_MS = "start_ms"
         const val ARG_SPEED = "speed"
         const val ARG_FOR_SHOW = "for_show"
+
+        /** Optional with [SET_SPEED] for a show: the show it is for, instead of the loaded episode's. */
+        const val ARG_FEED_ID = "feed_id"
         const val ARG_MINUTES = "minutes"
     }
 

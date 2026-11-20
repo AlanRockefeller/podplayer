@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -103,7 +104,7 @@ class ShowViewModelTest {
         env.playback.playEpisode(playing)
         awaitState(vm.state) { s -> s.episodes.any { it.loaded } }
         vm.setShowSpeed(2.0f)
-        assertEquals("the session applies and stores it (CLAUDE.md: UI sends commands)", "speed 2.0 forShow=true", env.playback.commands.last())
+        assertEquals("the session applies and stores it (CLAUDE.md: UI sends commands)", "speed 2.0 forShow=true feed=$feed", env.playback.commands.last())
     }
 
     @Test
@@ -118,6 +119,30 @@ class ShowViewModelTest {
         // The fake records the call before Room's delete commits, so wait for the library itself, not the call.
         eventually { runBlocking { env.repos.feeds.get(feed) } == null }
         assertEquals(listOf("unsubscribe $feed"), env.downloads.calls)
+    }
+
+    @Test
+    fun aFailedUnsubscribeKeepsThePageAndCanBeTriedAgain() = runBlocking {
+        val feed = env.show("Alpha")
+        val vm = ShowViewModel(env.deps, feed)
+        awaitState(vm.state) { it.feed != null }
+        env.downloads.unsubscribeFailure = java.io.IOException("disk full")
+        vm.unsubscribe()
+        val first = awaitState(vm.unsubscribeFailed) { it != null }!!
+        assertFalse("the page stays: the show is still subscribed", vm.state.value.gone)
+        assertTrue(env.repos.feeds.get(feed) != null)
+
+        // Try again fails too: a new failure, so the screen reports it again even if it never saw the retry start.
+        env.downloads.unsubscribeFailure = java.io.IOException("still full")
+        vm.unsubscribe()
+        val second = awaitState(vm.unsubscribeFailed) { it != null && it != first }!!
+        vm.unsubscribeFailureShown(first)
+        assertEquals("an older failure's dismissal leaves the newer one", second, vm.unsubscribeFailed.value)
+
+        vm.unsubscribe()
+        awaitState(vm.state) { it.gone }
+        eventually { runBlocking { env.repos.feeds.get(feed) } == null }
+        assertEquals("a success is no failure", null, vm.unsubscribeFailed.value)
     }
 
     @Test

@@ -203,7 +203,10 @@ private fun Player(state: PlayerUiState, viewModel: PlayerViewModel, onOpenEpiso
 private fun SeekBar(state: PlayerUiState, onSeek: (Long) -> Unit) {
     val colors = PodplayerTheme.colors
     val duration = state.durationMs
-    var dragging by remember { mutableStateOf<Float?>(null) }
+    val drag = remember { SeekDrag() }
+    val episodeId = state.episodeId
+    LaunchedEffect(episodeId) { drag.onEpisode(episodeId) }
+    val dragging = drag.shown(episodeId)
     val description = stringResource(R.string.player_seek)
     if (duration != null && duration > 0) {
         val shown = dragging ?: (state.positionMs.toFloat() / duration).coerceIn(0f, 1f)
@@ -211,11 +214,8 @@ private fun SeekBar(state: PlayerUiState, onSeek: (Long) -> Unit) {
         val bufferedColor = MaterialTheme.colorScheme.primary.copy(alpha = BUFFERED_ALPHA)
         Slider(
             value = shown,
-            onValueChange = { dragging = it },
-            onValueChangeFinished = {
-                dragging?.let { onSeek((it * duration).toLong()) }
-                dragging = null
-            },
+            onValueChange = { drag.move(it, episodeId) },
+            onValueChangeFinished = { drag.release(episodeId)?.let { onSeek((it * duration).toLong()) } },
             modifier = Modifier.fillMaxWidth().semantics { contentDescription = description },
             track = { sliderState ->
                 // The buffered mark is painted only over the track the slider drew (SrcAtop on its own layer), so
@@ -294,9 +294,10 @@ private fun SpeedSheet(state: PlayerUiState, viewModel: PlayerViewModel, onDismi
                     modifier = Modifier.padding(horizontal = 12.dp).heightIn(min = 48.dp),
                 ) { Text(stringResource(R.string.speed_use_default_for_show)) }
             }
+            val chosen = selectedSpeed(forShow, state.showSpeed, state.globalSpeed)
             Column(Modifier.selectableGroup()) {
                 SPEED_CHOICES.forEach { speed ->
-                    ChoiceRow(speedText(speed), selected = speed == state.speed) {
+                    ChoiceRow(speedText(speed), selected = speed == chosen) {
                         viewModel.setSpeed(speed, forShow)
                         onDismiss()
                     }

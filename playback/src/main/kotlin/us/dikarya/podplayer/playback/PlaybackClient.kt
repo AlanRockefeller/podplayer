@@ -72,8 +72,11 @@ interface PlaybackControls {
 
     fun skipForward()
 
-    /** [speed] null clears the show's own speed; [forShow] false sets the global default. */
-    fun setSpeed(speed: Float?, forShow: Boolean)
+    /**
+     * [speed] null clears the show's own speed; [forShow] false sets the global default. [feedId] names the show
+     * a show speed is for; null means whichever show is loaded when the session runs the command.
+     */
+    fun setSpeed(speed: Float?, forShow: Boolean, feedId: Long? = null)
 
     /** SPEC §10: pauses after [minutes] of listening (5–120), with a 10 s fade. Runs in the service. */
     fun sleepAfterMinutes(minutes: Int)
@@ -174,9 +177,10 @@ class PlaybackClient(context: Context) : PlaybackControls {
         controller?.seekForward()
     }
 
-    override fun setSpeed(speed: Float?, forShow: Boolean) = custom(SessionCallback.Commands.SET_SPEED) {
+    override fun setSpeed(speed: Float?, forShow: Boolean, feedId: Long?) = custom(SessionCallback.Commands.SET_SPEED) {
         speed?.let { putFloat(SessionCallback.Commands.ARG_SPEED, it) }
         putBoolean(SessionCallback.Commands.ARG_FOR_SHOW, forShow)
+        feedId?.let { putLong(SessionCallback.Commands.ARG_FEED_ID, it) }
     }
 
     override fun sleepAfterMinutes(minutes: Int) = custom(SessionCallback.Commands.SLEEP_MINUTES) { putInt(SessionCallback.Commands.ARG_MINUTES, minutes) }

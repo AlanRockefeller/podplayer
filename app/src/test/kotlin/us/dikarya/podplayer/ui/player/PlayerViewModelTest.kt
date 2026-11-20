@@ -110,13 +110,17 @@ class PlayerViewModelTest {
     @Test
     fun speedGoesToTheSessionForEveryShowOrForThisOne() = runBlocking {
         val (episode, vm) = playing()
+        val feedId = env.repos.episodes.get(episode)!!.feedId
         vm.setSpeed(1.5f, forShow = false)
         vm.setSpeed(2.0f, forShow = true)
         vm.useDefaultSpeedForShow()
-        assertEquals(listOf("speed 1.5 forShow=false", "speed 2.0 forShow=true", "speed null forShow=true"), env.playback.commands.takeLast(3))
+        // A show's speed names the show shown, so it can't land on the next show if playback moves on first.
+        assertEquals(
+            listOf("speed 1.5 forShow=false", "speed 2.0 forShow=true feed=$feedId", "speed null forShow=true feed=$feedId"),
+            env.playback.commands.takeLast(3),
+        )
 
         // The show's own speed, as stored (the session stores it in the real app).
-        val feedId = env.repos.episodes.get(episode)!!.feedId
         env.repos.feedSettings.setSpeed(feedId, 1.75f)
         env.data.settings.setPlaybackSpeed(1.2f)
         val state = awaitState(vm.state) { it.showSpeed == 1.75f && it.globalSpeed == 1.2f }

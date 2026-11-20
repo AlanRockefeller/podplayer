@@ -37,6 +37,7 @@ import us.dikarya.podplayer.R
 import us.dikarya.podplayer.core.model.PositionChange
 import us.dikarya.podplayer.playback.PlaybackClient
 import us.dikarya.podplayer.playback.SleepUi
+import us.dikarya.podplayer.ui.player.SeekDrag
 
 /**
  * Play, pause, seek, skip, speed and sleep timer on the Developer screen (SPEC §12), so playback can be tested
@@ -71,15 +72,15 @@ internal fun DeveloperPlayer(client: PlaybackClient) {
             style = MaterialTheme.typography.bodySmall,
         )
         if (duration != null) {
-            // While dragging, the slider shows the drag; the seek is sent once, on release.
-            var dragging by remember { mutableStateOf<Float?>(null) }
+            // While dragging, the slider shows the drag; the seek is sent once, on release, and only to the
+            // episode the drag started on.
+            val drag = remember { SeekDrag() }
+            val episodeId = state.episodeId
+            LaunchedEffect(episodeId) { drag.onEpisode(episodeId) }
             Slider(
-                value = dragging ?: state.positionMs.toFloat().coerceIn(0f, duration.toFloat()),
-                onValueChange = { dragging = it },
-                onValueChangeFinished = {
-                    dragging?.let { client.seekTo(it.toLong()) }
-                    dragging = null
-                },
+                value = drag.shown(episodeId) ?: state.positionMs.toFloat().coerceIn(0f, duration.toFloat()),
+                onValueChange = { drag.move(it, episodeId) },
+                onValueChangeFinished = { drag.release(episodeId)?.let { client.seekTo(it.toLong()) } },
                 valueRange = 0f..duration.toFloat(),
             )
         }

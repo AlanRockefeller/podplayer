@@ -122,7 +122,7 @@ private fun QueueList(items: List<EpisodeItem>, viewModel: QueueViewModel, onOpe
                             drag.by(amount)
                         },
                         onDragEnd = { drag.end(latestDatabaseOrder, latestViewModel::move) },
-                        onDragCancel = { drag.end(latestDatabaseOrder, latestViewModel::move) },
+                        onDragCancel = { drag.cancel() },
                     )
                 },
             )
@@ -178,12 +178,20 @@ private class QueueDrag(private val listState: LazyListState) {
         offset += if (offset > 0) -neighbour.size else neighbour.size
     }
 
+    /** Released: the database gets the order the list shows, counting only the rows still in the queue. */
     fun end(databaseOrder: List<Long>, move: (Long, Int) -> Unit) {
         val id = draggingId ?: return
-        val target = order?.indexOf(id) ?: -1
+        val target = if (order == null) -1 else shown(databaseOrder).indexOf(id)
         draggingId = null
         offset = 0f
         if (target >= 0 && target != databaseOrder.indexOf(id)) move(id, target) else order = null
+    }
+
+    /** Cancelled (another gesture took the pointer): the rows go back, and nothing is saved. */
+    fun cancel() {
+        draggingId = null
+        offset = 0f
+        order = null
     }
 }
 

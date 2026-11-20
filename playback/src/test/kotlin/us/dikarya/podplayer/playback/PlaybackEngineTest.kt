@@ -447,6 +447,27 @@ class PlaybackEngineTest {
     }
 
     @Test
+    fun aShowsSpeedSentForANamedShowIsStoredForThatShowEvenWhenAnotherIsPlaying() {
+        // A show's page sent its speed while that show played; by the time it arrived, the next show's episode was
+        // loaded. The speed belongs to the show the page was for, and the one playing keeps its own.
+        val h = harness().apply {
+            store.add(1, feedId = 7)
+            store.showSpeeds[7] = 1.2f
+        }.start()
+        h.engine.playEpisode(1)
+        idle()
+        h.engine.setSpeed(2.0f, forShow = true, feedId = 8)
+        idle()
+        assertEquals(2.0f, h.store.showSpeeds[8])
+        assertEquals(1.2f, h.store.showSpeeds[7])
+        assertEquals(1.2f, h.player.playbackParameters.speed)
+        h.engine.setSpeed(null, forShow = true, feedId = 8)
+        idle()
+        assertEquals(null, h.store.showSpeeds[8])
+        assertEquals(1.2f, h.store.showSpeeds[7])
+    }
+
+    @Test
     fun skipIntervalsDefaultTo15And30AreConfigurableAndClamped() {
         val h = harness().apply { store.add(1, durationMs = 100_000) }.start()
         h.engine.playEpisode(1)

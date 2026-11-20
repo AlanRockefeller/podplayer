@@ -8,6 +8,9 @@ package us.dikarya.podplayer.ui.show
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -126,7 +129,8 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
      */
     fun setShowSpeed(speed: Float?) {
         if (state.value.loadedHere) {
-            deps.playback.setSpeed(speed?.let(PlaybackSettings::clampSpeed), forShow = true)
+            // Named, so it can't land on the next show if playback moves on before the session runs it.
+            deps.playback.setSpeed(speed?.let(PlaybackSettings::clampSpeed), forShow = true, feedId = feedId)
         } else {
             viewModelScope.launch { deps.repositories()?.feedSettings?.setSpeed(feedId, speed) }
         }
@@ -142,9 +146,41 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
     /** The refresh [refresh] asked for is running (pull-to-refresh's spinner). */
     val refreshing: kotlinx.coroutines.flow.Flow<Boolean> = deps.refreshRunning(feedId)
 
+    /**
+     * The last unsubscribe failed; the page stays, says so and offers to try again. Each failure has its own
+     * number, so a retry that fails again is reported again even if the screen never saw the retry's null.
+     */
+    val unsubscribeFailed: StateFlow<Int?> get() = failedToUnsubscribe
+
+    private val failedToUnsubscribe = MutableStateFlow<Int?>(null)
+    private val failures = AtomicInteger(0)
+    private val unsubscribing = AtomicBoolean(false)
+
+    /**
+     * The page goes back only once the show is removed. If removal fails part way, the show is still there and
+     * [unsubscribeFailed] says so; trying again is safe (whatever was already deleted is skipped).
+     */
     fun unsubscribe() {
-        unsubscribed.value = true
-        viewModelScope.launch { deps.downloads.unsubscribe(feedId) }
+        if (!unsubscribing.compareAndSet(false, true)) return
+        failedToUnsubscribe.value = null
+        viewModelScope.launch {
+            try {
+                deps.downloads.unsubscribe(feedId)
+                unsubscribed.value = true
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                deps.log.w(TAG, "Unsubscribing from show $feedId failed", e)
+                failedToUnsubscribe.value = failures.incrementAndGet()
+            } finally {
+                unsubscribing.set(false)
+            }
+        }
+    }
+
+    /** Failure [id] was reported; a newer one stays. */
+    fun unsubscribeFailureShown(id: Int) {
+        failedToUnsubscribe.compareAndSet(id, null)
     }
 
     /**
@@ -158,5 +194,6 @@ class ShowViewModel(private val deps: BrowseDeps, private val feedId: Long) : Vi
 
     private companion object {
         const val STOP_AFTER_MS = 5_000L
+        const val TAG = "Show"
     }
 }

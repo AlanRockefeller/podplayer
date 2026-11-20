@@ -25,7 +25,6 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -54,13 +53,11 @@ class EpisodeRowLayoutUiTest {
     private val tmp = TemporaryFolder()
 
     @get:Rule
-    val rules: RuleChain = RuleChain.outerRule(tmp).around(HostActivity()).around(compose)
+    // The library closes after the screen is gone, so no write of its view model resumes on a closed database.
+    val rules: RuleChain = RuleChain.outerRule(tmp).around(CloseAfter { env.close() }).around(HostActivity()).around(compose)
 
     private val env by lazy { BrowseTestEnv(tmp.root) }
     private val context get() = ApplicationProvider.getApplicationContext<Application>()
-
-    @After
-    fun tearDown() = env.close()
 
     @Test
     fun atTheNormalFontSizeTheButtonsSitBesideTheTitle() {

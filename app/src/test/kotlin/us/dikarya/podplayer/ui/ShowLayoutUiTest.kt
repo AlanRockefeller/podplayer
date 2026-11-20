@@ -24,7 +24,6 @@ import us.dikarya.podplayer.ui.show.TAG_SHOW_AUTO_DOWNLOAD
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -57,13 +56,11 @@ class ShowLayoutUiTest {
     private val tmp = TemporaryFolder()
 
     @get:Rule
-    val rules: RuleChain = RuleChain.outerRule(tmp).around(HostActivity()).around(compose)
+    // The library closes after the screen is gone, so no write of its view model resumes on a closed database.
+    val rules: RuleChain = RuleChain.outerRule(tmp).around(CloseAfter { env.close() }).around(HostActivity()).around(compose)
 
     private val env by lazy { BrowseTestEnv(tmp.root) }
     private val context get() = ApplicationProvider.getApplicationContext<Application>()
-
-    @After
-    fun tearDown() = env.close()
 
     // Each case in a window of its own width: Robolectric's default window is 320 dp, which clamped the wider cases.
     @Test

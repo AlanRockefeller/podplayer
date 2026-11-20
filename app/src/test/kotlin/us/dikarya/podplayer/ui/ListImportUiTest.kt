@@ -15,7 +15,6 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.CompletableDeferred
-import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -39,12 +38,10 @@ class ListImportUiTest {
     private val tmp = TemporaryFolder()
 
     @get:Rule
-    val rules: RuleChain = RuleChain.outerRule(tmp).around(HostActivity()).around(compose)
+    // The library closes after the screen is gone, so no write of its view model resumes on a closed database.
+    val rules: RuleChain = RuleChain.outerRule(tmp).around(CloseAfter { env.close() }).around(HostActivity()).around(compose)
 
     private val env by lazy { BrowseTestEnv(tmp.root) }
-
-    @After
-    fun tearDown() = env.close()
 
     @Test
     fun theScreenStaysOnWhileMatchingRunsAndNotAfter() {

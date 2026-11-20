@@ -15,7 +15,6 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.RuleChain
@@ -24,6 +23,7 @@ import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import us.dikarya.podplayer.core.data.settings.LibraryLayout
 import us.dikarya.podplayer.core.data.settings.LibrarySort
+import us.dikarya.podplayer.ui.CloseAfter
 import us.dikarya.podplayer.ui.HostActivity
 import us.dikarya.podplayer.ui.browse.BrowseTestEnv
 import us.dikarya.podplayer.ui.theme.DarkTokens
@@ -41,12 +41,10 @@ class LibrarySortUiTest {
     private val tmp = TemporaryFolder()
 
     @get:Rule
-    val rules: RuleChain = RuleChain.outerRule(tmp).around(HostActivity()).around(compose)
+    // The library closes after the screen is gone, so no write of its view model resumes on a closed database.
+    val rules: RuleChain = RuleChain.outerRule(tmp).around(CloseAfter { env.close() }).around(HostActivity()).around(compose)
 
     private val env by lazy { BrowseTestEnv(tmp.root) }
-
-    @After
-    fun tearDown() = env.close()
 
     @Test
     fun aNewSortStartsAtTheTopOfTheGrid() = aNewSortStartsAtTheTop(LibraryLayout.Grid)

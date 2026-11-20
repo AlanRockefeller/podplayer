@@ -17,8 +17,13 @@ import androidx.work.testing.TestListenableWorkerBuilder
 import androidx.work.testing.WorkManagerTestInitHelper
 import androidx.work.workDataOf
 import java.io.File
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeoutOrNull
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -292,6 +297,47 @@ class WorkersTest {
         runBlocking {
             env.data.settings.setDownloadsWifiOnly(true)
             downloads.applyNetworkSetting()
+        }
+        assertEquals(NetworkType.UNMETERED, infos(Downloads.workName(episode)).single().constraints.requiredNetworkType)
+    }
+
+    @Test
+    fun aStaleApplyCannotUndoANewerWifiOnlyChange() = TestEnv(File(tmp.root, "env")).use { env ->
+        // Startup reads Wi-Fi only = off and pauses; the owner turns it on and that change is applied; then
+        // startup resumes. Its stale "any network" must not win, or a waiting download runs on cellular.
+        val firstRead = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val pauseNextRead = AtomicBoolean(false)
+        val downloads = Downloads(
+            workManager = { workManager },
+            repositories = { env.data.awaitRepositories() },
+            wifiOnly = {
+                val value = env.data.settings.downloadsWifiOnly.first()
+                if (pauseNextRead.getAndSet(false)) {
+                    firstRead.complete(Unit)
+                    release.await()
+                }
+                value
+            },
+            autoWifiOnly = { env.data.settings.autoDownloadWifiOnly.first() },
+            runner = env.runner,
+            paths = env.data.paths,
+            log = env.log,
+        )
+        val (_, episode) = env.oneEpisode()
+        runBlocking {
+            env.data.settings.setDownloadsWifiOnly(false)
+            downloads.enqueue(episode)
+            pauseNextRead.set(true)
+            val startup = launch(Dispatchers.Default) { downloads.applyNetworkSetting() }
+            firstRead.await()
+            env.data.settings.setDownloadsWifiOnly(true)
+            val change = launch(Dispatchers.Default) { downloads.applyNetworkSetting() }
+            // Without serialising, the change finishes here, before startup resumes.
+            withTimeoutOrNull(1_000) { change.join() }
+            release.complete(Unit)
+            startup.join()
+            change.join()
         }
         assertEquals(NetworkType.UNMETERED, infos(Downloads.workName(episode)).single().constraints.requiredNetworkType)
     }

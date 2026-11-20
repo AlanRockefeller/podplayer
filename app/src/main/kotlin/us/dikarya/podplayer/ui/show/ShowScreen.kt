@@ -35,6 +35,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarResult
+import androidx.compose.ui.platform.LocalResources
+import us.dikarya.podplayer.ui.browse.LocalSnackbars
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.foundation.selection.toggleable
@@ -83,6 +87,7 @@ fun ShowScreen(viewModel: ShowViewModel, onOpenEpisode: (Long) -> Unit, onGone: 
     val state by viewModel.state.collectAsStateWithLifecycle()
     val download = rememberDownloadStarter(viewModel.actions)
     StarUndoBar(viewModel.actions)
+    UnsubscribeFailureBar(viewModel)
     LaunchedEffect(state.gone) { if (state.gone) onGone() }
     if (state.loading) return Loading()
     val feed = state.feed ?: return
@@ -256,6 +261,24 @@ private fun SpeedPicker(showSpeed: Float?, globalSpeed: Float, onChange: (Float?
                 )
             }
         }
+    }
+}
+
+/** Unsubscribing failed: the page stayed; say so, with Try again. */
+@Composable
+private fun UnsubscribeFailureBar(viewModel: ShowViewModel) {
+    val failed by viewModel.unsubscribeFailed.collectAsStateWithLifecycle()
+    val snackbars = LocalSnackbars.current
+    val resources = LocalResources.current
+    LaunchedEffect(failed, snackbars) {
+        if (!failed) return@LaunchedEffect
+        val result = snackbars.showSnackbar(
+            message = resources.getString(R.string.unsubscribe_failed),
+            actionLabel = resources.getString(R.string.unsubscribe_try_again),
+            withDismissAction = true,
+            duration = SnackbarDuration.Long,
+        )
+        if (result == SnackbarResult.ActionPerformed) viewModel.unsubscribe() else viewModel.unsubscribeFailureShown()
     }
 }
 

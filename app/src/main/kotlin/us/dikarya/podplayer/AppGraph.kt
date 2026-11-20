@@ -108,10 +108,11 @@ class AppGraph(context: Context) {
 
     /**
      * The devices whose automatic Play is ignored (Settings › Playback), read when a Play arrives. Loaded at process
-     * start; a car's Play is handled seconds later, after the library opens.
+     * start. Null until read: a car's Play that cold-starts the app can arrive first, and the gate then treats
+     * every newly connected device as ticked rather than as none.
      */
-    private val ignoreAutoPlayDevices: StateFlow<Set<String>> =
-        settings.ignoreAutoPlayDevices.stateIn(appScope, SharingStarted.Eagerly, emptySet())
+    private val ignoreAutoPlayDevices: StateFlow<Set<String>?> =
+        settings.ignoreAutoPlayDevices.stateIn(appScope, SharingStarted.Eagerly, null)
 
     /** What the playback service (`:playback`) needs; it is built by Android, so it asks the app for these. */
     val playbackDependencies: PlaybackDependencies by lazy {
@@ -150,7 +151,8 @@ class AppGraph(context: Context) {
                     withContext(NonCancellable + Dispatchers.IO) { jobs.downloads.enqueue(episodeId) }
                 }
 
-                override suspend fun cancel(episodeId: Long) = jobs.downloads.cancel(episodeId)
+                // Cancelling the work and clearing its "Queued" record go together, even if the page closes between.
+                override suspend fun cancel(episodeId: Long) = withContext(NonCancellable + Dispatchers.IO) { jobs.downloads.cancel(episodeId) }
 
                 override suspend fun delete(episodeId: Long) = withContext(NonCancellable + Dispatchers.IO) { jobs.downloads.delete(episodeId) }
 

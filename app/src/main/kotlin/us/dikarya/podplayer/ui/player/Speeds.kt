@@ -15,6 +15,13 @@ val SPEED_CHOICES = listOf(0.8f, 0.9f, 1.0f, 1.1f, 1.2f, 1.3f, 1.5f, 1.75f, 2.0f
 /** The sleep timer's choices (SPEC §10: 5 to 120 minutes). */
 val SLEEP_MINUTES = listOf(5, 10, 15, 20, 30, 45, 60, 90, 120)
 
+/**
+ * The speed the sheet marks as chosen for the scope being edited: the default for every show, or this show's
+ * own speed (which falls back to the default). Not the speed playing now, which is the show's when it has one.
+ */
+fun selectedSpeed(forShow: Boolean, showSpeed: Float?, globalSpeed: Float): Float =
+    if (forShow) showSpeed ?: globalSpeed else globalSpeed
+
 /** "1.0×", "1.25×". */
 fun speedText(speed: Float): String {
     val hundredths = (speed * 100).roundToInt()

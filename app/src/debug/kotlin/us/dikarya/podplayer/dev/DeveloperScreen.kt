@@ -237,12 +237,16 @@ private fun DeveloperContent(repos: Repositories) {
         }
 
         if (selected != null) {
+            // Right after another show is picked, the list can still hold the previous show's episodes for a frame.
+            // Each row's artwork is fetched under its own show's host approval (CLAUDE.md), so rows are only the
+            // selected show's, each paired with the show that owns it.
+            val shownEpisodes = episodes.filter { it.feedId == selected }
             item { Heading(R.string.dev_episodes) }
-            if (episodes.isEmpty()) item { Text(stringResource(R.string.dev_no_episodes)) }
-            items(episodes, key = { "episode-${it.id}-$cacheCleared" }) { episode ->
+            if (shownEpisodes.isEmpty()) item { Text(stringResource(R.string.dev_no_episodes)) }
+            items(shownEpisodes, key = { "episode-${it.id}-$cacheCleared" }) { episode ->
                 EpisodeRow(
                     episode = episode,
-                    feed = selectedFeed,
+                    feed = selectedFeed?.takeIf { it.id == episode.feedId },
                     media = mediaById[episode.id],
                     onPlay = { graph.playback.playEpisode(episode.id) },
                     onQueue = { scope.launch { repos.queue.add(episode.id) } },

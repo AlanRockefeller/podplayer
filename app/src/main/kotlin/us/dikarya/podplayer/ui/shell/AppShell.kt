@@ -195,7 +195,7 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
     val openEpisode: (Long) -> Unit = { navController.navigate(EpisodeRoute(it)) { launchSingleTop = true } }
     val openDiscover: () -> Unit = { navController.navigateToTab(TopLevelDestination.DISCOVER) }
     val openPlayer: () -> Unit = { navController.navigate(PlayerRoute) { launchSingleTop = true } }
-    val openQueue: () -> Unit = { navController.navigateToTab(TopLevelDestination.QUEUE) }
+    val openQueue: () -> Unit = { navController.openQueue() }
     val openStarred: () -> Unit = { navController.navigate(StarredRoute) { launchSingleTop = true } }
     val openImportList: () -> Unit = { navController.navigate(ImportListRoute) { launchSingleTop = true } }
     val openDownloads: () -> Unit = { navController.navigate(DownloadsRoute) { launchSingleTop = true } }
@@ -353,12 +353,25 @@ fun AppShell(themeMode: ThemeMode, onThemeModeChange: (ThemeMode) -> Unit, brows
     }
 }
 
-private fun NavHostController.navigateToTab(tab: TopLevelDestination) {
-    navigate(tab.route) {
+private fun NavHostController.navigateToTab(tab: TopLevelDestination) = navigateToTab(tab.route)
+
+/** To a bottom-bar tab, keeping each tab's own back stack: the one left is saved, the one opened restored. */
+internal fun NavHostController.navigateToTab(route: Any) {
+    navigate(route) {
         popUpTo(graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true
         restoreState = true
     }
+}
+
+/**
+ * The player's "Open queue". The player leaves the back stack first: otherwise the stack saved for the tab
+ * could hold the player, and restoring the queue's tab (now, or later from the bottom bar) would show the
+ * player again instead of the queue.
+ */
+internal fun NavHostController.openQueue() {
+    popBackStack<PlayerRoute>(inclusive = true)
+    navigateToTab(QueueRoute)
 }
 
 @Composable

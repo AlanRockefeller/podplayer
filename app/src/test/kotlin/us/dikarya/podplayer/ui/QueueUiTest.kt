@@ -118,5 +118,35 @@ class QueueUiTest {
         compose.waitInRealTime { dbOrder() == listOf(d, b, c, a) }
     }
 
+    @Test
+    fun aDropCountsOnlyTheRowsStillQueued() {
+        // C is dragged above B; meanwhile A finishes and playback takes it out of the queue. The drop puts C first.
+        val (a, b, c, d) = shown()
+        val rowHeight = compose.onNodeWithTag(rowTag(c)).fetchSemanticsNode().size.height.toFloat()
+        compose.onNodeWithTag(handleTag(c), useUnmergedTree = true).performTouchInput {
+            down(center)
+            repeat(25) { moveBy(Offset(0f, -rowHeight * 1.3f / 25)) }
+        }
+        runBlocking { env.repos.queue.remove(a) }
+        compose.waitInRealTime { compose.onAllNodesWithTag(rowTag(a)).fetchSemanticsNodes().isEmpty() }
+        compose.onNodeWithTag(handleTag(c), useUnmergedTree = true).performTouchInput { up() }
+        compose.waitInRealTime { dbOrder() == listOf(c, b, d) }
+    }
+
+    @Test
+    fun aCancelledDragLeavesTheQueueAsItWas() {
+        val (a, b, c, d) = shown()
+        val rowHeight = compose.onNodeWithTag(rowTag(a)).fetchSemanticsNode().size.height.toFloat()
+        compose.onNodeWithTag(handleTag(a), useUnmergedTree = true).performTouchInput {
+            down(center)
+            repeat(25) { moveBy(Offset(0f, rowHeight * 1.3f / 25)) }
+            cancel()
+        }
+        compose.waitForIdle()
+        assertEquals(listOf(a, b, c, d), dbOrder())
+        val tops = listOf(a, b, c, d).map { compose.onNodeWithTag(rowTag(it)).getBoundsInRoot().top }
+        assertEquals("the rows are back in the queue's order", tops.sorted(), tops)
+    }
+
     private fun menuTagFor(id: Long) = us.dikarya.podplayer.ui.queue.menuTag(id)
 }

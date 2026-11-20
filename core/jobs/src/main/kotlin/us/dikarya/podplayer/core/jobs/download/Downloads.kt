@@ -19,6 +19,8 @@ import java.util.UUID
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.core.model.Episode
@@ -73,8 +75,16 @@ class Downloads(
      * WorkManager id and its record, so nothing restarts or loses its place. A download already running finishes
      * on the network it has; the new rule applies if it has to run again. Returns how many waiting downloads were
      * updated.
+     *
+     * One at a time, each reading the settings once it holds the lock: every setting change is written before
+     * its apply starts, so the last apply to run always sees the newest settings, and a slower, older one (the
+     * one at startup) can't overwrite them with what it read earlier.
      */
-    suspend fun applyNetworkSetting(): Int {
+    suspend fun applyNetworkSetting(): Int = applying.withLock { applyNetworkSettingNow() }
+
+    private val applying = Mutex()
+
+    private suspend fun applyNetworkSettingNow(): Int {
         val repos = repositories() ?: return 0
         val wifiOnly = wifiOnly()
         val autoWifiOnly = autoWifiOnly()

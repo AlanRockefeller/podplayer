@@ -251,10 +251,13 @@ class PlaybackEngine(
         seekWithCause(if (duration != C.TIME_UNSET && duration > 0) target.coerceAtMost(duration) else target, PositionCause.SkipForward)
     }
 
-    /** [speed] null clears the show's own speed. [forShow] false sets the global default. */
-    fun setSpeed(speed: Float?, forShow: Boolean) {
+    /**
+     * [speed] null clears the show's own speed. [forShow] false sets the global default. [feedId] names the show
+     * the speed is for; null means the loaded episode's show, as it is when this runs.
+     */
+    fun setSpeed(speed: Float?, forShow: Boolean, feedId: Long? = null) {
         scope.launch {
-            val feed = currentFeedId
+            val feed = feedId ?: currentFeedId
             if (forShow) {
                 if (feed != null) store.setShowSpeed(feed, speed?.let(PlaybackSettings::clampSpeed))
             } else {

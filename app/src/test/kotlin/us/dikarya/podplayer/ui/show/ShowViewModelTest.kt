@@ -12,6 +12,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -103,7 +104,7 @@ class ShowViewModelTest {
         env.playback.playEpisode(playing)
         awaitState(vm.state) { s -> s.episodes.any { it.loaded } }
         vm.setShowSpeed(2.0f)
-        assertEquals("the session applies and stores it (CLAUDE.md: UI sends commands)", "speed 2.0 forShow=true", env.playback.commands.last())
+        assertEquals("the session applies and stores it (CLAUDE.md: UI sends commands)", "speed 2.0 forShow=true feed=$feed", env.playback.commands.last())
     }
 
     @Test
@@ -118,6 +119,23 @@ class ShowViewModelTest {
         // The fake records the call before Room's delete commits, so wait for the library itself, not the call.
         eventually { runBlocking { env.repos.feeds.get(feed) } == null }
         assertEquals(listOf("unsubscribe $feed"), env.downloads.calls)
+    }
+
+    @Test
+    fun aFailedUnsubscribeKeepsThePageAndCanBeTriedAgain() = runBlocking {
+        val feed = env.show("Alpha")
+        val vm = ShowViewModel(env.deps, feed)
+        awaitState(vm.state) { it.feed != null }
+        env.downloads.unsubscribeFailure = java.io.IOException("disk full")
+        vm.unsubscribe()
+        awaitState(vm.unsubscribeFailed) { it }
+        assertFalse("the page stays: the show is still subscribed", vm.state.value.gone)
+        assertTrue(env.repos.feeds.get(feed) != null)
+
+        vm.unsubscribe()
+        awaitState(vm.state) { it.gone }
+        eventually { runBlocking { env.repos.feeds.get(feed) } == null }
+        assertFalse(vm.unsubscribeFailed.value)
     }
 
     @Test

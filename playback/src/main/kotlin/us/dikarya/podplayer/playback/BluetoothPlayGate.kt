@@ -25,6 +25,12 @@ import us.dikarya.podplayer.core.data.settings.AppSettings
 /** Decides whether a Play request is obeyed. Null: play. Otherwise the reason it is ignored. */
 fun interface PlayGate {
     fun ignoreReason(controller: MediaSession.ControllerInfo?): String?
+
+    /**
+     * A Play media button about to start the stopped service ([GatedMediaButtonReceiver]): a Play from outside our
+     * screens, decided before the service starts. Null: start it and play.
+     */
+    fun ignoreMediaButtonReason(): String? = null
 }
 
 /**
@@ -86,13 +92,20 @@ class BluetoothPlayGate(
         armed.clear()
     }
 
-    override fun ignoreReason(controller: MediaSession.ControllerInfo?): String? = synchronized(lock) {
-        if (controller == null) return null
+    /** Who sent a Play: a session controller, or a media button before the service runs. */
+    private class Sender(val packageName: String, val ownUi: Boolean)
+
+    override fun ignoreReason(controller: MediaSession.ControllerInfo?): String? =
+        controller?.let { decide(Sender(it.packageName, isOwnUi(it))) }
+
+    override fun ignoreMediaButtonReason(): String? = decide(Sender("a media button", ownUi = false))
+
+    private fun decide(controller: Sender): String? = synchronized(lock) {
         val now = clock()
         val present = bluetoothOutputs()
         for ((id, name) in present) see(id, name, now)
         armed.keys.retainAll(present.keys)
-        if (isOwnUi(controller)) {
+        if (controller.ownUi) {
             armed.clear()
             return null
         }

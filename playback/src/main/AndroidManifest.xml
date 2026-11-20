@@ -32,10 +32,11 @@
 
         <!--
           Playback resumption (SPEC §10): headset, lock-screen and system media buttons reach the service even
-          after it or the process was killed. A Play right after Bluetooth connects is still ignored (PodPlayer).
+          after it or the process was killed. A Play right after Bluetooth connects is still ignored, before the
+          service is started for it (GatedMediaButtonReceiver; once running, PodPlayer).
         -->
         <receiver
-            android:name="androidx.media3.session.MediaButtonReceiver"
+            android:name="us.dikarya.podplayer.playback.GatedMediaButtonReceiver"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MEDIA_BUTTON" />

@@ -8,6 +8,7 @@ package us.dikarya.podplayer.core.data.media
 
 import java.io.File
 import java.io.IOException
+import java.io.UncheckedIOException
 import java.nio.file.Files
 import java.nio.file.LinkOption
 import java.util.stream.Collectors
@@ -61,6 +62,10 @@ class MediaPaths(private val filesDir: () -> File) {
                     .collect(Collectors.toList())
             }
         } catch (_: IOException) {
+            emptyList()
+        } catch (_: UncheckedIOException) {
+            // The walk is lazy: a folder below the root that can't be read (or vanished meanwhile) fails here.
+            // A partial list isn't "every file", so none is safer: nothing gets deleted.
             emptyList()
         } catch (_: SecurityException) {
             emptyList()

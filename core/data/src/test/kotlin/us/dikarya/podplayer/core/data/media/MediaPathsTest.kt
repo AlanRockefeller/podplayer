@@ -63,6 +63,24 @@ class MediaPathsTest {
     }
 
     @Test
+    fun aFolderThatCantBeReadDuringTheWalkGivesNoFilesInsteadOfThrowing() {
+        // CodeRabbit review (PR 3): Files.walk reports a failure below the root as UncheckedIOException, which
+        // escaped and aborted the reconcile after a restore.
+        val media = File(filesDir, "media").apply { mkdirs() }
+        File(media, "1").mkdirs()
+        File(media, "1/2.mp3").writeText("audio")
+        val locked = File(media, "9").apply { mkdirs() }
+        File(locked, "3.mp3").writeText("audio")
+        assertTrue(locked.setReadable(false))
+        try {
+            assertEquals(emptyList<File>(), paths.mediaFiles())
+        } finally {
+            locked.setReadable(true)
+        }
+        assertEquals(2, paths.mediaFiles().size)
+    }
+
+    @Test
     fun aSymbolicLinkOutOfTheMediaFolderIsRefused() {
         val media = File(filesDir, "media").apply { mkdirs() }
         val outside = tmp.newFolder("outside")

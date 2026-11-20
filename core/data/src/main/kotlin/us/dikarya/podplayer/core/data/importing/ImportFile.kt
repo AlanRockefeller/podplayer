@@ -71,11 +71,13 @@ object ImportFile {
         isLenient = false
     }
 
-    /** A cheap check before trying: does this text start like an import file? */
-    fun looksLikeOne(text: String): Boolean {
-        val start = text.trimStart()
-        return start.startsWith("{") && start.take(200).contains("\"$FORMAT\"")
-    }
+    /**
+     * A cheap check before trying: is this text meant as an import file rather than a list of shows? Any JSON
+     * object is (CodeRabbit review, PR 3): `format` may come anywhere in a valid file, and treating JSON as a
+     * list would send its lines, feed addresses with their tokens among them, to Apple's search as show names.
+     * JSON that isn't an import file is then refused by [parse] with a plain message.
+     */
+    fun looksLikeOne(text: String): Boolean = text.trimStart().startsWith("{")
 
     fun parse(bytes: ByteArray): ImportFileResult {
         if (bytes.size > MAX_BYTES) return ImportFileResult.Refused(ImportFileProblem.TooLarge)

@@ -133,4 +133,14 @@ class ImportFileTest {
         assertTrue(ImportFile.looksLikeOne("  {\"format\":\"podplayer-import\", ..."))
         assertTrue(!ImportFile.looksLikeOne("Science Hour\nGardening"))
     }
+
+    @Test
+    fun aValidFileWithItsFormatFarFromTheStartIsStillAnImportFile() {
+        // CodeRabbit review (PR 3): only the first 200 characters were searched for the format, so such a file was
+        // read as a list of shows, and its lines (feed addresses included) would have been searched as names.
+        val text = """{"source":"${"s".repeat(250)}","shows":[{"feedUrl":"https://private.example.com/rss?token=SECRET","episodes":[]}],"format":"podplayer-import","version":1}"""
+        assertTrue(ImportFile.looksLikeOne(text))
+        val result = ImportFile.parse(text.toByteArray()) as ImportFileResult.Ok
+        assertEquals("https://private.example.com/rss?token=SECRET", result.shows.single().feedUrl)
+    }
 }

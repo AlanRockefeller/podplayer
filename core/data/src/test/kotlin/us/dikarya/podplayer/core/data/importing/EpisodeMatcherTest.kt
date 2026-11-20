@@ -40,6 +40,25 @@ class EpisodeMatcherTest {
     }
 
     @Test
+    fun sameTitleEpisodesLessThanTwoDaysApartStayUnmatchedInEitherOrder() {
+        // CodeRabbit review (PR 3) and docs/IMPORTING.md: they can't be told apart, so neither gets the mark.
+        val close = listOf(ep(1, "Mailbag", base), ep(2, "Mailbag", base + day))
+        for (library in listOf(close, close.reversed())) {
+            assertEquals(null, EpisodeMatcher.matchAll(listOf(entry("Mailbag", base)), library).single())
+            assertEquals("even when only one is within the window", null, EpisodeMatcher.matchAll(listOf(entry("Mailbag", base - day - day / 2)), library).single())
+        }
+    }
+
+    @Test
+    fun anExactTieInDistanceStaysUnmatchedInEitherOrder() {
+        val apart = listOf(ep(1, "Mailbag", base), ep(2, "Mailbag", base + 3 * day))
+        for (library in listOf(apart, apart.reversed())) {
+            assertEquals(null, EpisodeMatcher.matchAll(listOf(entry("Mailbag", base + 3 * day / 2)), library).single())
+            assertEquals(1L, EpisodeMatcher.matchAll(listOf(entry("Mailbag", base + day)), library).single()?.id)
+        }
+    }
+
+    @Test
     fun aUniqueTitleMatchesEvenWhenTheDateMovedARepost() {
         val library = listOf(ep(1, "The Interview", base))
         assertEquals(1L, EpisodeMatcher.matchAll(listOf(entry("The Interview", base - 30 * day)), library).single()?.id)

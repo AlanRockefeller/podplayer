@@ -126,6 +126,16 @@ interface FeedDao {
     )
     suspend fun unusedKeptAsideIds(loadedEpisodeId: Long?, before: Long): List<Long>
 
+    /** True when any episode of [feedId] holds owner data: a star, a queue entry, a download, or a playback record. */
+    @Query(
+        """SELECT EXISTS (SELECT 1 FROM episodes e WHERE e.feedId = :feedId AND (
+             e.starred = 1
+             OR EXISTS (SELECT 1 FROM queue_entries q WHERE q.episodeId = e.id)
+             OR EXISTS (SELECT 1 FROM media_files m WHERE m.episodeId = e.id)
+             OR EXISTS (SELECT 1 FROM playback_records p WHERE p.episodeId = e.id)))""",
+    )
+    suspend fun holdsOwnerData(feedId: Long): Boolean
+
     @Query(
         """UPDATE feeds SET etag = :etag, lastModified = :lastModified, lastRefreshSuccessAt = :at,
            consecutiveFailures = 0, nextRefreshAt = NULL WHERE id = :id""",

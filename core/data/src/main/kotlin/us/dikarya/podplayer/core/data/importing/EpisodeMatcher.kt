@@ -17,7 +17,8 @@ import us.dikarya.podplayer.core.model.Episode
  * Finds a show's library episode for each imported one (SPEC §12: by show, then episode title and date). The
  * caller has already picked the show. Titles must match after [normalize]; one match is taken whatever its date
  * (re-posts move dates), several are settled by the nearest date within [DATE_WINDOW_MS], and otherwise left
- * unmatched rather than guessed. Each library episode is used at most once.
+ * unmatched rather than guessed: also when that nearest one has a same-title neighbour less than
+ * [DATE_WINDOW_MS] away, or ties with another. Each library episode is used at most once.
  */
 object EpisodeMatcher {
     const val DATE_WINDOW_MS = 2L * 24 * 3600 * 1000
@@ -40,9 +41,17 @@ object EpisodeMatcher {
                 candidates.isEmpty() -> null
                 all.size == 1 -> candidates.single()
                 entry.publishedAt == null -> null
-                else -> candidates
-                    .filter { abs(it.publishedAt - entry.publishedAt) <= DATE_WINDOW_MS }
-                    .minByOrNull { abs(it.publishedAt - entry.publishedAt) }
+                else -> {
+                    val near = candidates.filter { abs(it.publishedAt - entry.publishedAt) <= DATE_WINDOW_MS }
+                    val best = near.minByOrNull { abs(it.publishedAt - entry.publishedAt) }
+                    best?.takeIf { b ->
+                        val distance = abs(b.publishedAt - entry.publishedAt)
+                        // docs/IMPORTING.md: same-title episodes less than two days apart can't be told apart, so
+                        // neither gets the mark; nor can two at exactly the same distance (CodeRabbit review, PR 3).
+                        all.none { it.id != b.id && abs(it.publishedAt - b.publishedAt) < DATE_WINDOW_MS } &&
+                            near.none { it.id != b.id && abs(it.publishedAt - entry.publishedAt) == distance }
+                    }
+                }
             }
             match?.also { used += it.id }
         }
@@ -69,14 +78,11 @@ object ImportApplier {
             }
             matched++
             if (entry.starred) repos.starred.starIfNot(episode.id, entry.starredAt)
-            val record = repos.playback.get(episode.id)
             if (entry.played) {
-                if (record?.played != true) repos.playback.setPlayed(episode.id, true)
+                if (repos.playback.get(episode.id)?.played != true) repos.playback.setPlayed(episode.id, true)
             } else {
-                val position = entry.positionMs
-                if (position != null && (record == null || (!record.played && record.positionMs == 0L))) {
-                    repos.playback.savePosition(episode.id, position, null)
-                }
+                // Checked and written together, so progress the player saves meanwhile is never overwritten.
+                entry.positionMs?.let { repos.playback.importPosition(episode.id, it) }
             }
         }
         return ImportApplyReport(matched, unmatched)

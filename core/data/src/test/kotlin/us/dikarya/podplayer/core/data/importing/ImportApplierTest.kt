@@ -87,6 +87,32 @@ class ImportApplierTest {
     }
 
     @Test
+    fun anImportedPositionIsCheckedAndWrittenInOneStep() = runBlocking {
+        // CodeRabbit review (PR 3): the applier read the record, then saved the imported position separately, so a
+        // position the player saved in between was overwritten. The race itself can't be staged from a test; the
+        // repository operation that replaces the two steps is tested here.
+        val fresh = byTitle.getValue("Episode 1")
+        assertTrue(repos.playback.importPosition(fresh, 600_000))
+        assertEquals(600_000L, repos.playback.get(fresh)!!.positionMs)
+
+        val started = byTitle.getValue("Episode 2")
+        repos.playback.savePosition(started, 120_000, 1_800_000)
+        assertFalse(repos.playback.importPosition(started, 600_000))
+        assertEquals(120_000L, repos.playback.get(started)!!.positionMs)
+
+        val atZero = byTitle.getValue("Episode 3")
+        repos.playback.savePosition(atZero, 0, 1_800_000)
+        assertTrue(repos.playback.importPosition(atZero, 600_000))
+        assertEquals(600_000L, repos.playback.get(atZero)!!.positionMs)
+        assertEquals("the known duration stays", 1_800_000L, repos.playback.get(atZero)!!.durationMs)
+
+        val played = byTitle.getValue("Episode 4")
+        repos.playback.setPlayed(played, true)
+        assertFalse(repos.playback.importPosition(played, 600_000))
+        assertTrue(repos.playback.get(played)!!.played)
+    }
+
+    @Test
     fun applyingTwiceChangesNothingMore() = runBlocking {
         val entries = listOf(ImportEpisode(title = "Episode 1", starred = true), ImportEpisode(title = "Episode 2", played = true))
         ImportApplier.apply(repos, feedId, entries)

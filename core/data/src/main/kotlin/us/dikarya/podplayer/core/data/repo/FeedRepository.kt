@@ -237,9 +237,10 @@ class FeedRepository internal constructor(private val db: PodDatabase, private v
             if (feed.url == allowed) return@withTransaction MoveResult.Unchanged
             val other = db.feeds().getByUrl(allowed)
             if (other != null) {
-                // A show kept aside from a preview gives way to the subscription, unless it holds a download (its
-                // files would be left behind); its episodes and positions go with it.
-                if (other.subscribed || db.mediaFiles().forFeed(other.id).isNotEmpty()) {
+                // A show kept aside from a preview gives way to the subscription only while it holds nothing of the
+                // owner's: deleting it cascades to its stars, queue entries, positions and played marks, and would
+                // leave a download's files behind (CodeRabbit review, PR 3).
+                if (other.subscribed || db.feeds().holdsOwnerData(other.id)) {
                     return@withTransaction MoveResult.AlreadySubscribed(other.id)
                 }
                 db.feeds().delete(other.id)

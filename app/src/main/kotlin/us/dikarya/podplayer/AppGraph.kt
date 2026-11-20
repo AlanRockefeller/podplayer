@@ -174,6 +174,7 @@ class AppGraph(context: Context) {
         SettingsDeps(
             settings = settings,
             repositories = { data.awaitRepositories() },
+            library = data.repositories,
             // Not cancelled with the screen: the setting and the waiting downloads must not disagree.
             setWifiOnly = { wifiOnly -> withContext(NonCancellable + Dispatchers.IO) { jobs.setDownloadsWifiOnly(wifiOnly) } },
             setAutoDownloadWifiOnly = { wifiOnly -> withContext(NonCancellable + Dispatchers.IO) { jobs.setAutoDownloadWifiOnly(wifiOnly) } },

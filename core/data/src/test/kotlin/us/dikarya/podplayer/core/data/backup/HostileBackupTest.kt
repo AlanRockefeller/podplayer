@@ -114,6 +114,15 @@ class HostileBackupTest {
     }
 
     @Test
+    fun aProviderThatThrowsSomethingOtherThanIOExceptionIsARefusalNotACrash() {
+        // Found while fixing the CodeRabbit review (PR 1): only IOException was caught, so anything else escaped
+        // into the restore dialog's coroutine on the app scope, which has no handler.
+        val result = runBlocking { layer.restore { throw IllegalStateException("provider went away") } }
+        assertEquals(StageResult.Refused(RestoreProblem.Unreadable), result)
+        assertFalse("nothing may be staged", layers.files.pendingRestoreMarker.exists())
+    }
+
+    @Test
     fun notAZipAtAll() {
         refused(RestoreProblem.NotABackup, Random(1).nextBytes(10_000))
         refused(RestoreProblem.NotABackup, ByteArray(0))

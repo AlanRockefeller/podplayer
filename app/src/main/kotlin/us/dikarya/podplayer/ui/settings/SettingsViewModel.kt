@@ -14,7 +14,6 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
@@ -67,7 +66,7 @@ class SettingsViewModel(private val deps: SettingsDeps) : ViewModel() {
 
     private class Usage(val usedBytes: Long, val downloads: Int, val freeBytes: Long?)
 
-    private val usage = flow { emit(deps.repositories()) }.flatMapLatest { repos ->
+    private val usage = deps.library.flatMapLatest { repos ->
         repos?.media?.observeAll()?.map { files ->
             Usage(files.sumOf { it.bytesDownloaded }, files.count { it.state == DownloadState.Complete }, deps.freeBytes())
         } ?: flowOf(Usage(0, 0, deps.freeBytes()))
@@ -91,7 +90,7 @@ class SettingsViewModel(private val deps: SettingsDeps) : ViewModel() {
     private class RefreshInfo(val schedule: RefreshSchedule, val lastAt: Long?, val nextAt: Long?)
 
     /** LESSONS "Refresh": show the last and next refresh. */
-    private val lastRefreshAt = flow { emit(deps.repositories()) }.flatMapLatest { repos ->
+    private val lastRefreshAt = deps.library.flatMapLatest { repos ->
         repos?.feeds?.feeds()?.map { feeds -> feeds.mapNotNull { it.lastRefreshSuccessAt }.maxOrNull() } ?: flowOf(null)
     }
 

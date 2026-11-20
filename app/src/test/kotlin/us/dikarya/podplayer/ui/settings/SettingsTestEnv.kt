@@ -28,6 +28,7 @@ class SettingsTestEnv(val root: File) {
     val deps = SettingsDeps(
         settings = browse.data.settings,
         repositories = { browse.data.awaitRepositories() },
+        library = browse.deps.library,
         setWifiOnly = { wifiOnly ->
             wifiOnlyChanges += wifiOnly
             browse.data.settings.setDownloadsWifiOnly(wifiOnly)

@@ -68,17 +68,26 @@ fun DataStateDialogs() {
                                 graph.appScope.launch(Dispatchers.IO) {
                                     // Newest first; a backup that fails validation falls through to the next.
                                     var last: RestoreProblem? = null
-                                    for (candidate in current.backups) {
-                                        when (val result = graph.data.restore(candidate)) {
-                                            is StageResult.Staged -> {
-                                                context.restartApp()
-                                                return@launch
+                                    try {
+                                        for (candidate in current.backups) {
+                                            when (val result = graph.data.restore(candidate)) {
+                                                is StageResult.Staged -> {
+                                                    context.restartApp()
+                                                    return@launch
+                                                }
+                                                is StageResult.Refused -> last = result.problem
                                             }
-                                            is StageResult.Refused -> last = result.problem
                                         }
+                                    } catch (e: CancellationException) {
+                                        throw e
+                                    } catch (e: Exception) {
+                                        // Staging refuses rather than throws; this is the last guard (no handler here).
+                                        graph.log.e("Data", "Restoring a backup failed", e)
+                                        last = RestoreProblem.Unreadable
+                                    } finally {
+                                        problem = last
+                                        busy = false
                                     }
-                                    problem = last
-                                    busy = false
                                 }
                             },
                         ) { Text(stringResource(R.string.db_damaged_restore)) }

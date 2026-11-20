@@ -19,7 +19,6 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import kotlinx.coroutines.flow.update
 import us.dikarya.podplayer.core.data.repo.Repositories
 import us.dikarya.podplayer.core.model.Episode
 import us.dikarya.podplayer.core.model.Feed
@@ -41,6 +40,9 @@ data class HomeUiState(
     val canLoadMore: Boolean = false,
 ) {
     val noShows: Boolean get() = !loading && shows.isEmpty()
+
+    /** Nothing at all to show. With no show subscribed, a kept-aside episode can still be on Continue or Starred. */
+    val empty: Boolean get() = noShows && continueItem == null && starred.isEmpty()
 }
 
 /** Home (SPEC §12). Playback is read from the session's state and changed only by commands. */
@@ -59,10 +61,15 @@ class HomeViewModel(private val deps: BrowseDeps) : ViewModel() {
     /** How many new episodes Home lists; grows a page at a time as the owner scrolls. */
     private val shown = MutableStateFlow(PAGE)
 
-    /** Lists one more page of older episodes. */
+    /**
+     * Lists one more page of older episodes. Only once the page asked for before is on screen: several
+     * rows near the end can each ask, and they must not fetch more than one page between them.
+     */
     fun loadMore() {
         val listed = state.value
-        if (listed.canLoadMore) shown.update { it + PAGE }
+        if (!listed.canLoadMore) return
+        val onScreen = listed.newEpisodes.size
+        shown.compareAndSet(onScreen, onScreen + PAGE)
     }
 
     private fun library(repos: Repositories, shown: Int) = combine(

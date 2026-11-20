@@ -7,6 +7,7 @@
 package us.dikarya.podplayer.ui.discover
 
 import androidx.lifecycle.ViewModel
+import kotlin.math.abs
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -34,7 +35,16 @@ internal fun List<Episode>.storedIdOf(parsed: ParsedEpisode): Long? {
     // A feed can reuse a GUID for different audio, which the merge keeps as separate episodes (Codex review, PR #31):
     // the GUID and the audio together pick the row, then the audio alone, then a GUID only one row has.
     firstOrNull { it.guid != null && it.guid == parsed.guid && it.enclosure.url == url }?.let { return it.id }
-    if (url != null) firstOrNull { it.enclosure.url == url }?.let { return it.id }
+    if (url != null) {
+        // Episodes without GUIDs can share audio and differ in title or date; the merge keeps them apart, so the
+        // title, then the nearest date, picks the row (CodeRabbit review, PR #1).
+        val sameAudio = filter { it.enclosure.url == url }
+        if (sameAudio.isNotEmpty()) {
+            val sameTitle = sameAudio.filter { it.title == parsed.title }.ifEmpty { sameAudio }
+            val at = parsed.publishedAt
+            return (if (at == null) sameTitle.first() else sameTitle.minBy { abs(it.publishedAt - at) }).id
+        }
+    }
     return parsed.guid?.let { guid -> filter { it.guid == guid }.singleOrNull()?.id }
 }
 

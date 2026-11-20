@@ -16,13 +16,26 @@ import us.dikarya.podplayer.core.model.Episode
 
 /** Finding the stored row for a previewed episode, so Play plays the episode the owner tapped (SPEC §12). */
 class StoredIdOfTest {
-    private fun stored(id: Long, guid: String?, url: String) = Episode(
-        id = id, feedId = 1, guid = guid, title = null, publishedAt = 0, enclosure = Enclosure(url, "audio/mpeg", null),
+    private fun stored(id: Long, guid: String?, url: String, title: String? = null, at: Long = 0) = Episode(
+        id = id, feedId = 1, guid = guid, title = title, publishedAt = at, enclosure = Enclosure(url, "audio/mpeg", null),
         durationMs = null, notes = null, imageUrl = null, link = null, season = null, number = null, chaptersUrl = null,
         inFeed = true,
     )
 
-    private fun parsed(guid: String?, url: String) = ParsedEpisode(guid = guid, enclosure = ParsedEnclosure(url, "audio/mpeg", null))
+    private fun parsed(guid: String?, url: String, title: String? = null, at: Long? = null) =
+        ParsedEpisode(guid = guid, title = title, publishedAt = at, enclosure = ParsedEnclosure(url, "audio/mpeg", null))
+
+    /** CodeRabbit review, PR #1: episodes without GUIDs sharing one audio address all opened the first row. */
+    @Test
+    fun episodesSharingAudioAreToldApartByTitleThenDate() {
+        val url = "https://cdn.example.com/same.mp3"
+        val day = 86_400_000L
+        val rows = listOf(stored(1, null, url, "Part one", 10 * day), stored(2, null, url, "Part two", 11 * day), stored(3, null, url, "Part two", 20 * day))
+        assertEquals(1L, rows.storedIdOf(parsed(null, url, "Part one", 10 * day)))
+        assertEquals(2L, rows.storedIdOf(parsed(null, url, "Part two", 11 * day)))
+        assertEquals(3L, rows.storedIdOf(parsed(null, url, "Part two", 20 * day)))
+        assertEquals("an unknown title falls back to the nearest date", 2L, rows.storedIdOf(parsed(null, url, "Renamed", 12 * day)))
+    }
 
     /** Codex review, PR #31: a reused GUID picked the first row for every episode sharing it. */
     @Test

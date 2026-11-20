@@ -27,8 +27,9 @@ import us.dikarya.podplayer.core.net.UrlPolicy
  */
 fun linkIntent(url: String): Intent? {
     if (!UrlPolicy.isAllowedLink(url)) return null
-    val uri = url.trim().toUri()
-    return when (uri.scheme?.lowercase()) {
+    // Intent filters match schemes case-sensitively, so `MAILTO:` would find no mail app (CodeRabbit review, PR #1).
+    val uri = url.trim().toUri().normalizeScheme()
+    return when (uri.scheme) {
         "http", "https" -> Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)
         "mailto" -> Intent(Intent.ACTION_SENDTO, uri)
         else -> null

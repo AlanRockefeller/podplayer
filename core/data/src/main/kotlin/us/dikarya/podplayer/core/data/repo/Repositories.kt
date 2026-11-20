@@ -9,6 +9,7 @@ package us.dikarya.podplayer.core.data.repo
 import androidx.room.withTransaction
 import java.io.IOException
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
@@ -187,11 +188,19 @@ class PlaybackRepository internal constructor(private val db: PodDatabase, priva
     fun recordsForDownloads(): Flow<Map<Long, PlaybackRecord>> =
         db.playback().observeForDownloads().map { rows -> rows.associate { it.episodeId to it.toModel() } }
 
-    /** The records of up to [MAX_IDS] episodes, by episode id; the rest of a longer list is ignored. */
+    /**
+     * The records of every episode in [ids], by episode id. A list longer than [MAX_IDS] is queried
+     * in batches of at most [MAX_IDS] and the results merged, so no row loses its record.
+     */
     fun records(ids: List<Long>): Flow<Map<Long, PlaybackRecord>> {
-        if (ids.isEmpty()) return flowOf(emptyMap())
-        assertInvariant(ids.size <= MAX_IDS) { "records() takes at most $MAX_IDS ids" }
-        return db.playback().observeFor(ids.take(MAX_IDS)).map { rows -> rows.associate { it.episodeId to it.toModel() } }
+        val batches = ids.distinct().chunked(MAX_IDS).map { batch ->
+            db.playback().observeFor(batch).map { rows -> rows.associate { it.episodeId to it.toModel() } }
+        }
+        return when (batches.size) {
+            0 -> flowOf(emptyMap())
+            1 -> batches.single()
+            else -> combine(batches) { maps -> maps.fold(HashMap<Long, PlaybackRecord>()) { all, map -> all.apply { putAll(map) } } }
+        }
     }
 
     /** Started, not finished, most recently touched first. */

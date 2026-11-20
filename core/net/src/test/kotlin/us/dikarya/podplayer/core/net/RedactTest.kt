@@ -9,6 +9,7 @@ package us.dikarya.podplayer.core.net
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /** CLAUDE.md: feed URLs are secrets; logs strip query, fragment and userinfo. */
@@ -130,6 +131,14 @@ class RedactTest {
     @Test
     fun scrubDropsAUrlNestedInAQuery() {
         assertEquals("go https://t.example/r", scrubUrls("go https://t.example/r?u=https://u:pw@cdn.example/a.mp3"))
+    }
+
+    @Test
+    fun scrubIsLinearInARunOfNestedSchemes() {
+        // Exception messages can carry server text (a malformed status line), so a hostile run must stay cheap.
+        val hostile = "a://".repeat(262_144)
+        val elapsed = kotlin.time.measureTime { scrubUrls(hostile) }
+        assertTrue("$elapsed", elapsed < kotlin.time.Duration.parse("2s"))
     }
 
     @Test

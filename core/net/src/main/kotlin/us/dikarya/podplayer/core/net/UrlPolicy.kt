@@ -134,13 +134,15 @@ fun scrubUrls(text: String): String = urlInText.replace(text) { scrubCandidate(i
  * Once a query or fragment has started, everything after it goes, nested URLs included.
  */
 private fun scrubCandidate(candidate: String): String {
+    // Walks by index so that a long run of nested schemes (`a://a://...`) stays linear.
     val out = StringBuilder()
-    var rest = candidate
+    var start = 0
     while (true) {
-        val next = nestedScheme.find(rest, 1)
-        val head = next?.let { rest.substring(0, it.range.first) }
-        if (head == null || '?' in head || '#' in head) return out.append(redact(rest)).toString()
-        out.append(redact(head))
-        rest = rest.substring(head.length)
+        val next = nestedScheme.find(candidate, start + 1)?.range?.first
+        val end = next ?: candidate.length
+        val queryOrFragment = (start until end).any { candidate[it] == '?' || candidate[it] == '#' }
+        if (next == null || queryOrFragment) return out.append(redact(candidate.substring(start))).toString()
+        out.append(redact(candidate.substring(start, end)))
+        start = end
     }
 }

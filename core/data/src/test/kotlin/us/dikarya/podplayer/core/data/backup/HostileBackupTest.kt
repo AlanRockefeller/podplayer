@@ -61,7 +61,14 @@ class HostileBackupTest {
     }
 
     @After
-    fun tearDown() = runBlocking { layer.close() }
+    fun tearDown() = runBlocking {
+        try {
+            layer.close()
+        } finally {
+            // DataLayer.close() only flushes the log the test made; stop its writer thread too (CodeRabbit, PR 3).
+            layers.log.close()
+        }
+    }
 
     private fun unzip(bytes: ByteArray): Map<String, ByteArray> {
         val map = LinkedHashMap<String, ByteArray>()
@@ -170,8 +177,19 @@ class HostileBackupTest {
 
     @Test
     fun pathTraversalNamesAreNeverWrittenAnywhere() {
-        val evil = zip(good.toList() + ("../../../../evil.txt" to "pwned".toByteArray()) + ("/tmp/evil2.txt" to "x".toByteArray()))
+        // CodeRabbit review (PR 3): searching only inside tmp.root couldn't see a write that escaped it. The entries
+        // now point, relative to the restore folder, at exact places in a test-owned folder outside it.
+        val restoreDir = layers.files.restoreDir.apply { mkdirs() }
+        val outside = tmp.newFolder("outside")
+        val escaped = File(outside, "evil-${Random.nextInt(0, Int.MAX_VALUE)}.txt")
+        val relative = restoreDir.toPath().relativize(escaped.toPath()).toString()
+        assertTrue("the entry climbs out of the restore folder", relative.startsWith(".."))
+        val absolute = File(outside, "evil-absolute.txt")
+        val evil = zip(good.toList() + (relative to "pwned".toByteArray()) + (absolute.path to "x".toByteArray()))
         assertTrue(stage(evil) is StageResult.Staged)
+        assertFalse(escaped.exists())
+        assertFalse(absolute.exists())
+        assertTrue(outside.list()!!.isEmpty())
         assertFalse(tmp.root.walkTopDown().any { it.name.startsWith("evil") })
     }
 
@@ -224,6 +242,14 @@ class HostileBackupTest {
         refused(
             RestoreProblem.UnexpectedContent,
             with(BackupArchive.DATABASE, tamperedDatabase("INSERT INTO episode_actions (kind, at, deviceId, synced) VALUES ('Teleport', 0, 'x', 0)")),
+        )
+        // Codex review (PR 3): an unknown position-log cause passed, and reading the log back then failed.
+        refused(
+            RestoreProblem.UnexpectedContent,
+            with(
+                BackupArchive.DATABASE,
+                tamperedDatabase("INSERT INTO position_log (episodeId, at, fromMs, toMs, cause, streaming) VALUES (1, 0, 0, 1000, 'Teleport', 0)"),
+            ),
         )
     }
 

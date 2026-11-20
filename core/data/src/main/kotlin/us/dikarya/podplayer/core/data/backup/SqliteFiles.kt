@@ -15,6 +15,7 @@ import us.dikarya.podplayer.core.data.db.DownloadEvent
 import us.dikarya.podplayer.core.data.db.RefreshOutcome
 import us.dikarya.podplayer.core.model.DownloadState
 import us.dikarya.podplayer.core.model.EpisodeActionKind
+import us.dikarya.podplayer.core.model.PositionCause
 
 /** Plain SQLite connections outside Room, for checks and copies. They never delete a damaged file. */
 internal object RawDatabase {
@@ -111,6 +112,7 @@ internal object SchemaCheck {
         Triple("episode_actions", "kind", EpisodeActionKind.entries.map { it.name }),
         Triple("download_log", "event", DownloadEvent.entries.map { it.name }),
         Triple("refresh_log", "outcome", RefreshOutcome.entries.map { it.name }),
+        Triple("position_log", "cause", PositionCause.entries.map { it.name }),
     )
 
     /**

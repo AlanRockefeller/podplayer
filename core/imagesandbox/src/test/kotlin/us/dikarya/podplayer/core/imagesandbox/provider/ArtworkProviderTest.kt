@@ -98,6 +98,23 @@ class ArtworkProviderTest {
     }
 
     @Test
+    fun queryFollowsTheRequestedColumns() {
+        val uri = ArtworkUris.uriFor(context, artwork)
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)!!.use { cursor ->
+            assertEquals(listOf(OpenableColumns.SIZE), cursor.columnNames.toList())
+            assertTrue(cursor.moveToFirst())
+            assertEquals(bytes.size.toLong(), cursor.getLong(0))
+        }
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE, "_data", OpenableColumns.DISPLAY_NAME), null, null, null)!!.use { cursor ->
+            // A column we don't offer (here the file path) is left out, never filled in.
+            assertEquals(listOf(OpenableColumns.SIZE, OpenableColumns.DISPLAY_NAME), cursor.columnNames.toList())
+            assertTrue(cursor.moveToFirst())
+            assertEquals(bytes.size.toLong(), cursor.getLong(0))
+            assertEquals(artwork.file.name, cursor.getString(1))
+        }
+    }
+
+    @Test
     fun artworkUrisAreRecognisedStrictly() {
         val good = ArtworkUris.uriFor(context, artwork)
         assertTrue(ArtworkUris.isArtworkUri(context, good))

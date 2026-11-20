@@ -73,9 +73,10 @@ class ArtworkProvider : ContentProvider() {
         sortOrder: String?,
     ): Cursor? {
         val artwork = artwork(uri) ?: return null
-        return MatrixCursor(arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE)).apply {
-            addRow(arrayOf<Any>(artwork.file.name, artwork.file.length()))
-        }
+        val values = mapOf<String, Any>(OpenableColumns.DISPLAY_NAME to artwork.file.name, OpenableColumns.SIZE to artwork.file.length())
+        // The requested columns, in their order; ones we don't offer are left out. None asked for: both.
+        val columns = projection?.filter { it in values }?.distinct() ?: values.keys.toList()
+        return MatrixCursor(columns.toTypedArray()).apply { addRow(columns.map { values.getValue(it) }) }
     }
 
     override fun insert(uri: Uri, values: ContentValues?): Uri = throw UnsupportedOperationException("Artwork is read-only")

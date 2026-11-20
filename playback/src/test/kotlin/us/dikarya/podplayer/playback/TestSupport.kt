@@ -75,6 +75,15 @@ internal class FakePlaybackStore : PlaybackStore {
     val fetchableArtwork = mutableMapOf<Long, Uri>()
     val artworkFetches = mutableListOf<Long>()
 
+    /**
+     * Where the real store suspends (Room, DataStore) and this one doesn't: a test can hold any of these open to
+     * let other events in while the engine waits. Each runs before the call's effect.
+     */
+    var beforeEpisode: suspend (Long) -> Unit = {}
+    var beforeSetCurrent: suspend (Long?) -> Unit = {}
+    var beforeShowSpeed: suspend (Long) -> Unit = {}
+    var beforeSave: suspend (Long, Long) -> Unit = { _, _ -> }
+
     /** Adds an episode; [file] makes it a completed download. [artworkUri] is artwork already cached. */
     fun add(
         id: Long,
@@ -103,13 +112,15 @@ internal class FakePlaybackStore : PlaybackStore {
         return fetchableArtwork[id]
     }
 
-    override suspend fun episode(id: Long): PlayableEpisode? = episodes[id]?.let { ep ->
-        if (id in downloaded.value) ep else ep.copy(localFile = null)
+    override suspend fun episode(id: Long): PlayableEpisode? {
+        beforeEpisode(id)
+        return episodes[id]?.let { ep -> if (id in downloaded.value) ep else ep.copy(localFile = null) }
     }
 
     override suspend fun startPosition(id: Long): Long = if (id in played) 0 else positions[id] ?: 0
 
     override suspend fun savePosition(id: Long, positionMs: Long, durationMs: Long?) {
+        beforeSave(id, positionMs)
         positions[id] = positionMs
         saves += id to positionMs
     }
@@ -124,6 +135,10 @@ internal class FakePlaybackStore : PlaybackStore {
         queue.value = listOf(id) + queue.value.filter { it != id }
     }
 
+    override suspend fun addToQueue(id: Long) {
+        if (id !in queue.value) queue.value = queue.value + id
+    }
+
     override suspend fun removeFromQueue(id: Long) {
         queue.value = queue.value.filter { it != id }
     }
@@ -131,12 +146,16 @@ internal class FakePlaybackStore : PlaybackStore {
     override suspend fun currentEpisodeId(): Long? = current
 
     override suspend fun setCurrentEpisodeId(id: Long?) {
+        beforeSetCurrent(id)
         current = id
     }
 
     override fun settings(): Flow<PlaybackSettings> = settings
 
-    override suspend fun showSpeed(feedId: Long): Float? = showSpeeds[feedId]
+    override suspend fun showSpeed(feedId: Long): Float? {
+        beforeShowSpeed(feedId)
+        return showSpeeds[feedId]
+    }
 
     override suspend fun setShowSpeed(feedId: Long, speed: Float?) {
         if (speed == null) showSpeeds.remove(feedId) else showSpeeds[feedId] = speed
@@ -226,6 +245,10 @@ internal fun testPlayer(sources: MediaSource.Factory, clock: FakeClock = FakeClo
 internal class Harness(
     val store: FakePlaybackStore = FakePlaybackStore(),
     val clock: FakeClock = FakeClock(true),
+    /** Shared between harnesses that stand for one service after another in the same process. */
+    handoff: SaveHandoff = SaveHandoff(),
+    /** The process scope; null: the harness's own [scope], which [release] cancels. */
+    persistScope: CoroutineScope? = null,
 ) {
     val sources = TestSources(store)
     val player: ExoPlayer = testPlayer(sources, clock)
@@ -236,7 +259,12 @@ internal class Harness(
      * single sample, so the real count would stop at once: null (unknown) unless a test sets it.
      */
     var renderedAudioBuffers: () -> Int? = { null }
-    val engine = PlaybackEngine(player, store, scope, clock, renderedAudioBuffers = { renderedAudioBuffers() })
+    val engine = PlaybackEngine(
+        player, store, scope, clock,
+        persistScope = persistScope ?: scope,
+        renderedAudioBuffers = { renderedAudioBuffers() },
+        handoff = handoff,
+    )
 
     init {
         activePlayer = player

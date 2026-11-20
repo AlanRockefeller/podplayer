@@ -480,6 +480,9 @@ class PlaybackEngineTest {
         h.engine.sessionPlayer.seekForward()
         idle()
         assertTrue("never past the end", h.player.currentPosition <= 100_000)
+        // From 90 s, 45 s forward reaches the end (the player settles a millisecond before it).
+        val skipped = h.store.positionLog.last { it.cause == PositionCause.SkipForward }
+        assertTrue("the skip went to the end: $skipped", skipped.fromMs >= 90_000 && skipped.toMs in 99_000..100_000)
     }
 
     @Test
@@ -659,8 +662,12 @@ class PlaybackEngineTest {
         val h = harness().apply { store.add(1, durationMs = 100_000); store.add(2); store.queue.value = listOf(1, 2) }.start()
         h.engine.playEpisode(1)
         h.pauseAfter(1_000)
+        val seeksBefore = h.store.positionLog.count { it.cause == PositionCause.Seek }
         h.engine.playEpisode(1, startAtMs = 5_000_000)
         idle()
+        val seek = h.store.positionLog.filter { it.cause == PositionCause.Seek }.drop(seeksBefore).first()
+        // The player settles a millisecond before the end.
+        assertTrue("the timestamp was used, held to the episode's end: $seek", seek.episodeId == 1L && seek.toMs in 99_000..100_000)
         assertTrue(h.store.saves.none { it.second > 100_000 })
         assertTrue(h.store.positionLog.none { it.toMs > 100_000 })
     }

@@ -16,7 +16,9 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.util.Clock
 import androidx.media3.exoplayer.DefaultLoadControl
+import androidx.media3.exoplayer.DefaultRenderersFactory
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.Renderer
 import androidx.media3.exoplayer.RenderersFactory
 import androidx.media3.exoplayer.source.MediaSource
 
@@ -54,8 +56,19 @@ object PlayerFactory {
         .build()
 
     /**
-     * [renderers], [clock] and [forTests] are for tests; production uses the defaults. The player pauses when audio
-     * becomes noisy (CLAUDE.md) and handles audio focus itself.
+     * Media3's renderers without the image renderer: an enclosure that is really a PNG has an image track, and
+     * Media3's image renderer decodes it with the platform's bitmap decoder in the app process (CLAUDE.md: images are decoded in the
+     * sandbox only). Audio renderers are Media3's own, on platform codecs.
+     */
+    class NoImageRenderersFactory(context: Context) : DefaultRenderersFactory(context) {
+        override fun buildImageRenderers(out: ArrayList<Renderer>) = Unit
+
+        override fun buildImageRenderers(context: Context, out: ArrayList<Renderer>) = Unit
+    }
+
+    /**
+     * [renderers], [clock] and [forTests] are for tests; production uses [NoImageRenderersFactory]. The player
+     * pauses when audio becomes noisy (CLAUDE.md) and handles audio focus itself.
      */
     @SuppressLint("VisibleForTests") // setClock: production always passes Clock.DEFAULT.
     fun create(
@@ -65,8 +78,7 @@ object PlayerFactory {
         renderers: RenderersFactory? = null,
         forTests: ExoPlayer.Builder.() -> Unit = {},
     ): ExoPlayer {
-        val builder = if (renderers != null) ExoPlayer.Builder(context, renderers) else ExoPlayer.Builder(context)
-        return builder
+        return ExoPlayer.Builder(context, renderers ?: NoImageRenderersFactory(context))
             .setMediaSourceFactory(sources)
             .setLoadControl(loadControl())
             .setAudioAttributes(AUDIO_ATTRIBUTES, true)

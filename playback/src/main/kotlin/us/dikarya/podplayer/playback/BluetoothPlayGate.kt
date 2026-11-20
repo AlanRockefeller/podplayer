@@ -25,6 +25,12 @@ import us.dikarya.podplayer.core.data.settings.AppSettings
 /** Decides whether a Play request is obeyed. Null: play. Otherwise the reason it is ignored. */
 fun interface PlayGate {
     fun ignoreReason(controller: MediaSession.ControllerInfo?): String?
+
+    /**
+     * A Play media button about to start the stopped service ([GatedMediaButtonReceiver]): a Play from outside our
+     * screens, decided before the service starts. Null: start it and play.
+     */
+    fun ignoreMediaButtonReason(): String? = null
 }
 
 /**
@@ -86,13 +92,34 @@ class BluetoothPlayGate(
         armed.clear()
     }
 
-    override fun ignoreReason(controller: MediaSession.ControllerInfo?): String? = synchronized(lock) {
-        if (controller == null) return null
+    /** Who sent a Play: a session controller, or a media button before the service runs. */
+    private class Sender(val packageName: String, val ownUi: Boolean)
+
+    override fun ignoreReason(controller: MediaSession.ControllerInfo?): String? =
+        controller?.let { decide(Sender(it.packageName, isOwnUi(it))) }
+
+    /**
+     * Ignoring uses up the arm, as for any outside Play. Allowing doesn't: the service, once started, asks again for
+     * the same Play, by then perhaps with the ticked list read (it can still be loading this early in a cold start).
+     */
+    override fun ignoreMediaButtonReason(): String? = synchronized(lock) {
+        val armedBefore = armed.toMap()
+        val seenBefore = seen.toSet()
+        val at = clock()
+        val reason = decide(Sender("a media button", ownUi = false))
+        if (reason == null) {
+            armed.putAll(armedBefore)
+            for (id in seen - seenBefore) armed[id] = at
+        }
+        reason
+    }
+
+    private fun decide(controller: Sender): String? = synchronized(lock) {
         val now = clock()
         val present = bluetoothOutputs()
         for ((id, name) in present) see(id, name, now)
         armed.keys.retainAll(present.keys)
-        if (isOwnUi(controller)) {
+        if (controller.ownUi) {
             armed.clear()
             return null
         }

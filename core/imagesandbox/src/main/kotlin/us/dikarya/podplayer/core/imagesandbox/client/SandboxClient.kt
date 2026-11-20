@@ -104,7 +104,14 @@ class SandboxClient internal constructor(
         if (bytes.size > SandboxLimits.MAX_INPUT_BYTES) return count(SandboxResult.Refused(Refusal.TooManyBytes))
         return mutex.withLock {
             idleJob?.cancel()
-            val result = withTimeoutOrNull(timeout) { attempt(bytes) } ?: SandboxResult.TimedOut
+            val result = try {
+                withTimeoutOrNull(timeout) { attempt(bytes) } ?: SandboxResult.TimedOut
+            } catch (cancelled: CancellationException) {
+                // The caller gave up while the sandbox may still be working: let it go, as after a timeout, or it
+                // stays bound with no idle release scheduled.
+                connector.disconnect()
+                throw cancelled
+            }
             if (result == SandboxResult.Crashed || result == SandboxResult.TimedOut) connector.disconnect()
             idleJob = scope.launch {
                 delay(idleTimeout)

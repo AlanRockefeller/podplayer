@@ -93,7 +93,11 @@ class SessionCallback(
         mediaSession: MediaSession,
         controller: MediaSession.ControllerInfo,
         mediaItems: MutableList<MediaItem>,
-    ): ListenableFuture<MutableList<MediaItem>> = future { engine.itemsFor(mediaItems.map { it.mediaId }).toMutableList() }
+    ): ListenableFuture<MutableList<MediaItem>> = future {
+        // Resolution only: Media3 uses this for additions and replacements alike. An addition reaches the database
+        // queue through PodPlayer's add calls.
+        engine.itemsFor(mediaItems.map { it.mediaId }).toMutableList()
+    }
 
     override fun onSetMediaItems(
         mediaSession: MediaSession,

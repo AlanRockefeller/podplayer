@@ -36,7 +36,10 @@ class PlaybackDependencies(
     val processScope: CoroutineScope,
     /** Opens the app when the notification is tapped. */
     val sessionActivity: PendingIntent?,
-)
+) {
+    /** Lives as long as the process too: a new service's engine waits for the last one's final position write. */
+    val saveHandoff = SaveHandoff()
+}
 
 interface PlaybackHost {
     fun playbackDependencies(): PlaybackDependencies
@@ -56,7 +59,7 @@ class PlaybackService : MediaLibraryService() {
         super.onCreate()
         val deps = (application as PlaybackHost).playbackDependencies()
         val player = PlayerFactory.create(this, GatedMediaSourceFactory(deps.callFactoryFor))
-        val engine = PlaybackEngine(player, deps.store, scope, Clock.DEFAULT, deps.processScope)
+        val engine = PlaybackEngine(player, deps.store, scope, Clock.DEFAULT, deps.processScope, handoff = deps.saveHandoff)
         engine.playGate = deps.playGate
         engine.onStreamReconnecting = {
             Toast.makeText(this, R.string.playback_stream_reconnecting, Toast.LENGTH_SHORT).show()

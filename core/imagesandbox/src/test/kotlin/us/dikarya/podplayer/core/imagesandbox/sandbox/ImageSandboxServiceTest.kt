@@ -11,6 +11,7 @@ import android.os.SharedMemory
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -113,12 +114,13 @@ class ImageSandboxServiceTest {
     @Test
     fun aQuickDecodeDoesNotTripTheWatchdog() {
         ShadowProcess.setIsIsolated()
-        var kills = 0
-        val binder = SandboxBinder(decoder = SandboxDecoder()::decode, timeLimitMs = 2_000, kill = { kills++ })
+        // The watchdog runs on its own thread: an atomic, so a kill there is seen here.
+        val kills = AtomicInteger(0)
+        val binder = SandboxBinder(decoder = SandboxDecoder()::decode, timeLimitMs = 2_000, kill = { kills.incrementAndGet() })
         val output = SharedMemory.create("out", SandboxLimits.OUTPUT_REGION_BYTES)
         repeat(3) { assertTrue(binder.decode(input(TestImages.png()), output, 1024) > 0) }
         Thread.sleep(2_500)
-        assertEquals(0, kills)
+        assertEquals(0, kills.get())
     }
 
     @Test

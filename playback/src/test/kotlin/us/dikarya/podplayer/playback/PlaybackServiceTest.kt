@@ -87,6 +87,8 @@ class PlaybackServiceTest {
         assertEquals(61_000L, player.currentPosition)
         assertTrue("never starts by itself", !player.playWhenReady)
         assertEquals(listOf(Player.COMMAND_SEEK_BACK, Player.COMMAND_SEEK_FORWARD), session.mediaButtonPreferences.map { it.playerCommand })
+        // A different stored value, so only the final write on destroy can put 61 s back.
+        store.positions[1] = 5_000
         controller.destroy()
         idle()
         assertEquals("the position is saved when the service ends", 61_000L, store.positions[1])
@@ -103,7 +105,8 @@ class PlaybackServiceTest {
                 future.get()
                 fail("Media3's own loader would have fetched or decoded this")
             } catch (expected: ExecutionException) {
-                // Refused by ArtworkBitmapLoader.
+                // Refused by ArtworkBitmapLoader (Media3 wraps it in its cache), not failed by some other loader.
+                assertTrue("refused by ours: ${expected.cause}", expected.cause is ArtworkRefusedException)
             }
         }
         controller.destroy()

@@ -43,6 +43,8 @@ class ImageCache internal constructor(
     private val dirProvider: () -> File,
     private val clock: () -> Long = System::currentTimeMillis,
     private val maxBytes: Long = DEFAULT_MAX_BYTES,
+    /** At most this many remembered failures; past it, expired ones go, then the oldest. */
+    private val maxFailures: Int = DEFAULT_MAX_FAILURES,
 ) {
     @Volatile
     private var resolved: File? = null
@@ -71,6 +73,8 @@ class ImageCache internal constructor(
     /** Writes a checked image. Throws [IOException] when the disk refuses. */
     internal fun store(key: String, format: OutputFormat, bytes: ByteArray): ArtworkFile {
         require(KEY.matches(key)) { "not a cache key" }
+        // Android may clear the app's cache, folder and all, while this instance lives.
+        dir.mkdirs()
         val target = File(dir, "$key.${format.extension}")
         val temp = File(dir, "$key.${format.extension}.tmp")
         try {
@@ -95,10 +99,36 @@ class ImageCache internal constructor(
         val line = reason.replace(Regex("""\s+"""), " ").take(MAX_REASON)
         try {
             failuresDir.mkdirs()
-            File(failuresDir, key).writeText("${clock() + forMs}\n$line")
+            File(failuresDir, key).apply {
+                writeText("${clock() + forMs}\n$line")
+                setLastModified(clock())
+            }
         } catch (_: IOException) {
             // Not remembering only means trying again sooner.
         }
+        pruneFailures()
+    }
+
+    /**
+     * Records are otherwise removed only when their URL is asked for again, and a feed can name endless image
+     * URLs. Once there are more than [maxFailures], expired records go, then the oldest written (those are only
+     * tried again sooner).
+     */
+    private fun pruneFailures() {
+        val records = failuresDir.listFiles()?.filter { KEY.matches(it.name) && isPlainFile(it) }.orEmpty()
+        if (records.size <= maxFailures) return
+        val now = clock()
+        val live = records.filter { record ->
+            val until = runCatching { record.readText().substringBefore('\n').toLongOrNull() }.getOrNull()
+            if (until == null || until <= now) {
+                record.delete()
+                false
+            } else {
+                true
+            }
+        }
+        if (live.size <= maxFailures) return
+        live.sortedBy { it.lastModified() }.take(live.size - maxFailures).forEach { it.delete() }
     }
 
     internal fun failure(key: String): RememberedFailure? {
@@ -172,6 +202,9 @@ class ImageCache internal constructor(
 
         /** 100 MiB: hundreds of shows' artwork at 1,024 px. */
         const val DEFAULT_MAX_BYTES: Long = 100L * 1024 * 1024
+
+        /** Remembered failures kept at most: each is a small file, and a feed can name endless image URLs. */
+        const val DEFAULT_MAX_FAILURES = 1_000
 
         private const val MAX_REASON = 300
         private const val MAX_RECORD_BYTES = 1_024L

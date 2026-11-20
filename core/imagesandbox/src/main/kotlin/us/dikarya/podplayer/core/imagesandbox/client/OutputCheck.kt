@@ -112,6 +112,7 @@ object OutputCheck {
         var pos = 2
         var width = 0
         var height = 0
+        var componentIds = emptySet<Int>()
         while (true) {
             if (b.size - pos < 4) return Result.Invalid("JPEG truncated")
             if (u8(b, pos) != 0xFF) return Result.Invalid("JPEG segment doesn't start with a marker")
@@ -122,19 +123,24 @@ object OutputCheck {
             when (marker) {
                 0xC0 -> {
                     if (width != 0) return Result.Invalid("JPEG has two frames")
-                    val components = if (length >= 8) u8(b, pos + 9) else 0
+                    // Precision, size and component count come first: too short for them is refused before reading.
+                    if (length < 8) return Result.Invalid("JPEG frame header")
+                    val components = u8(b, pos + 9)
                     if (u8(b, pos + 4) != 8 || (components != 1 && components != 3) || length != 8 + 3 * components) {
                         return Result.Invalid("JPEG frame header")
                     }
                     height = (u8(b, pos + 5) shl 8) or u8(b, pos + 6)
                     width = (u8(b, pos + 7) shl 8) or u8(b, pos + 8)
                     if (width !in 1..maxSide || height !in 1..maxSide) return Result.Invalid("JPEG size out of range")
+                    componentIds = (0 until components).map { u8(b, pos + 10 + 3 * it) }.toSet()
+                    if (componentIds.size != components) return Result.Invalid("JPEG frame header")
                     out.write(b, pos, end - pos)
                 }
                 0xC4, 0xDB, 0xDD -> out.write(b, pos, end - pos) // Huffman tables, quantisation tables, restarts
                 in 0xE0..0xEF, 0xFE -> Unit // APPn (JFIF, EXIF, ICC, XMP) and comments: dropped
                 0xDA -> {
                     if (width == 0) return Result.Invalid("JPEG scan before frame")
+                    scanHeader(b, pos, length, componentIds)?.let { return Result.Invalid(it) }
                     return scan(b, end)?.let { Result.Invalid(it) } ?: run {
                         out.write(b, pos, b.size - pos)
                         Result.Valid(OutputFormat.Jpeg, width, height, out.toByteArray())
@@ -144,6 +150,26 @@ object OutputCheck {
             }
             pos = end
         }
+    }
+
+    /**
+     * The SOS segment at [pos] of [length]: one interleaved baseline scan of every frame component, as the
+     * platform encoder writes it. Each component appears once, with baseline table numbers (0 or 1), and the scan
+     * covers coefficients 0 to 63 with no successive approximation.
+     */
+    private fun scanHeader(b: ByteArray, pos: Int, length: Int, componentIds: Set<Int>): String? {
+        if (length < 3) return "JPEG scan header"
+        val count = u8(b, pos + 4)
+        if (count != componentIds.size || length != 6 + 2 * count) return "JPEG scan header"
+        val seen = mutableSetOf<Int>()
+        for (k in 0 until count) {
+            val id = u8(b, pos + 5 + 2 * k)
+            val tables = u8(b, pos + 6 + 2 * k)
+            if (id !in componentIds || !seen.add(id) || tables shr 4 > 1 || tables and 0x0F > 1) return "JPEG scan header"
+        }
+        val params = pos + 5 + 2 * count
+        if (u8(b, params) != 0 || u8(b, params + 1) != 63 || u8(b, params + 2) != 0) return "JPEG scan isn't baseline"
+        return null
     }
 
     /** Entropy-coded data from [start] must hold only stuffed bytes and restart markers, then end with EOI. */

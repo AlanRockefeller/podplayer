@@ -56,6 +56,8 @@ class ArtworkBitmapLoader(private val artwork: ArtworkBitmaps, private val scope
                 future.setException(e)
             }
         }
+        // A job cancelled before its body ran (the scope had ended) never reaches the handler above.
+        job.invokeOnCompletion { cause -> if (cause != null && !future.isDone) future.cancel(false) }
         future.addListener({ if (future.isCancelled) job.cancel() }, MoreExecutors.directExecutor())
         return future
     }

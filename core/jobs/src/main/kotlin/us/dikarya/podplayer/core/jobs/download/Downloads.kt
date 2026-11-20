@@ -67,6 +67,11 @@ class Downloads(
         withContext(Dispatchers.IO) { workManager().getWorkInfosForUniqueWork(workName(episodeId)).get() }
             .firstOrNull { it.state == WorkInfo.State.ENQUEUED || it.state == WorkInfo.State.BLOCKED }
 
+    /** Work that will still run: waiting, or running now (a new rule then applies to its next attempt). */
+    private suspend fun unfinishedWork(episodeId: Long): WorkInfo? =
+        withContext(Dispatchers.IO) { workManager().getWorkInfosForUniqueWork(workName(episodeId)).get() }
+            .firstOrNull { !it.state.isFinished }
+
     /**
      * Moves every download that is still waiting to the current network settings (the owner changed one, or a
      * restore did): owner downloads to the Wi-Fi-only setting, auto-downloads to their own. Each keeps its
@@ -78,12 +83,16 @@ class Downloads(
         val repos = repositories() ?: return 0
         val wifiOnly = wifiOnly()
         val autoWifiOnly = autoWifiOnly()
-        val waiting = repos.media.observeAll().first().filter { it.state == DownloadState.Queued || it.state == DownloadState.Downloading }
+        // Paused too: a transfer that dropped is Paused while its work waits to retry. The work's own state keeps
+        // finished (stopped, given up) downloads out.
+        val waiting = repos.media.observeAll().first().filter {
+            it.state == DownloadState.Queued || it.state == DownloadState.Downloading || it.state == DownloadState.Paused
+        }
         var updated = 0
         var updatedAuto = 0
         for (file in waiting) {
             val episode = repos.episodes.get(file.episodeId) ?: continue
-            val info = waitingWork(file.episodeId) ?: continue
+            val info = unfinishedWork(file.episodeId) ?: continue
             val auto = TAG_AUTO in info.tags
             val request = request(episode, if (auto) autoWifiOnly else wifiOnly, info.id, auto)
             val result = withContext(Dispatchers.IO) { workManager().updateWork(request).get() }

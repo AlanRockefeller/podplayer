@@ -92,6 +92,10 @@ class RoomPlaybackStore(
         repos()?.queue?.add(id, index = 0)
     }
 
+    override suspend fun addToQueue(id: Long) {
+        repos()?.queue?.appendIfAbsent(id)
+    }
+
     override suspend fun removeFromQueue(id: Long) {
         repos()?.queue?.remove(id)
     }

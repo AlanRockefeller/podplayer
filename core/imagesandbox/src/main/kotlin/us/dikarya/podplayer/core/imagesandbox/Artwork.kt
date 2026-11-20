@@ -99,7 +99,8 @@ sealed interface ArtworkProblem {
  * 4. decoded and re-encoded in the isolated sandbox, the answer checked by `OutputCheck`;
  * 5. cached; Coil and Media3 read only those files.
  * Failures are remembered per URL (24 h, or 1 h for transient network trouble), so a hostile image isn't fetched
- * and decoded on every screen. One fetch per URL at a time; at most [MAX_PARALLEL_FETCHES] fetches overall.
+ * and decoded on every screen. One fetch per URL at a time; at most [MAX_PARALLEL_FETCHES] images between fetch and
+ * cache overall.
  */
 class ArtworkRepository internal constructor(
     private val gate: () -> NetGate,
@@ -158,7 +159,13 @@ class ArtworkRepository internal constructor(
         cache.find(key)?.let { return ArtworkResult.Ready(it) }
         cache.failure(key)?.let { return ArtworkResult.Unavailable(ArtworkProblem.Remembered(it.reason)) }
         val policy = approvedHost?.let { AddressPolicy.approvingHosts(it) } ?: AddressPolicy.Default
-        val bytes = when (val fetched = fetches.withPermit { gate().fetch(url, BodyLimit.IMAGE, policy) }) {
+        // The permit covers fetch, decode and store: the sandbox takes one image at a time, and a body waiting for
+        // it holds up to the image limit in memory, so only [MAX_PARALLEL_FETCHES] may wait.
+        return fetches.withPermit { fetchAndDecode(url, key, policy) }
+    }
+
+    private suspend fun fetchAndDecode(url: okhttp3.HttpUrl, key: String, policy: AddressPolicy): ArtworkResult {
+        val bytes = when (val fetched = gate().fetch(url, BodyLimit.IMAGE, policy)) {
             is FetchResult.Success -> fetched.body
             is FetchResult.NotModified -> return fail(url, key, ArtworkProblem.Network(NetError.HttpStatus(304)), LONG)
             is FetchResult.Failure -> return fail(url, key, ArtworkProblem.Network(fetched.error), memoryFor(fetched.error))

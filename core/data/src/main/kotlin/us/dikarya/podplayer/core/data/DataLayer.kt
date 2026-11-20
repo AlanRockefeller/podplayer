@@ -149,7 +149,8 @@ class DataLayer(
     /**
      * After [DataState.Damaged]: keeps the damaged file aside and starts with an empty library. False when the
      * damaged file couldn't be kept aside: then nothing else happens and the state stays [DataState.Damaged], so
-     * the library is never emptied without its old file being kept.
+     * the library is never emptied without its old file being kept. True says only that the file was kept: whether
+     * the empty library then opened is in [state] (Ready, or Failed, which the shell shows as its own dialog).
      */
     suspend fun startFresh(): Boolean = withContext(io) {
         openLock.withLock {

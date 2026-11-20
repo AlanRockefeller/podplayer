@@ -317,7 +317,7 @@ class ListImportViewModelTest {
         vm.onTextChange("Beta")
         vm.findShows()
         gate.complete(Unit)
-        val row = awaitState(vm.state) { s -> s.rows.single().label == "Beta" && s.rows.single().status == RowStatus.Matched && !s.matching }.rows.single()
+        val row = awaitState(vm.state) { s -> s.rows.singleOrNull()?.let { it.label == "Beta" && it.status == RowStatus.Matched } == true && !s.matching }.rows.single()
         assertEquals("Beta 1", row.chosenHit?.title)
     }
 
@@ -342,6 +342,28 @@ class ListImportViewModelTest {
         assertEquals(1, done.summary!!.added)
         assertTrue(!done.subscribing)
         assertEquals(listOf("https://feeds.example.com/science.xml"), env.repos.feeds.feeds().first().map { it.url })
+    }
+
+    @Test
+    fun marksForAShowAlreadySubscribedButWithoutEpisodesYetAreApplied() = runBlocking {
+        // CodeRabbit CLI review (PR 10): an existing subscription that hadn't been refreshed yet got no preview, so
+        // every imported mark came back unmatched.
+        appleAnswers()
+        env.repos.feeds.subscribe("https://feeds.example.com/science.xml", ownerTyped = false)
+        val file = """
+            {"format":"podplayer-import","version":1,"shows":[
+              {"title":"Science Hour","feedUrl":"https://feeds.example.com/science.xml","episodes":[{"title":"Episode 3","starred":true}]}
+            ]}
+        """.trimIndent()
+        val vm = ListImportViewModel(env.deps)
+        vm.filePicked { file.byteInputStream() }
+        awaitState(vm.state) { s -> s.rows.isNotEmpty() && !s.matching && s.subscribedUrls.isNotEmpty() }
+        vm.confirm()
+        val summary = awaitState(vm.state) { it.summary != null }.summary!!
+        assertEquals(1, summary.alreadySubscribed)
+        assertEquals(emptyList<String>(), summary.unmatchedEpisodes)
+        val science = env.repos.feeds.feeds().first().single()
+        assertTrue(env.repos.episodes.forFeed(science.id).first().single { it.title == "Episode 3" }.starred)
     }
 
     @Test

@@ -61,11 +61,14 @@ class SleepTimerTest {
         assertTrue("stopped at ${h.player.currentPosition}, expected about $stopAt", h.player.currentPosition in (stopAt - 1_000)..(stopAt + 1_000))
         val fade = volumes.filter { it.second < 1.0f }
         assertTrue("the volume stepped down: $volumes", fade.size >= 20)
-        assertTrue("the fade began in the last 10 s: ${fade.first()}", fade.first().first >= stopAt - 10_000 - 500)
+        assertTrue("the fade began 10 s before the stop: ${fade.first()}", fade.first().first in (stopAt - 10_000 - 750)..(stopAt - 10_000 + 750))
         assertEquals("each step quieter", fade.map { it.second }, fade.map { it.second }.sortedDescending())
         assertEquals("the volume is back to normal afterwards", 1.0f, h.player.volume)
         assertEquals(SleepTimerState.Off, h.engine.sleepTimer.value)
         assertTrue("the stop position was saved", h.store.positions[1]!! >= stopAt - 1_000)
+        // By the pause itself: here the last periodic save was over a second earlier, outside this window.
+        val last = h.store.saves.last()
+        assertTrue("the pause saved where it stopped: ${h.store.saves.takeLast(3)}", last.first == 1L && kotlin.math.abs(last.second - h.player.currentPosition) <= 50)
     }
 
     @Test

@@ -48,8 +48,8 @@ class CommandMatrixTest {
         "playEpisodeAtNegative" to { it.playEpisode(2, startAtMs = -1) },
     )
 
-    private fun enter(state: State): Harness {
-        val h = Harness()
+    /** Puts a fresh [h] into [state]. Setup can fail too (an error that never comes): the caller releases [h]. */
+    private fun enter(h: Harness, state: State) {
         h.store.add(1, durationMs = 20_000)
         h.store.add(2)
         h.store.add(3, durationMs = 10_000)
@@ -92,7 +92,6 @@ class CommandMatrixTest {
                 idle()
             }
         }
-        return h
     }
 
     @Test
@@ -100,8 +99,9 @@ class CommandMatrixTest {
         val failures = mutableListOf<String>()
         for (state in State.entries) {
             for ((name, command) in commands) {
-                val h = enter(state)
+                val h = Harness()
                 try {
+                    enter(h, state)
                     command(h.engine)
                     idle()
                     // Invariants: the player holds at most current + next, and item 0 is the stored current.

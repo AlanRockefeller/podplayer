@@ -142,6 +142,35 @@ class RedactTest {
     }
 
     @Test
+    fun scrubIsLinearInALongUrlWithManySchemeLikeRunsThatNeverEndInSlashes() {
+        // Every `a.` could start a scheme; none is followed by `://`. A search that retries each start rescans the tail.
+        val hostile = "https://x.example/" + "a.".repeat(131_072)
+        val endsInAScheme = hostile + "b://u:pw@y.example/z"
+        val elapsed = kotlin.time.measureTime {
+            scrubUrls(hostile)
+            assertFalse("pw" in scrubUrls(endsInAScheme))
+        }
+        assertTrue("$elapsed", elapsed < kotlin.time.Duration.parse("2s"))
+    }
+
+    @Test
+    fun scrubIsLinearInTextFullOfSchemeLikeRunsWithoutAnyUrl() {
+        // On main the URL regex itself backtracked here: about 14 s for 64 KB of `a.`.
+        val hostile = "a.".repeat(131_072)
+        val elapsed = kotlin.time.measureTime { assertEquals(hostile, scrubUrls(hostile)) }
+        assertTrue("$elapsed", elapsed < kotlin.time.Duration.parse("2s"))
+    }
+
+    @Test
+    fun scrubFindsUrlsWhereverTheyStartAndEnd() {
+        val text = "x(HTTPS://u:p@a.example/b?c)\t<http://d.example/e#f> \"svn+ssh://g@h/i\" a.b-c+d://j@k/l nothing:// here://"
+        assertEquals(
+            "x(HTTPS://a.example/b\t<http://d.example/e> \"svn+ssh://h/i\" a.b-c+d://k/l nothing:// here://",
+            scrubUrls(text),
+        )
+    }
+
+    @Test
     fun scrubLeavesTextWithoutUrlsAlone() {
         assertEquals("timeout", scrubUrls("timeout"))
     }

@@ -121,28 +121,76 @@ fun redact(url: HttpUrl): String = buildString {
 /** A scheme followed by at least one slash or backslash, at the start of a string (after any whitespace). */
 private val schemeBeforeSlashes = Regex("""^\s*[A-Za-z][A-Za-z0-9+.-]*:(?=[/\\])""")
 
-// Greedy up to whitespace, double quotes or angle brackets: a parenthesis or an apostrophe may be part of a
-// URL (`/o'brien/feed`), and stopping early there would leave a query string behind in the text.
-private val urlInText = Regex("""(?i)\b[a-z][a-z0-9+.-]*://[^\s"<>]+""")
-private val nestedScheme = Regex("""(?i)\b[a-z][a-z0-9+.-]*://""")
+/**
+ * Redacts every URL inside free text, such as an exception message, before it is logged or shown.
+ *
+ * A URL is `scheme://` (as `\b[a-z][a-z0-9+.-]*://`) followed by everything up to whitespace, a double quote or
+ * an angle bracket: a parenthesis or an apostrophe may be part of a URL (`/o'brien/feed`), and stopping early
+ * there would leave a query string behind in the text. Found in one forward scan rather than with a regex,
+ * which backtracks quadratically over hostile text such as `a.a.a.a...`.
+ */
+fun scrubUrls(text: String): String {
+    val out = StringBuilder(text.length)
+    var copied = 0
+    var search = 0
+    while (true) {
+        val (start, afterSlashes) = nextScheme(text, search, copied) ?: break
+        var end = afterSlashes
+        while (end < text.length && !text[end].endsUrlInText()) end++
+        search = end
+        if (end == afterSlashes) continue // `scheme://` with nothing after it
+        out.append(text, copied, start).append(scrubCandidate(text.substring(start, end)))
+        copied = end
+    }
+    return out.append(text, copied, text.length).toString()
+}
 
-/** Redacts every URL inside free text, such as an exception message, before it is logged or shown. */
-fun scrubUrls(text: String): String = urlInText.replace(text) { scrubCandidate(it.value) }
+private fun Char.endsUrlInText() = this in " \t\n\u000B\u000C\r\"<>"
 
 /**
  * One run of URL characters may hold several URLs (`'https://a/x','https://u:pw@b/y'`). Each one is redacted.
  * Once a query or fragment has started, everything after it goes, nested URLs included.
  */
 private fun scrubCandidate(candidate: String): String {
-    // Walks by index so that a long run of nested schemes (`a://a://...`) stays linear.
+    // One forward pass, so hostile runs (`a://a://...`, `a.a.a...`) stay linear.
     val out = StringBuilder()
     var start = 0
+    var searchFrom = candidate.indexOf("://") + 3 // the candidate's own scheme
     while (true) {
-        val next = nestedScheme.find(candidate, start + 1)?.range?.first
-        val end = next ?: candidate.length
+        val next = nextScheme(candidate, searchFrom, start + 1)
+        val end = next?.first ?: candidate.length
         val queryOrFragment = (start until end).any { candidate[it] == '?' || candidate[it] == '#' }
         if (next == null || queryOrFragment) return out.append(redact(candidate.substring(start))).toString()
         out.append(redact(candidate.substring(start, end)))
         start = end
+        searchFrom = next.second
     }
 }
+
+/**
+ * The next `scheme://` in [text] whose `://` is at or after [from] and whose scheme starts at or after [minStart]:
+ * the scheme's start and the index just past `://`, or null. The scheme is the longest run before `://` that
+ * starts with a letter at a word boundary, as `\b[a-z][a-z0-9+.-]*://` would match it. Each character is looked
+ * at a bounded number of times: runs of scheme characters never contain `/`, so walks back never overlap.
+ */
+private fun nextScheme(text: String, from: Int, minStart: Int): Pair<Int, Int>? {
+    var search = from
+    while (true) {
+        val slashes = text.indexOf("://", search)
+        if (slashes < 0) return null
+        var s = slashes
+        var start = -1
+        while (s > minStart && text[s - 1].isSchemeChar()) {
+            s--
+            if (text[s].isAsciiLetter() && (s == 0 || !text[s - 1].isWordChar())) start = s
+        }
+        if (start >= 0) return start to slashes + 3
+        search = slashes + 1
+    }
+}
+
+private fun Char.isAsciiLetter() = this in 'a'..'z' || this in 'A'..'Z'
+
+private fun Char.isWordChar() = isAsciiLetter() || this in '0'..'9' || this == '_'
+
+private fun Char.isSchemeChar() = isAsciiLetter() || this in '0'..'9' || this == '+' || this == '.' || this == '-'

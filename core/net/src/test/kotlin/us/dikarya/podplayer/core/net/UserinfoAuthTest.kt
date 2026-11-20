@@ -68,7 +68,8 @@ class UserinfoAuthTest {
     }
 
     @Test
-    fun userinfoInARedirectTargetBecomesBasicAuthForThatHost() = runBlocking {
+    fun userinfoInAnHttpRedirectTargetIsNeverSentInTheClear() = runBlocking {
+        // The https case, where the Location's userinfo becomes Basic auth, is in RedirectCredentialsTest.
         val target = server.urlOn(CDN_HOST, "/feed").newBuilder().username("bob").password("pw").build()
         server.enqueue(redirect(302, target.toString()))
         server.enqueue(ok("<rss/>"))
@@ -76,7 +77,7 @@ class UserinfoAuthTest {
         assertTrue("$result", result is FetchResult.Success)
         assertEquals("Basic bGlzdGVuZXI6czNjcmV0IHBhc3M=", server.takeRequest().headers["Authorization"])
         val second = server.takeRequest()
-        assertEquals("the old host's credentials are gone, the new ones are sent", "Basic Ym9iOnB3", second.headers["Authorization"])
+        assertNull("neither the old host's credentials nor the redirect's go out over http", second.headers["Authorization"])
         assertEquals("", second.url.username)
     }
 

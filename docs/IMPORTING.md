@@ -62,7 +62,8 @@ they aren't worth importing; Podplayer downloads episodes again as needed.
    seven times; then Settings › Developer options › USB debugging).
 2. Samsung phones: turn off **Auto Blocker** (Settings › Security and privacy › Auto Blocker). It blocks USB
    debugging, and it **turns itself back on after about 30 minutes**, which drops the connection mid-run. If
-   `adb devices` comes back empty, turn it off again.
+   `adb devices` comes back empty, turn it off again. A step that loses the phone stops with an error and saves
+   the rows it read to `<file>.partial`; reconnect and run the step again.
 3. Plug in the phone, accept the debugging prompt, and check `adb devices` lists it.
 4. Keep the screen on while a step runs (Settings › Display › Screen timeout, or Developer options › Stay awake
    while charging).

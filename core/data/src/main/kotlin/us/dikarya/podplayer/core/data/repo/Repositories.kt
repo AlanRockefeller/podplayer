@@ -91,6 +91,18 @@ class QueueRepository internal constructor(private val db: PodDatabase, private 
         write(order)
     }
 
+    /**
+     * Adds at the end unless already queued (a car's "add to queue"): checked and written in one transaction, so
+     * an episode queued meanwhile isn't moved. Returns true if it was added.
+     */
+    suspend fun appendIfAbsent(episodeId: Long): Boolean = db.withTransaction {
+        if (!db.episodes().exists(episodeId)) return@withTransaction false
+        val order = db.queue().all().map { it.episodeId }
+        if (episodeId in order) return@withTransaction false
+        write(order + episodeId)
+        true
+    }
+
     suspend fun move(episodeId: Long, toIndex: Int) = db.withTransaction {
         val order = db.queue().all().map { it.episodeId }.toMutableList()
         if (!order.remove(episodeId)) return@withTransaction

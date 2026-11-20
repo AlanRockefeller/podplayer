@@ -92,24 +92,38 @@ class KeyedLocks {
  */
 internal class StorageLedger {
     private val mutex = Mutex()
-    private val running = ConcurrentHashMap<Long, AtomicLong>()
+
+    /** Guarded by `this`, like [resting], so [take] never sees one updated without the other. */
+    private val running = HashMap<Long, AtomicLong>()
 
     /** Bytes of the downloads not running, as the database had them at the last start or end. */
-    @Volatile
     private var resting = 0L
 
-    /** [id] starts with [onDisk] bytes already there. Returns its live counter. */
-    suspend fun enter(repos: Repositories, id: Long, onDisk: Long): AtomicLong = mutex.withLock {
+    /**
+     * [id] starts with [onDisk] bytes already there. Returns its live counter. [recorded] (episode id → bytes the
+     * database records) is read first: nothing is registered until the ledger changes in one step, so a start
+     * cancelled during the read leaves nothing behind.
+     */
+    suspend fun enter(recorded: suspend () -> Map<Long, Long>, id: Long, onDisk: Long): AtomicLong = mutex.withLock {
+        val all = recorded()
         val counter = AtomicLong(onDisk)
-        running[id] = counter
-        recount(repos)
+        synchronized(this) {
+            running[id] = counter
+            resting = restingOf(all)
+        }
         counter
     }
 
-    /** [id] ended; its record now holds what it left on disk. */
-    suspend fun leave(repos: Repositories, id: Long) = mutex.withLock {
-        running.remove(id)
-        recount(repos)
+    /**
+     * [id] ended; its record now holds what it left on disk. Its live count is swapped for that record in one
+     * step, so no write in between sees its bytes counted nowhere.
+     */
+    suspend fun leave(recorded: suspend () -> Map<Long, Long>, id: Long) = mutex.withLock {
+        val all = recorded()
+        synchronized(this) {
+            running.remove(id)
+            resting = restingOf(all)
+        }
     }
 
     /**
@@ -125,10 +139,7 @@ internal class StorageLedger {
         true
     }
 
-    private suspend fun recount(repos: Repositories) {
-        val all = repos.media.observeAll().first()
-        resting = all.filter { !running.containsKey(it.episodeId) }.sumOf { it.bytesDownloaded }
-    }
+    private fun restingOf(all: Map<Long, Long>): Long = all.filterKeys { it !in running }.values.sum()
 }
 
 /**
@@ -294,11 +305,14 @@ class DownloadRunner(
         suspend fun run(): DownloadOutcome {
             capBytes = storageCap()
             val onDisk = withContext(Dispatchers.IO) { if (file.isFile) file.length() else 0L }
-            counted = ledger.enter(repos, id, onDisk)
+            val recorded: suspend () -> Map<Long, Long> = {
+                repos.media.observeAll().first().associate { it.episodeId to it.bytesDownloaded }
+            }
+            counted = ledger.enter(recorded, id, onDisk)
             try {
                 return transfer()
             } finally {
-                withContext(NonCancellable) { ledger.leave(repos, id) }
+                withContext(NonCancellable) { ledger.leave(recorded, id) }
             }
         }
 

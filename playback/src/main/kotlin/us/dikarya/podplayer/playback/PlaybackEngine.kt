@@ -333,16 +333,21 @@ class PlaybackEngine(
         return MediaSession.MediaItemsWithStartPosition(listOfNotNull(itemFor(episode), next?.let(::itemFor)), 0, start)
     }
 
+    /** Items for ids a controller asked for, built from the library. URIs a controller sends are never used. */
+    suspend fun itemsFor(ids: List<String>): List<MediaItem> =
+        ids.mapNotNull { it.toLongOrNull() }.mapNotNull { store.episode(it) }.map(::itemFor)
+
     /**
-     * Episodes a controller added to the playlist (ids it asked for; URIs it sends are never used). They go to the
-     * end of the database queue, the source of truth for Up Next (CLAUDE.md), and the player follows it; an episode
-     * already queued stays where it is.
+     * Episodes a controller added to the player's playlist (PodPlayer's add calls). They go to the end of the
+     * database queue, the source of truth for Up Next (CLAUDE.md), and the player follows it; an episode already
+     * queued stays where it is.
      */
-    suspend fun addToQueue(ids: List<String>) {
-        val queued = store.queue().first().toSet()
-        for (id in ids.mapNotNull { it.toLongOrNull() }.distinct()) {
-            if (id in queued || store.episode(id) == null) continue
-            store.addToQueue(id)
+    internal fun addToQueue(items: List<MediaItem>) {
+        val ids = items.mapNotNull { it.mediaId.toLongOrNull() }.distinct()
+        scope.launch {
+            for (id in ids) {
+                if (store.episode(id) != null) store.addToQueue(id)
+            }
         }
     }
 
@@ -868,7 +873,8 @@ class PlaybackEngine(
                 // was, from the event (the player's position already belongs to the new item).
                 val leftAt = oldPosition.positionMs
                 lastSaveAt = clock.elapsedRealtime()
-                scope.launch { store.savePosition(id, leftAt, null) }
+                // The process scope: the service may end right after (a car switching off), and this is the last word.
+                persistScope.launch { store.savePosition(id, leftAt, null) }
             }
             if (!rebuilding && id != null && oldPosition.mediaItemIndex == newPosition.mediaItemIndex) {
                 when (reason) {

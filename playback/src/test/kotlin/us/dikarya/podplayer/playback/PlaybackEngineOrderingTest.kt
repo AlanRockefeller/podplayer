@@ -211,6 +211,29 @@ class PlaybackEngineOrderingTest {
     }
 
     @Test
+    fun theSaveForAnEpisodeAControllerLeftSurvivesTheServiceEndingRightAfter() {
+        val store = FakePlaybackStore().apply { add(1); add(2); queue.value = listOf(1, 2) }
+        val process = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+        try {
+            val h = Harness(store, persistScope = process).also { harnesses += it }.start()
+            h.engine.playEpisode(1)
+            h.playUntil(5_000)
+            val leftAt = h.player.currentPosition
+            val writes = CompletableDeferred<Unit>()
+            store.beforeSave = { id, _ -> if (id == 1L) writes.await() }
+            h.engine.sessionPlayer.seekTo(1, 0)
+            idle()
+            // The service ends while that write is still landing.
+            h.release()
+            writes.complete(Unit)
+            idle()
+            assertTrue("saved ${store.positions[1]}, left at $leftAt", (store.positions[1] ?: 0) >= leftAt)
+        } finally {
+            process.cancel()
+        }
+    }
+
+    @Test
     fun aControllerReplacingThePlaylistSavesWhereTheEpisodeItLeftWas() {
         val h = harness().apply { store.add(1); store.add(2); store.queue.value = listOf(1, 2) }.start()
         h.engine.playEpisode(1)

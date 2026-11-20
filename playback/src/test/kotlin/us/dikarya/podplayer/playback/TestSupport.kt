@@ -136,7 +136,7 @@ internal class FakePlaybackStore : PlaybackStore {
     }
 
     override suspend fun addToQueue(id: Long) {
-        queue.value = queue.value.filter { it != id } + id
+        if (id !in queue.value) queue.value = queue.value + id
     }
 
     override suspend fun removeFromQueue(id: Long) {

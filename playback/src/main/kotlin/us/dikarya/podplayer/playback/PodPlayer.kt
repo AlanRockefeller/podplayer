@@ -11,6 +11,7 @@ package us.dikarya.podplayer.playback
 import androidx.annotation.OptIn
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.ForwardingPlayer
+import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
 import java.lang.reflect.InvocationHandler
@@ -60,6 +61,16 @@ class PodPlayer internal constructor(private val exo: ExoPlayer, private val eng
     override fun seekToPrevious() = engine.skipBack()
 
     override fun seekTo(positionMs: Long) = engine.requestSeek(positionMs)
+
+    // A controller's additions go to the database queue, the source of truth for Up Next (CLAUDE.md); the player
+    // holds what the queue says, so they are not added here too. The index is ignored: they go to the end.
+    override fun addMediaItem(mediaItem: MediaItem) = engine.addToQueue(listOf(mediaItem))
+
+    override fun addMediaItem(index: Int, mediaItem: MediaItem) = engine.addToQueue(listOf(mediaItem))
+
+    override fun addMediaItems(mediaItems: List<MediaItem>) = engine.addToQueue(mediaItems)
+
+    override fun addMediaItems(index: Int, mediaItems: List<MediaItem>) = engine.addToQueue(mediaItems)
 
     override fun getAvailableCommands(): Player.Commands = withSkips(exo.availableCommands)
 

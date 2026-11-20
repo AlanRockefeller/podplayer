@@ -55,7 +55,9 @@ val Response.redirectChain: RedirectChain
  *
  * A URL with userinfo (`https://user:pass@host/feed`, as some private feeds are written) is sent as HTTP
  * Basic auth to that host, since OkHttp never sends userinfo itself, and the userinfo leaves the URL, so it
- * is dropped with the header when a redirect changes host. An explicit `Authorization` header wins.
+ * is dropped with the header when a redirect changes host. Userinfo in a redirect's `Location` is handled the
+ * same way for the host it names. An explicit `Authorization` header wins, and so do the credentials already
+ * sent to the same origin.
  */
 internal class RedirectInterceptor(private val maxRedirects: Int) : Interceptor {
     override fun intercept(chain: Interceptor.Chain): Response {
@@ -76,7 +78,8 @@ internal class RedirectInterceptor(private val maxRedirects: Int) : Interceptor 
             val target = request.url.resolve(location)
                 ?: throw BadRedirectException("redirect to a URL that is not http or https")
             hops += RedirectHop(request.url, target, response.code)
-            request = nextRequest(request, target, response.code)
+            // Userinfo in the Location is for the redirect's own host, after the old host's credentials are gone.
+            request = userinfoAsBasicAuth(nextRequest(request, target, response.code))
         }
     }
 

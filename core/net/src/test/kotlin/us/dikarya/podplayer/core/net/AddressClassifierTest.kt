@@ -34,6 +34,8 @@ class AddressClassifierTest {
             "169.254.169.254" to BlockReason.LinkLocal,
             "100.64.0.1" to BlockReason.SharedAddressSpace,
             "100.127.255.255" to BlockReason.SharedAddressSpace,
+            "198.18.0.1" to BlockReason.Benchmarking,
+            "198.19.255.255" to BlockReason.Benchmarking,
             "224.0.0.1" to BlockReason.Multicast,
             "239.255.255.250" to BlockReason.Multicast,
             "240.0.0.1" to BlockReason.Reserved,
@@ -45,7 +47,7 @@ class AddressClassifierTest {
     @Test
     fun ipv4NeighboursOfBlockedRangesArePublic() {
         for (literal in listOf("9.255.255.255", "11.0.0.0", "172.15.255.255", "172.32.0.0", "192.167.255.255",
-            "192.169.0.0", "100.63.255.255", "100.128.0.0", "169.253.255.255", "169.255.0.0", "223.255.255.255",
+            "192.169.0.0", "100.63.255.255", "100.128.0.0", "169.253.255.255", "169.255.0.0", "198.17.255.255", "198.20.0.0", "223.255.255.255",
             "8.8.8.8", "93.184.215.14", "1.1.1.1")) {
             assertNull(literal, reason(literal))
         }

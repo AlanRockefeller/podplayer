@@ -31,6 +31,9 @@ enum class BlockReason {
     /** fec0::/10, deprecated but still routed inside some networks. */
     SiteLocal,
 
+    /** 198.18.0.0/15, set aside for network benchmarking and not globally reachable (RFC 2544, IANA). */
+    Benchmarking,
+
     /** 224/4, ff00::/8. */
     Multicast,
 
@@ -78,6 +81,7 @@ object AddressClassifier {
             first == 192 && second == 168 -> BlockReason.Private
             first == 169 && second == 254 -> BlockReason.LinkLocal
             first == 100 && second in 64..127 -> BlockReason.SharedAddressSpace
+            first == 198 && second in 18..19 -> BlockReason.Benchmarking
             first in 224..239 -> BlockReason.Multicast
             first >= 240 -> BlockReason.Reserved
             else -> null

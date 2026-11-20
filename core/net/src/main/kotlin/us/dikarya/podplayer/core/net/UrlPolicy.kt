@@ -90,13 +90,21 @@ object UrlPolicy {
 /**
  * Removes the query, fragment and userinfo from a URL so it can be logged (CLAUDE.md: feed URLs are secrets).
  * Works on malformed input too: whatever it can't parse, it still cuts at the first `?` or `#` and drops
- * everything up to the last `@` of what looks like the authority.
+ * everything up to the last `@` of what looks like the authority. Like OkHttp, it reads any run of `/` and `\`
+ * after the scheme as the start of the authority, so `https:///user:pw@host` loses its userinfo too.
  */
 fun redact(url: String): String {
     val cut = listOf(url.indexOf('?'), url.indexOf('#')).filter { it >= 0 }.minOrNull() ?: url.length
     val head = url.substring(0, cut)
-    val slashes = head.indexOf("//")
-    val authorityStart = if (slashes >= 0 && '/' !in head.substring(0, slashes)) slashes + 2 else 0
+    val scheme = schemeBeforeSlashes.find(head)
+    val authorityStart = if (scheme != null) {
+        var start = scheme.range.last + 1
+        while (start < head.length && (head[start] == '/' || head[start] == '\\')) start++
+        start
+    } else {
+        val slashes = head.indexOf("//")
+        if (slashes >= 0 && '/' !in head.substring(0, slashes)) slashes + 2 else 0
+    }
     val authorityEnd = head.indexOfAny(charArrayOf('/', '\\'), authorityStart).let { if (it < 0) head.length else it }
     val at = head.lastIndexOf('@', authorityEnd - 1)
     return if (at >= authorityStart) head.substring(0, authorityStart) + head.substring(at + 1) else head
@@ -110,9 +118,29 @@ fun redact(url: HttpUrl): String = buildString {
     append(url.encodedPath)
 }
 
-// Greedy up to whitespace or quotes: a parenthesis may be part of a URL, and stopping early
-// there could leave a query string behind in the text.
-private val urlInText = Regex("""(?i)\b[a-z][a-z0-9+.-]*://[^\s"'<>]+""")
+/** A scheme followed by at least one slash or backslash, at the start of a string (after any whitespace). */
+private val schemeBeforeSlashes = Regex("""^\s*[A-Za-z][A-Za-z0-9+.-]*:(?=[/\\])""")
+
+// Greedy up to whitespace, double quotes or angle brackets: a parenthesis or an apostrophe may be part of a
+// URL (`/o'brien/feed`), and stopping early there would leave a query string behind in the text.
+private val urlInText = Regex("""(?i)\b[a-z][a-z0-9+.-]*://[^\s"<>]+""")
+private val nestedScheme = Regex("""(?i)\b[a-z][a-z0-9+.-]*://""")
 
 /** Redacts every URL inside free text, such as an exception message, before it is logged or shown. */
-fun scrubUrls(text: String): String = urlInText.replace(text) { redact(it.value) }
+fun scrubUrls(text: String): String = urlInText.replace(text) { scrubCandidate(it.value) }
+
+/**
+ * One run of URL characters may hold several URLs (`'https://a/x','https://u:pw@b/y'`). Each one is redacted.
+ * Once a query or fragment has started, everything after it goes, nested URLs included.
+ */
+private fun scrubCandidate(candidate: String): String {
+    val out = StringBuilder()
+    var rest = candidate
+    while (true) {
+        val next = nestedScheme.find(rest, 1)
+        val head = next?.let { rest.substring(0, it.range.first) }
+        if (head == null || '?' in head || '#' in head) return out.append(redact(rest)).toString()
+        out.append(redact(head))
+        rest = rest.substring(head.length)
+    }
+}

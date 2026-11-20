@@ -11,8 +11,10 @@ import android.database.sqlite.SQLiteDatabase
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.ByteArrayInputStream
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -135,9 +137,11 @@ class DiscoverViewModelTest {
         val opml = """<?xml version="1.0"?><opml version="2.0"><body>
             <outline text="One" type="rss" xmlUrl="https://one.example.com/feed"/>
             <outline text="Two" type="rss" xmlUrl="https://two.example.com/feed"/></body></opml>"""
-        // The second insert fails as a full disk would.
-        SQLiteDatabase.openDatabase(env.data.files.databaseFile.path, null, SQLiteDatabase.OPEN_READWRITE).use {
-            it.execSQL("CREATE TRIGGER full_disk BEFORE INSERT ON feeds WHEN NEW.url LIKE '%two.example.com%' BEGIN SELECT RAISE(ABORT, 'disk full'); END")
+        // The second insert fails as a full disk would. Off the main thread: StrictMode (debug builds) forbids disk there.
+        withContext(Dispatchers.IO) {
+            SQLiteDatabase.openDatabase(env.data.files.databaseFile.path, null, SQLiteDatabase.OPEN_READWRITE).use {
+                it.execSQL("CREATE TRIGGER full_disk BEFORE INSERT ON feeds WHEN NEW.url LIKE '%two.example.com%' BEGIN SELECT RAISE(ABORT, 'disk full'); END")
+            }
         }
         val vm = DiscoverViewModel(env.deps)
         vm.opmlPicked { ByteArrayInputStream(opml.toByteArray()) }

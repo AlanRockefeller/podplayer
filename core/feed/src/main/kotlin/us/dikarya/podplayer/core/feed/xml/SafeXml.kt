@@ -183,6 +183,21 @@ internal class SafeXmlReader(
 
     /** The text inside the current element, ignoring any child tags, capped at [maxChars]. */
     fun readText(maxChars: Int): String {
+        val out = collectText(maxChars)
+        if (out.truncated) truncated++
+        return out.toString()
+    }
+
+    /**
+     * Like [readText], but null when the text is longer than [maxChars]: for values such as URLs, where a
+     * shortened value would be a different, wrong one. The element is consumed either way.
+     */
+    fun readWholeText(maxChars: Int): String? {
+        val out = collectText(maxChars)
+        return if (out.truncated) null else out.toString()
+    }
+
+    private fun collectText(maxChars: Int): CappedBuilder {
         val out = CappedBuilder(maxChars)
         val depth = parser.depth
         while (true) {
@@ -192,8 +207,7 @@ internal class SafeXmlReader(
                 XmlPullParser.END_DOCUMENT -> endedEarly()
             }
         }
-        if (out.truncated) truncated++
-        return out.toString()
+        return out
     }
 
     /**

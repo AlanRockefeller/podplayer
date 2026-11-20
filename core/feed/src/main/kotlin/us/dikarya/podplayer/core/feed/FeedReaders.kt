@@ -41,6 +41,19 @@ internal class FeedContext(val reader: SafeXmlReader) {
         return collapsed.take(max)
     }
 
+    /**
+     * Element text that is a URL (`<link>`, `<url>`, `<logo>`): read whole and checked like [url]. Text longer
+     * than any allowed URL is rejected, never shortened, since a cut URL can still look valid.
+     */
+    fun urlText(): String? {
+        val text = reader.readWholeText(UrlPolicy.MAX_URL_LENGTH + URL_TEXT_SLACK)
+        if (text == null) {
+            rejectedUrls++
+            return null
+        }
+        return url(text)
+    }
+
     /** A feed-supplied URL that passes [UrlPolicy.checkFeedUrl], as written (trimmed), or null. */
     fun url(raw: String?): String? {
         val trimmed = raw?.trim()?.ifEmpty { null } ?: return null
@@ -69,11 +82,21 @@ internal class FeedContext(val reader: SafeXmlReader) {
         attribute(name)?.trim()?.ifEmpty { null }?.let { collapse(it, max) }
 
     private companion object {
+        /** Whitespace around a URL in element text (pretty-printed feeds indent it). */
+        const val URL_TEXT_SLACK = 1024
+
         val whitespace = Regex("\\s+")
         val smallNumber = Regex("^[0-9]{1,6}$")
         val longNumber = Regex("^[0-9]{1,18}$")
     }
 }
+
+/**
+ * The first value a feed gives for a field wins, but a repeated element must still be read: a reader that
+ * skipped it would leave its children to be taken for fields of the enclosing item or channel. Both arguments
+ * are evaluated, so write `field = first(field, ctx.read())`, never `field ?: ctx.read()`.
+ */
+internal fun <T> first(current: T?, next: T?): T? = current ?: next
 
 /** Channel-level fields common to RSS and Atom, including the iTunes and Podcasting 2.0 extensions. */
 internal class ChannelBuilder(private val ctx: FeedContext, private val format: FeedFormat) {
@@ -98,17 +121,17 @@ internal class ChannelBuilder(private val ctx: FeedContext, private val format: 
     fun extension(): Boolean {
         when (ctx.kind) {
             NamespaceKind.Itunes -> when (ctx.name) {
-                "author" -> author = author ?: ctx.title(FieldLimits.SHORT_TEXT)
+                "author" -> author = first(author, ctx.title(FieldLimits.SHORT_TEXT))
                 "image" -> {
                     itunesImage = itunesImage ?: ctx.url(ctx.attribute("href") ?: ctx.attribute("url"))
                     ctx.skip()
                 }
                 "category" -> itunesCategory()
-                "summary" -> summary = summary ?: ctx.notes()
-                "subtitle" -> subtitle = subtitle ?: ctx.notes()
+                "summary" -> summary = first(summary, ctx.notes())
+                "subtitle" -> subtitle = first(subtitle, ctx.notes())
                 "owner" -> ctx.reader.forEachChild {
                     if (ctx.kind == NamespaceKind.Itunes && ctx.name == "name") {
-                        ownerName = ownerName ?: ctx.title(FieldLimits.SHORT_TEXT)
+                        ownerName = first(ownerName, ctx.title(FieldLimits.SHORT_TEXT))
                     } else {
                         ctx.skip()
                     }
@@ -116,7 +139,7 @@ internal class ChannelBuilder(private val ctx: FeedContext, private val format: 
                 else -> ctx.skip()
             }
             NamespaceKind.Podcast -> when (ctx.name) {
-                "guid" -> podcastGuid = podcastGuid ?: ctx.plain(200)
+                "guid" -> podcastGuid = first(podcastGuid, ctx.plain(200))
                 "funding" -> {
                     val url = ctx.url(ctx.attribute("url"))
                     val text = ctx.title(FieldLimits.SHORT_TEXT)
@@ -197,21 +220,21 @@ internal class ItemBuilder(private val ctx: FeedContext) {
     /** Handles the current element if it is a `content:`, `itunes:`, `podcast:` or `dc:` item tag. */
     fun extension(): Boolean {
         when (ctx.kind) {
-            NamespaceKind.Content -> if (ctx.name == "encoded") content = content ?: ctx.notes() else ctx.skip()
+            NamespaceKind.Content -> if (ctx.name == "encoded") content = first(content, ctx.notes()) else ctx.skip()
             NamespaceKind.DublinCore -> if (ctx.name == "date") {
-                fallbackDate = fallbackDate ?: FeedDates.parse(ctx.plain(200))
+                fallbackDate = first(fallbackDate, FeedDates.parse(ctx.plain(200)))
             } else {
                 ctx.skip()
             }
             NamespaceKind.Itunes -> when (ctx.name) {
-                "duration" -> durationMs = durationMs ?: Durations.parseMs(ctx.plain(50))
+                "duration" -> durationMs = first(durationMs, Durations.parseMs(ctx.plain(50)))
                 "image" -> {
                     image = image ?: ctx.url(ctx.attribute("href") ?: ctx.attribute("url"))
                     ctx.skip()
                 }
-                "season" -> itunesSeason = itunesSeason ?: ctx.smallInt(ctx.plain(50))
-                "episode" -> itunesEpisode = itunesEpisode ?: ctx.smallInt(ctx.plain(50))
-                "summary" -> summary = summary ?: ctx.notes()
+                "season" -> itunesSeason = first(itunesSeason, ctx.smallInt(ctx.plain(50)))
+                "episode" -> itunesEpisode = first(itunesEpisode, ctx.smallInt(ctx.plain(50)))
+                "summary" -> summary = first(summary, ctx.notes())
                 else -> ctx.skip()
             }
             NamespaceKind.Podcast -> podcastTag()
@@ -222,8 +245,8 @@ internal class ItemBuilder(private val ctx: FeedContext) {
 
     private fun podcastTag() {
         when (ctx.name) {
-            "season" -> podcastSeason = podcastSeason ?: ctx.smallInt(ctx.plain(50))
-            "episode" -> podcastEpisode = podcastEpisode ?: ctx.smallInt(ctx.plain(50))
+            "season" -> podcastSeason = first(podcastSeason, ctx.smallInt(ctx.plain(50)))
+            "episode" -> podcastEpisode = first(podcastEpisode, ctx.smallInt(ctx.plain(50)))
             "chapters" -> {
                 val url = ctx.url(ctx.attribute("url"))
                 if (chapters == null && url != null) chapters = Chapters(url, ctx.shortAttribute("type"))
@@ -303,10 +326,10 @@ internal class RssReader(private val ctx: FeedContext) {
         ctx.reader.forEachChild {
             if (ctx.kind == NamespaceKind.None) {
                 when (ctx.name) {
-                    "title" -> channel.title = channel.title ?: ctx.title()
-                    "link" -> channel.link = channel.link ?: ctx.url(ctx.plain())
-                    "description" -> channel.description = channel.description ?: ctx.notes()
-                    "image" -> channel.image = channel.image ?: image()
+                    "title" -> channel.title = first(channel.title, ctx.title())
+                    "link" -> channel.link = first(channel.link, ctx.urlText())
+                    "description" -> channel.description = first(channel.description, ctx.notes())
+                    "image" -> channel.image = first(channel.image, image())
                     "category" -> ctx.addCapped(channel.categories, ctx.title(FieldLimits.SHORT_TEXT))
                     "item" -> {
                         ctx.reader.countItem()
@@ -324,7 +347,7 @@ internal class RssReader(private val ctx: FeedContext) {
     private fun image(): String? {
         var url: String? = null
         ctx.reader.forEachChild {
-            if (ctx.kind == NamespaceKind.None && ctx.name == "url") url = url ?: ctx.url(ctx.plain()) else ctx.skip()
+            if (ctx.kind == NamespaceKind.None && ctx.name == "url") url = first(url, ctx.urlText()) else ctx.skip()
         }
         return url
     }
@@ -334,11 +357,11 @@ internal class RssReader(private val ctx: FeedContext) {
         ctx.reader.forEachChild {
             if (ctx.kind == NamespaceKind.None) {
                 when (ctx.name) {
-                    "title" -> item.title = item.title ?: ctx.title()
-                    "guid" -> item.guid = item.guid ?: ctx.plain(FieldLimits.GUID)
-                    "pubDate" -> item.date = item.date ?: FeedDates.parse(ctx.plain(200))
-                    "link" -> item.link = item.link ?: ctx.url(ctx.plain())
-                    "description" -> item.description = item.description ?: ctx.notes()
+                    "title" -> item.title = first(item.title, ctx.title())
+                    "guid" -> item.guid = first(item.guid, ctx.plain(FieldLimits.GUID))
+                    "pubDate" -> item.date = first(item.date, FeedDates.parse(ctx.plain(200)))
+                    "link" -> item.link = first(item.link, ctx.urlText())
+                    "description" -> item.description = first(item.description, ctx.notes())
                     "enclosure" -> {
                         item.addEnclosure(ctx.attribute("url"), ctx.attribute("type"), ctx.attribute("length"))
                         ctx.skip()
@@ -370,16 +393,16 @@ internal class AtomReader(private val ctx: FeedContext, private val atomNamespac
         ctx.reader.forEachChild {
             if (isCore()) {
                 when (ctx.name) {
-                    "title" -> channel.title = channel.title ?: ctx.title()
-                    "subtitle", "tagline" -> channel.description = channel.description ?: ctx.notes()
+                    "title" -> channel.title = first(channel.title, ctx.title())
+                    "subtitle", "tagline" -> channel.description = first(channel.description, ctx.notes())
                     "link" -> {
                         val rel = ctx.attribute("rel")?.trim()?.lowercase() ?: "alternate"
                         if (rel == "alternate") channel.link = channel.link ?: ctx.url(ctx.attribute("href"))
                         ctx.skip()
                     }
-                    "author" -> channel.author = channel.author ?: personName()
-                    "logo" -> channel.image = channel.image ?: ctx.url(ctx.plain())
-                    "icon" -> channel.fallbackImage = channel.fallbackImage ?: ctx.url(ctx.plain())
+                    "author" -> channel.author = first(channel.author, personName())
+                    "logo" -> channel.image = first(channel.image, ctx.urlText())
+                    "icon" -> channel.fallbackImage = first(channel.fallbackImage, ctx.urlText())
                     "category" -> {
                         ctx.addCapped(channel.categories, ctx.collapse(ctx.attribute("term"), FieldLimits.SHORT_TEXT))
                         ctx.skip()
@@ -400,7 +423,7 @@ internal class AtomReader(private val ctx: FeedContext, private val atomNamespac
     private fun personName(): String? {
         var name: String? = null
         ctx.reader.forEachChild {
-            if (isCore() && ctx.name == "name") name = name ?: ctx.title(FieldLimits.SHORT_TEXT) else ctx.skip()
+            if (isCore() && ctx.name == "name") name = first(name, ctx.title(FieldLimits.SHORT_TEXT)) else ctx.skip()
         }
         return name
     }
@@ -411,10 +434,10 @@ internal class AtomReader(private val ctx: FeedContext, private val atomNamespac
         ctx.reader.forEachChild {
             if (isCore()) {
                 when (ctx.name) {
-                    "id" -> item.guid = item.guid ?: ctx.plain(FieldLimits.GUID)
-                    "title" -> item.title = item.title ?: ctx.title()
-                    "published", "issued" -> item.date = item.date ?: FeedDates.parse(ctx.plain(200))
-                    "updated", "modified" -> item.fallbackDate = item.fallbackDate ?: FeedDates.parse(ctx.plain(200))
+                    "id" -> item.guid = first(item.guid, ctx.plain(FieldLimits.GUID))
+                    "title" -> item.title = first(item.title, ctx.title())
+                    "published", "issued" -> item.date = first(item.date, FeedDates.parse(ctx.plain(200)))
+                    "updated", "modified" -> item.fallbackDate = first(item.fallbackDate, FeedDates.parse(ctx.plain(200)))
                     "link" -> {
                         val rel = ctx.attribute("rel")?.trim()?.lowercase() ?: "alternate"
                         when (rel) {
@@ -423,8 +446,8 @@ internal class AtomReader(private val ctx: FeedContext, private val atomNamespac
                         }
                         ctx.skip()
                     }
-                    "content" -> item.content = item.content ?: ctx.notes()
-                    "summary" -> atomSummary = atomSummary ?: ctx.notes()
+                    "content" -> item.content = first(item.content, ctx.notes())
+                    "summary" -> atomSummary = first(atomSummary, ctx.notes())
                     else -> ctx.skip()
                 }
             } else if (!item.extension()) {

@@ -145,6 +145,31 @@ class EpisodeMergeTest {
     }
 
     @Test
+    fun `a GUID several stored episodes share is not handed to an arbitrary one of them`() {
+        // A and B were stored apart under one reused GUID. Later the feed lists only B, now unique, at a new URL:
+        // it must not overwrite A (the first row with that GUID) and leave B marked gone.
+        val store = Store()
+        store.merge(listOf(ep(1, guid = "same"), ep(2, guid = "same")), now)
+        val a = store.rows.values.single { it.title == "Episode 1" }.id
+        val b = store.rows.values.single { it.title == "Episode 2" }.id
+        val changes = store.merge(listOf(ep(2, guid = "same", url = "https://cdn.example.com/2.mp3")), now + day)
+        assertEquals(listOf(b), changes.updates.map { it.id })
+        assertEquals(MatchedBy.TitleAndDay, changes.updates.single().matchedBy)
+        assertEquals(listOf(a), changes.noLongerInFeed)
+        assertTrue(changes.inserts.isEmpty())
+    }
+
+    @Test
+    fun `a GUID several stored episodes share still matches by its enclosure`() {
+        val store = Store()
+        store.merge(listOf(ep(1, guid = "same"), ep(2, guid = "same")), now)
+        val b = store.rows.values.single { it.title == "Episode 2" }.id
+        val changes = store.merge(listOf(ep(2, guid = "same", title = "Episode 2, renamed")), now + day)
+        assertEquals(listOf(b), changes.updates.map { it.id })
+        assertEquals(MatchedBy.Guid, changes.updates.single().matchedBy)
+    }
+
+    @Test
     fun `the duplicate-GUID fixture keeps its episodes apart`() {
         val parsed = parseFixture("corpus/feeds/duplicate-guids.xml").feed().episodes
         val changes = EpisodeMerge.merge(emptyList(), parsed, now)

@@ -154,6 +154,34 @@ class ImageCacheTest {
     }
 
     @Test
+    fun aStoreAfterAndroidClearedTheFolderRecreatesIt() {
+        val cache = cache()
+        cache.store(key, OutputFormat.Png, byteArrayOf(1))
+        dir.deleteRecursively()
+        val again = cache.store(key, OutputFormat.Png, byteArrayOf(2))
+        assertArrayEquals(byteArrayOf(2), again.file.readBytes())
+    }
+
+    @Test
+    fun rememberedFailuresAreBoundedAndExpiredOnesPruned() {
+        val cache = ImageCache({ dir }, { now }, maxFailures = 3)
+        val failuresDir = File(dir, ImageCache.FAILURES_DIR)
+        val expiring = ImageCache.keyFor("https://img.example.test/expiring")
+        cache.rememberFailure(expiring, "short", 1_000)
+        now += 2_000
+        // Changing image URLs from a hostile feed: each one fails once and is never asked for again.
+        val keys = (1..5).map { ImageCache.keyFor("https://img.example.test/$it") }
+        for (k in keys) {
+            cache.rememberFailure(k, "x", 60_000)
+            now += 1
+        }
+        val left = failuresDir.list()!!.toSet()
+        assertFalse("an expired record is pruned without being asked for", expiring in left)
+        assertTrue("${left.size} records", left.size <= 3)
+        assertNotNull("the newest failure is kept", cache.failure(keys.last()))
+    }
+
+    @Test
     fun artworkFilesDoNotShowTheirPathInLogs() {
         val stored = cache().store(key, OutputFormat.Png, byteArrayOf(1))
         assertFalse(stored.toString().contains(temp.root.path))

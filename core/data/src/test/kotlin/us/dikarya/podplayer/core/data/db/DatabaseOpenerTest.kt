@@ -42,6 +42,7 @@ import us.dikarya.podplayer.core.data.backup.StageResult
 import us.dikarya.podplayer.core.data.episode
 import us.dikarya.podplayer.core.data.parsedFeed
 import us.dikarya.podplayer.core.data.repo.SubscribeResult
+import us.dikarya.podplayer.core.data.settings.AppSettings
 import us.dikarya.podplayer.core.data.settings.ThemeMode
 
 /** SPEC §7: integrity check on start with a restore offer; backup before any migration; LESSONS "Storage". */
@@ -358,14 +359,26 @@ class DatabaseOpenerTest {
         layer.settings.setThemeMode(ThemeMode.LIGHT)
         layer.close()
         val settingsDir = layers.files.settingsFile.parentFile!!
+        // Only the settings write can fail: the database and the staged restore live in other folders.
+        for (other in listOf(dbFile.parentFile!!, layers.files.restoreDir, layers.files.damagedDir)) {
+            assertFalse(other.canonicalPath.startsWith(settingsDir.canonicalPath))
+        }
         assertTrue(settingsDir.setWritable(false))
         try {
             // Root ignores folder permissions; there the write can't be made to fail this way, so skip.
             assumeFalse("running with root privileges", settingsDir.canWrite())
             val next = layers.open()
             assertEquals(DataState.Failed(OpenProblem.CouldNotOpen), next.state.first { it !is DataState.Opening })
-            // SQLite removes the write-ahead log when the last connection closes.
-            assertFalse("the database was closed", File(dbFile.path + "-wal").exists())
+            layers.log.flush()
+            val logged = layers.log.files().joinToString("\n") { it.readText() }
+            assertTrue("the failure was writing the settings", logged.lines().any { "Opening the library failed" in it } && AppSettings.FILE_NAME in logged)
+            // Leaving WAL mode needs every other connection closed, whatever the journal mode was: proof Room's is.
+            SQLiteDatabase.openDatabase(dbFile.path, null, SQLiteDatabase.OPEN_READWRITE).use { db ->
+                db.rawQuery("PRAGMA journal_mode=DELETE", null).use { c ->
+                    assertTrue(c.moveToFirst())
+                    assertEquals("the database was closed", "delete", c.getString(0).lowercase())
+                }
+            }
             next.close()
         } finally {
             settingsDir.setWritable(true)

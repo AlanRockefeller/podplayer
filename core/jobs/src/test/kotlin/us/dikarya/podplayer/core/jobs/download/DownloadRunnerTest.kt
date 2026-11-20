@@ -285,6 +285,41 @@ class DownloadRunnerTest {
     }
 
     @Test
+    fun aStoppedFreshDownloadResumesInsteadOfStartingOver() {
+        // Stopping returns no result from the engine, so the validator of the kept bytes must be saved anyway.
+        val env = env()
+        var calls = 0
+        env.routes["/ep1.mp3"] = { request ->
+            if (calls++ == 0) {
+                MockResponse.Builder().addHeader("ETag", "\"v1\"").body(Buffer().write(audio))
+                    .throttleBody(16_384, 100, TimeUnit.MILLISECONDS).build()
+            } else {
+                Routes.fileResponse(request, audio, "\"v1\"", "audio/mpeg", rangeSupport = true)
+            }
+        }
+        val id = env.episodeAt("/ep1.mp3")
+        val started = CompletableDeferred<Unit>()
+        runBlocking {
+            env.runner.queue(id)
+            val job = async(Dispatchers.IO) {
+                env.runner.run(id, onProgress = { bytes, _ -> if (bytes > 0) started.complete(Unit) }, stopCause = { StopCause.Owner })
+            }
+            withTimeout(10_000) { started.await() }
+            job.cancel()
+            runCatching { job.await() }
+        }
+        val kept = env.media(id)!!.bytesDownloaded
+        assertTrue(kept in 1 until audio.size.toLong())
+
+        assertEquals(DownloadOutcome.Completed, env.download(id))
+        val resume = env.routes.requestsTo("/ep1.mp3")[1]
+        assertEquals("bytes=$kept-", resume.headers["Range"])
+        assertEquals("\"v1\"", resume.headers["If-Range"])
+        assertArrayEquals(audio, env.fileOf(id)!!.readBytes())
+        assertFalse(DownloadEvent.Restarted in env.events(id))
+    }
+
+    @Test
     fun deletingRemovesTheFileAndTheRecord() {
         val env = env()
         env.routes.file("/ep1.mp3", audio)

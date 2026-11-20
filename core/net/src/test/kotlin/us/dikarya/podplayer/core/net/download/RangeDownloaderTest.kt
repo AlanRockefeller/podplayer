@@ -84,7 +84,7 @@ class RangeDownloaderTest {
         sink: DownloadSink = FileDownloadSink(file),
         rangeDownloader: RangeDownloader = downloader(),
         onProgress: DownloadProgressListener = DownloadProgressListener { _, _ -> },
-    ): DownloadResult = runBlocking { rangeDownloader.download(request, sink, onProgress) }
+    ): DownloadResult = runBlocking { rangeDownloader.download(request, sink, onProgress = onProgress) }
 
     private fun full(bytes: ByteArray = content, configure: MockResponse.Builder.() -> Unit = {}) =
         okBytes(bytes) { addHeader("ETag", etag); addHeader("Content-Type", "audio/mpeg"); configure() }
@@ -413,6 +413,116 @@ class RangeDownloaderTest {
         // Pieces far below any sensible range cap would mean thousands of requests: stop, keep the bytes.
         writePartial(20_000)
         server.enqueue(piece(20_000, 20_100, content))
+        val failed = download(request(Validators.of(etag, null))) as DownloadResult.Failed
+        assertTrue("${failed.error}", failed.error is NetError.Network)
+        assertEquals(20_100, failed.bytesOnDisk)
+        assertEquals(etag, failed.validators.etag)
+        assertEquals(1, server.requestCount)
+    }
+
+    @Test
+    fun aServerErrorOnResumeKeepsTheValidatorOfTheBytesOnDisk() {
+        // A 503 says nothing about the saved bytes: without an ETag it must not erase the resume validator,
+        // and with one it must not replace it (a retry would append another file's tail to this prefix).
+        for (errorEtag in listOf(null, "\"B\"")) {
+            writePartial(20_000)
+            server.enqueue(MockResponse.Builder().code(503).apply { errorEtag?.let { addHeader("ETag", it) } }.build())
+            val failed = download(request(Validators.of(etag, null))) as DownloadResult.Failed
+            assertEquals(NetError.HttpStatus(503), failed.error)
+            assertEquals(20_000, failed.bytesOnDisk)
+            assertEquals("$errorEtag", etag, failed.validators.etag)
+        }
+    }
+
+    @Test
+    fun aFullResponseRefusedBeforeTruncatingKeepsTheOldValidator() {
+        writePartial(20_000)
+        server.enqueue(okBytes(testBytes(100_000)) { addHeader("ETag", "\"other\"") })
+        val failed = download(request(Validators.of(etag, null), maxBytes = 50_000)) as DownloadResult.Failed
+        assertEquals(NetError.TooLarge(50_000), failed.error)
+        assertEquals(20_000, failed.bytesOnDisk)
+        assertEquals(etag, failed.validators.etag)
+    }
+
+    @Test
+    fun theValidatorOfNewBytesIsReportedAsSoonAsTheyAreWritten() = runBlocking {
+        // A cancelled fresh download returns no result, so the caller learns the validator for its resume here.
+        server.enqueue(full { throttleBody(1024, 20, TimeUnit.MILLISECONDS) })
+        val started = CompletableDeferred<Unit>()
+        val checkpoints = Collections.synchronizedList(mutableListOf<Validators>())
+        val job = async(Dispatchers.Default) {
+            downloader().download(
+                request(),
+                FileDownloadSink(file),
+                onProgress = { done, _ -> if (done >= 4096) started.complete(Unit) },
+                onCheckpoint = { checkpoints += it },
+            )
+        }
+        withTimeout(10.seconds) { started.await() }
+        job.cancel()
+        runCatching { job.await() }
+        assertEquals(listOf(Validators.of(etag, null)), checkpoints.toList())
+    }
+
+    /** A 206 with an unknown total (`bytes a-b/ *`), as some servers send for capped ranges. */
+    private fun unknownTotalPiece(from: Int, until: Int, bytes: ByteArray, chunked: Boolean = false) =
+        MockResponse.Builder().code(206)
+            .addHeader("Content-Range", "bytes $from-${until - 1}/*")
+            .addHeader("ETag", etag)
+            .apply {
+                val body = Buffer().write(bytes, from, until - from)
+                if (chunked) chunkedBody(body, 4096) else body(body)
+            }
+            .build()
+
+    @Test
+    fun aCappedPieceOfUnknownTotalIsNotTheWholeFile() {
+        val big = testBytes(256 * 1024)
+        file.writeBytes(big.copyOf(20_000))
+        server.enqueue(unknownTotalPiece(20_000, 120_000, big))
+        server.enqueue(unknownTotalPiece(120_000, 220_000, big, chunked = true))
+        server.enqueue(piece(220_000, big.size, big))
+        val result = download(request(Validators.of(etag, null))) as DownloadResult.Complete
+        assertEquals(big.size.toLong(), result.bytes)
+        assertArrayEquals(big, file.readBytes())
+        assertEquals(3, server.requestCount)
+    }
+
+    @Test
+    fun aPieceOfUnknownTotalEndsWhenTheServerSaysNothingIsLeft() {
+        val big = testBytes(256 * 1024)
+        file.writeBytes(big.copyOf(20_000))
+        server.enqueue(unknownTotalPiece(20_000, big.size, big))
+        server.enqueue(MockResponse.Builder().code(416).addHeader("Content-Range", "bytes */${big.size}").build())
+        val result = download(request(Validators.of(etag, null))) as DownloadResult.Complete
+        assertEquals(big.size.toLong(), result.bytes)
+        assertArrayEquals(big, file.readBytes())
+        assertEquals(2, server.requestCount)
+        server.takeRequest()
+        assertEquals("bytes=${big.size}-", server.takeRequest().headers["Range"])
+    }
+
+    @Test
+    fun aChunkedPieceOfUnknownTotalCutShortIsAResumableFailure() {
+        val big = testBytes(256 * 1024)
+        file.writeBytes(big.copyOf(20_000))
+        server.enqueue(
+            MockResponse.Builder().code(206)
+                .addHeader("Content-Range", "bytes 20000-${big.size - 1}/*")
+                .addHeader("ETag", etag)
+                .chunkedBody(Buffer().write(big, 20_000, 100_000), 4096)
+                .build(),
+        )
+        val failed = download(request(Validators.of(etag, null))) as DownloadResult.Failed
+        assertTrue("${failed.error}", failed.error is NetError.Network)
+        assertEquals(120_000, failed.bytesOnDisk)
+        assertEquals(etag, failed.validators.etag)
+    }
+
+    @Test
+    fun aTinyPieceOfUnknownTotalIsAResumableFailure() {
+        writePartial(20_000)
+        server.enqueue(unknownTotalPiece(20_000, 20_100, content))
         val failed = download(request(Validators.of(etag, null))) as DownloadResult.Failed
         assertTrue("${failed.error}", failed.error is NetError.Network)
         assertEquals(20_100, failed.bytesOnDisk)

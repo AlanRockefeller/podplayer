@@ -105,8 +105,12 @@ class QueueUiTest {
             down(center)
             // Past the touch slop, then two rows and a bit, in small steps like a finger.
             repeat(25) { moveBy(Offset(0f, rowHeight * 2.3f / 25)) }
-            up()
         }
+        // Still held: nothing is written yet (CodeRabbit review, PR 2). Long enough for a write to have landed.
+        Thread.sleep(300)
+        compose.waitForIdle()
+        assertEquals(listOf(a, b, c, d), dbOrder())
+        compose.onNodeWithTag(handleTag(a), useUnmergedTree = true).performTouchInput { up() }
         compose.waitInRealTime { dbOrder() == listOf(b, c, a, d) }
 
         val height = compose.onNodeWithTag(rowTag(d)).fetchSemanticsNode().size.height.toFloat()

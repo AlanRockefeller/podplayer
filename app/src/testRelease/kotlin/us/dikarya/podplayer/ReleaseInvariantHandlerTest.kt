@@ -46,9 +46,15 @@ class ReleaseInvariantHandlerTest {
     @Test
     fun theApplicationInstallsTheHandlerBeforeOnCreate() {
         // ContentProviders run before Application.onCreate; the constructor is the earliest hook there is.
-        Invariants.handler = StrictInvariantHandler
-        PodplayerApp()
-        assertFalse(Invariants.handler is StrictInvariantHandler)
-        Invariants.handler.onViolation("from a content provider")
+        // Process-wide: put back what was there, so later tests don't inherit the app's (CodeRabbit review, PR 2).
+        val before = Invariants.handler
+        try {
+            Invariants.handler = StrictInvariantHandler
+            PodplayerApp()
+            assertFalse(Invariants.handler is StrictInvariantHandler)
+            Invariants.handler.onViolation("from a content provider")
+        } finally {
+            Invariants.handler = before
+        }
     }
 }

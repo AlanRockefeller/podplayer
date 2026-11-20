@@ -15,7 +15,6 @@ import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -24,6 +23,7 @@ import org.junit.rules.RuleChain
 import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
+import us.dikarya.podplayer.ui.CloseAfter
 import us.dikarya.podplayer.ui.HostActivity
 import us.dikarya.podplayer.ui.browse.BrowseTestEnv
 import us.dikarya.podplayer.ui.browse.eventually
@@ -39,12 +39,10 @@ class PreviewPlayUiTest {
     private val tmp = TemporaryFolder()
 
     @get:Rule
-    val rules: RuleChain = RuleChain.outerRule(tmp).around(HostActivity()).around(compose)
+    // The library closes after the screen is gone, so no write of its view model resumes on a closed database.
+    val rules: RuleChain = RuleChain.outerRule(tmp).around(CloseAfter { env.close() }).around(HostActivity()).around(compose)
 
     private val env by lazy { BrowseTestEnv(tmp.root) }
-
-    @After
-    fun tearDown() = env.close()
 
     private fun episodeId(guid: String): Long = runBlocking {
         val feed = env.repos.feeds.allFeeds().first().single()

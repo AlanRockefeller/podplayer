@@ -78,7 +78,8 @@ class SettingsViewModelTest {
             env.browse.repos.feeds.recordRefreshSuccess(b, null, at = 1_800_000_900_000L)
         }
         env.nextRefreshAt.value = 1_800_001_800_000L
-        val shown = awaitState(vm.state) { it.lastRefreshAt != null && it.nextRefreshAt != null }
+        // The exact values: a state between the two writes can already hold Alpha's check (CodeRabbit review, PR 2).
+        val shown = awaitState(vm.state) { it.lastRefreshAt == 1_800_000_900_000L && it.nextRefreshAt == 1_800_001_800_000L }
         assertEquals(1_800_000_900_000L, shown.lastRefreshAt)
         assertEquals(1_800_001_800_000L, shown.nextRefreshAt)
     }

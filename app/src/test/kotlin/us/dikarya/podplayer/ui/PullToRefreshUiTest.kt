@@ -15,7 +15,6 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeDown
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -42,12 +41,10 @@ class PullToRefreshUiTest {
     private val tmp = TemporaryFolder()
 
     @get:Rule
-    val rules: RuleChain = RuleChain.outerRule(tmp).around(HostActivity()).around(compose)
+    // The library closes after the screen is gone, so no write of its view model resumes on a closed database.
+    val rules: RuleChain = RuleChain.outerRule(tmp).around(CloseAfter { env.close() }).around(HostActivity()).around(compose)
 
     private val env by lazy { BrowseTestEnv(tmp.root) }
-
-    @After
-    fun tearDown() = env.close()
 
     @Test
     fun pullingDownOnHomeRefreshesEveryShow() = pull("Alpha 1") { HomeScreen(remember { HomeViewModel(env.deps) }, onOpenEpisode = {}, onOpenShow = {}, onDiscover = {}) }.let {

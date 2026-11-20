@@ -13,6 +13,11 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.common.ForwardingPlayer
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
+import java.lang.reflect.InvocationHandler
+import java.lang.reflect.InvocationTargetException
+import java.lang.reflect.Method
+import java.lang.reflect.Proxy
+import java.util.IdentityHashMap
 
 /**
  * The player the media session exposes to every controller: our screens, the notification, the lock screen,
@@ -62,9 +67,14 @@ class PodPlayer internal constructor(private val exo: ExoPlayer, private val eng
 
     // The session learns of command changes from the listener's event, not from getAvailableCommands, so the event
     // carries the same commands ("next" on the last episode included).
-    override fun addListener(listener: Player.Listener) = super.addListener(CommandsListener(listener))
+    // ForwardingPlayer finds a listener to remove by identity, so each listener keeps its one wrapper.
+    private val wrappers = IdentityHashMap<Player.Listener, Player.Listener>()
 
-    override fun removeListener(listener: Player.Listener) = super.removeListener(CommandsListener(listener))
+    override fun addListener(listener: Player.Listener) = super.addListener(wrappers.getOrPut(listener) { withOurCommands(listener) })
+
+    override fun removeListener(listener: Player.Listener) {
+        super.removeListener(wrappers.remove(listener) ?: return)
+    }
 
     private fun withSkips(commands: Player.Commands): Player.Commands {
         if (!commands.contains(Player.COMMAND_SEEK_IN_CURRENT_MEDIA_ITEM)) return commands
@@ -73,13 +83,25 @@ class PodPlayer internal constructor(private val exo: ExoPlayer, private val eng
             .build()
     }
 
-    /** Passes every event on, with available commands as [getAvailableCommands] reports them. */
-    private inner class CommandsListener(private val listener: Player.Listener) : Player.Listener by listener {
-        override fun onAvailableCommandsChanged(availableCommands: Player.Commands) =
-            listener.onAvailableCommandsChanged(withSkips(availableCommands))
+    /**
+     * [listener], hearing every event, with available commands as [getAvailableCommands] reports them. A proxy, not
+     * Kotlin's `by`: every Player.Listener method is a Java default method, and `by` forwards none of those.
+     */
+    private fun withOurCommands(listener: Player.Listener): Player.Listener =
+        Proxy.newProxyInstance(Player.Listener::class.java.classLoader, arrayOf(Player.Listener::class.java), CommandsHandler(listener))
+            as Player.Listener
 
-        override fun equals(other: Any?): Boolean = other is CommandsListener && other.listener == listener
-
-        override fun hashCode(): Int = listener.hashCode()
+    private inner class CommandsHandler(private val listener: Player.Listener) : InvocationHandler {
+        override fun invoke(proxy: Any, method: Method, args: Array<out Any?>?): Any? = when (method.name) {
+            "equals" -> proxy === args?.get(0)
+            "hashCode" -> System.identityHashCode(proxy)
+            "toString" -> "PodPlayer listener for $listener"
+            "onAvailableCommandsChanged" -> listener.onAvailableCommandsChanged(withSkips(args!![0] as Player.Commands))
+            else -> try {
+                method.invoke(listener, *(args ?: emptyArray()))
+            } catch (e: InvocationTargetException) {
+                throw e.targetException
+            }
+        }
     }
 }

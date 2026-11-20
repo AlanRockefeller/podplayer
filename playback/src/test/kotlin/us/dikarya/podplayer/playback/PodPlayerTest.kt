@@ -48,6 +48,36 @@ class PodPlayerTest {
     }
 
     @Test
+    fun aListenerAddedThroughTheSessionPlayerHearsEveryOtherEventToo() {
+        var heard = 0
+        var playing = false
+        var item: String? = null
+        h.engine.sessionPlayer.addListener(
+            object : Player.Listener {
+                override fun onEvents(player: Player, events: Player.Events) {
+                    heard++
+                }
+
+                override fun onIsPlayingChanged(isPlaying: Boolean) {
+                    playing = isPlaying
+                }
+
+                override fun onMediaItemTransition(mediaItem: androidx.media3.common.MediaItem?, reason: Int) {
+                    item = mediaItem?.mediaId
+                }
+            },
+        )
+        h.store.add(1)
+        h.start()
+        h.engine.playEpisode(1)
+        run(h.player).untilState(Player.STATE_READY)
+        idle()
+        assertTrue("onEvents reached the listener", heard > 0)
+        assertTrue("onIsPlayingChanged reached the listener", playing)
+        assertEquals("1", item)
+    }
+
+    @Test
     fun aListenerAddedThroughTheSessionPlayerCanBeRemoved() {
         var heard = 0
         val listener = object : Player.Listener {

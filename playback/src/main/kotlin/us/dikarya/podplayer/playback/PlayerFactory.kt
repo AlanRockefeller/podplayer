@@ -57,7 +57,7 @@ object PlayerFactory {
 
     /**
      * Media3's renderers without the image renderer: an enclosure that is really a PNG has an image track, and
-     * Media3's image renderer decodes it with BitmapFactory in the app process (CLAUDE.md: images are decoded in the
+     * Media3's image renderer decodes it with the platform's bitmap decoder in the app process (CLAUDE.md: images are decoded in the
      * sandbox only). Audio renderers are Media3's own, on platform codecs.
      */
     class NoImageRenderersFactory(context: Context) : DefaultRenderersFactory(context) {

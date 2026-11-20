@@ -371,7 +371,7 @@ class PlaybackEngine(
             scope.launch {
                 playlist.withLock {
                     val id = startingEpisodeId(store.queue().first()) ?: return@withLock
-                    load(id, play = pauseRequests == pausesBefore)
+                    load(id, play = true, pausesBefore = pausesBefore)
                 }
             }
             return
@@ -399,7 +399,7 @@ class PlaybackEngine(
      * Replaces the playlist with [id] and the next queued episode, at [startAtMs] or else the saved position. Call
      * with [playlist] held.
      */
-    private suspend fun load(id: Long, play: Boolean, startAtMs: Long? = null): Boolean {
+    private suspend fun load(id: Long, play: Boolean, startAtMs: Long? = null, pausesBefore: Int? = null): Boolean {
         // The engine before this one (a service that just ended) may still be writing its last position.
         handoff.await()
         val episode = store.episode(id) ?: return false
@@ -416,7 +416,8 @@ class PlaybackEngine(
         rebuilding = true
         try {
             player.setMediaItems(listOfNotNull(itemFor(episode), next?.let(::itemFor)), 0, start)
-            if (play) {
+            // A controller's Pause that came while this loaded overrides the Play that asked for it.
+            if (play && (pausesBefore == null || pausesBefore == pauseRequests)) {
                 player.prepare()
                 player.playWhenReady = true
             }
@@ -425,13 +426,13 @@ class PlaybackEngine(
         }
         lastSaveAt = clock.elapsedRealtime()
         resample()
-        store.setCurrentEpisodeId(id)
         if (startAtMs != null) {
             logPosition(id, saved, start, PositionCause.Seek)
             persistScope.launch { store.savePosition(id, start, null) }
         } else if (start > 0) {
             logPosition(id, 0, start, PositionCause.Restore)
         }
+        store.setCurrentEpisodeId(id)
         applySpeed()
         updateWakeMode()
         fetchMissingArtwork(episode)

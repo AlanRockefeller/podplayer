@@ -98,7 +98,21 @@ class BluetoothPlayGate(
     override fun ignoreReason(controller: MediaSession.ControllerInfo?): String? =
         controller?.let { decide(Sender(it.packageName, isOwnUi(it))) }
 
-    override fun ignoreMediaButtonReason(): String? = decide(Sender("a media button", ownUi = false))
+    /**
+     * Ignoring uses up the arm, as for any outside Play. Allowing doesn't: the service, once started, asks again for
+     * the same Play, by then perhaps with the ticked list read (it can still be loading this early in a cold start).
+     */
+    override fun ignoreMediaButtonReason(): String? = synchronized(lock) {
+        val armedBefore = armed.toMap()
+        val seenBefore = seen.toSet()
+        val at = clock()
+        val reason = decide(Sender("a media button", ownUi = false))
+        if (reason == null) {
+            armed.putAll(armedBefore)
+            for (id in seen - seenBefore) armed[id] = at
+        }
+        reason
+    }
 
     private fun decide(controller: Sender): String? = synchronized(lock) {
         val now = clock()

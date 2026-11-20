@@ -15,7 +15,7 @@ import org.junit.runner.RunWith
 
 /**
  * CLAUDE.md: never decode untrusted image bytes outside the image sandbox. An enclosure can be a PNG; Media3's
- * default renderers would decode its image track with BitmapFactory in the app process.
+ * default renderers would decode its image track with the platform's bitmap decoder in the app process.
  */
 @RunWith(AndroidJUnit4::class)
 class PlayerFactoryTest {

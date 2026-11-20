@@ -70,6 +70,24 @@ class PlaybackEngineOrderingTest {
     }
 
     @Test
+    fun aPauseDuringTheLoadsOwnLookupsStillWins() {
+        val h = harness().apply { store.add(1) }.start()
+        h.store.current = 1
+        val lookup = CompletableDeferred<Unit>()
+        var calls = 0
+        // The first lookup chooses the episode; the second is load()'s own.
+        h.store.beforeEpisode = { if (it == 1L && ++calls == 2) lookup.await() }
+        h.engine.sessionPlayer.play()
+        idle()
+        h.engine.sessionPlayer.pause()
+        idle()
+        lookup.complete(Unit)
+        idle()
+        assertEquals("1", h.player.currentMediaItem?.mediaId)
+        assertFalse(h.player.playWhenReady)
+    }
+
+    @Test
     fun aPlayWhileTheEpisodeLoadsStillPlaysWithoutAPause() {
         val h = harness().apply { store.add(1) }.start()
         h.store.current = 1

@@ -20,13 +20,36 @@ class BluetoothPlayGateMediaButtonTest {
     private val outputs = mutableMapOf<Int, String>()
     private val logged = mutableListOf<String>()
 
+    private var ticked = setOf("Sony CAR AUDIO")
+
     private fun gate(startedAt: Long) = BluetoothPlayGate(
         clock = { now },
         processStartedAt = startedAt,
         bluetoothOutputs = { outputs.toMap() },
-        ignoreAutoPlayFrom = { setOf("Sony CAR AUDIO") },
+        ignoreAutoPlayFrom = { ticked },
         log = { logged += it },
     )
+
+    private val carController = androidx.media3.session.MediaSession.ControllerInfo.createTestOnlyControllerInfo(
+        "com.android.bluetooth", 0, 1002,
+        androidx.media3.session.MediaSession.ControllerInfo.LEGACY_CONTROLLER_VERSION,
+        androidx.media3.session.MediaSession.ControllerInfo.LEGACY_CONTROLLER_INTERFACE_VERSION,
+        false, android.os.Bundle.EMPTY, true,
+    )
+
+    @Test
+    fun aMediaButtonAllowedBeforeTheTickedListIsReadLeavesTheServiceToDecide() {
+        outputs[77] = "Sony CAR AUDIO"
+        ticked = emptySet() // not read yet this early in a cold start
+        val gate = gate(startedAt = now)
+        now += 1_000
+        assertNull("the service starts", gate.ignoreMediaButtonReason())
+        // By the time the session hands the same Play to the player, the list is read: still the car's automatic Play.
+        ticked = setOf("Sony CAR AUDIO")
+        now += 1_000
+        assertNotNull(gate.ignoreReason(carController))
+        assertNull("the next press plays", gate.ignoreReason(carController))
+    }
 
     @Test
     fun aTickedCarsPlayThatStartedTheProcessIsIgnoredOnceThenTheNextPlays() {

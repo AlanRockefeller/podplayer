@@ -79,9 +79,11 @@ class FeedRefresher(
             val flight = running ?: Flight(scope.async(start = CoroutineStart.LAZY) { runLock.withLock { run(request) } })
             flights[request] = flight
             flight.waiters++
+            // Started before the lock is let go: a lazy job that hasn't started reports !isActive, so an equal
+            // request arriving in between would start a second flight instead of joining this one.
+            flight.job.start()
             flight
         }
-        flight.job.start()
         try {
             return flight.job.await()
         } finally {

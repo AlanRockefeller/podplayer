@@ -193,15 +193,16 @@ class AppLogTest {
         // "-10", so retention deleted a newer report than the oldest.
         val crashDir = File(dir, "crash")
         val handler = CrashHandler(log, { crashDir }, clock, "1") { _, _ -> }
-        repeat(CrashHandler.KEEP + 1) { handler.uncaughtException(Thread.currentThread(), RuntimeException("n$it")) }
+        // Two past the limit: the second rotation must not reuse the first crash's freed name for the newest one.
+        repeat(CrashHandler.KEEP + 2) { handler.uncaughtException(Thread.currentThread(), RuntimeException("n$it")) }
         val left = crashDir.listFiles()!!
         assertEquals(CrashHandler.KEEP, left.size)
         val texts = left.map { it.readText() }
-        assertFalse("the oldest is gone", texts.any { "RuntimeException: n0\n" in it })
-        assertTrue("the newest stays", texts.any { "RuntimeException: n${CrashHandler.KEEP}\n" in it })
+        assertFalse("the oldest are gone", texts.any { "RuntimeException: n0\n" in it || "RuntimeException: n1\n" in it })
+        assertTrue("the newest stays", texts.any { "RuntimeException: n${CrashHandler.KEEP + 1}\n" in it })
         val newestFirst = CrashHandler.newestFirst(left.toList())
-        assertTrue(newestFirst.first().readText(), "RuntimeException: n${CrashHandler.KEEP}\n" in newestFirst.first().readText())
-        assertTrue(newestFirst.last().readText(), "RuntimeException: n1\n" in newestFirst.last().readText())
+        assertTrue(newestFirst.first().readText(), "RuntimeException: n${CrashHandler.KEEP + 1}\n" in newestFirst.first().readText())
+        assertTrue(newestFirst.last().readText(), "RuntimeException: n2\n" in newestFirst.last().readText())
     }
 
     @Test

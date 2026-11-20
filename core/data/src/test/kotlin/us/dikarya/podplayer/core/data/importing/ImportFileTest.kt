@@ -142,5 +142,9 @@ class ImportFileTest {
         assertTrue(ImportFile.looksLikeOne(text))
         val result = ImportFile.parse(text.toByteArray()) as ImportFileResult.Ok
         assertEquals("https://private.example.com/rss?token=SECRET", result.shows.single().feedUrl)
+        // The same file saved by an editor that starts UTF-8 files with a byte-order mark.
+        val withBom = Char(0xFEFF) + text
+        assertTrue(ImportFile.looksLikeOne(withBom))
+        assertTrue(ImportFile.parse(withBom.toByteArray()) is ImportFileResult.Ok)
     }
 }

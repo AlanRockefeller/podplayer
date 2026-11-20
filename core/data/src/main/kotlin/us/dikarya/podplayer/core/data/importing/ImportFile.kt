@@ -77,12 +77,15 @@ object ImportFile {
      * list would send its lines, feed addresses with their tokens among them, to Apple's search as show names.
      * JSON that isn't an import file is then refused by [parse] with a plain message.
      */
-    fun looksLikeOne(text: String): Boolean = text.trimStart().startsWith("{")
+    fun looksLikeOne(text: String): Boolean = text.trimStart { it.isWhitespace() || it == BOM }.startsWith("{")
+
+    /** A byte-order mark some editors put at the start of a UTF-8 file. */
+    private val BOM = Char(0xFEFF)
 
     fun parse(bytes: ByteArray): ImportFileResult {
         if (bytes.size > MAX_BYTES) return ImportFileResult.Refused(ImportFileProblem.TooLarge)
         val file = try {
-            json.decodeFromString(FileDto.serializer(), bytes.decodeToString())
+            json.decodeFromString(FileDto.serializer(), bytes.decodeToString().removePrefix(BOM.toString()))
         } catch (_: SerializationException) {
             return ImportFileResult.Refused(ImportFileProblem.NotAnImportFile)
         } catch (_: IllegalArgumentException) {

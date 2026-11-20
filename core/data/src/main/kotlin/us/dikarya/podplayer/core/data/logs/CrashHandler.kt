@@ -59,10 +59,15 @@ class CrashHandler(
         // One crash at a time: two threads crashing together must not pick the same name or rotate each other's file.
         synchronized(lock) {
             val second = fileStamp.format(Instant.ofEpochMilli(now))
-            // createNewFile claims the name atomically, so a name another process took is never overwritten either.
-            var file = File(dir, "crash-$second.txt")
-            var n = 2
-            while (!file.createNewFile()) file = File(dir, "crash-$second-${n++}.txt")
+            // After the highest number this second already has, so a name freed by retention is never reused (it
+            // would sort as the oldest and be deleted at once). createNewFile claims the name atomically.
+            val used = dir.list().orEmpty().mapNotNull { name ->
+                crashName.matchEntire(name)?.takeIf { it.groupValues[1] == second }?.let { it.groupValues[2].toIntOrNull() ?: 1 }
+            }
+            var n = (used.maxOrNull() ?: 0) + 1
+            fun named(n: Int) = File(dir, if (n == 1) "crash-$second.txt" else "crash-$second-$n.txt")
+            var file = named(n)
+            while (!file.createNewFile()) file = named(++n)
             file.writeText(scrubUrls(text).take(MAX_BYTES))
             dir.listFiles { f -> f.name.startsWith("crash-") }
                 ?.let { newestFirst(it.toList()) }

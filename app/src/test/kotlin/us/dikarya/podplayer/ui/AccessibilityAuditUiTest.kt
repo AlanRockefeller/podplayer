@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Text
 import org.junit.Assert.assertTrue
@@ -206,6 +207,25 @@ class AccessibilityAuditUiTest {
         assertTrue("expected the clipped text far down in:\n$problems", "\"Deep clipped words\" is clipped" in problems)
     }
 
+    /**
+     * CodeRabbit CLI review (PR 11): scrolling an outer list can take away a scroller inside it, and looking the
+     * next scroller up by its place in the list then found none, or another one.
+     */
+    @Test
+    fun theAuditSurvivesANestedScrollerThatScrollsAway() {
+        val problems = collect(withLibrary = false) {
+            androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth()) {
+                item {
+                    Column(Modifier.fillMaxWidth().height(100.dp).verticalScroll(androidx.compose.foundation.rememberScrollState())) {
+                        Box(Modifier.height(300.dp))
+                    }
+                }
+                items(DEEP_LINES) { line -> Button(onClick = {}) { Text("Line $line") } }
+            }
+        }
+        assertEquals(emptyList<String>(), problems)
+    }
+
     @Composable
     private fun <T> remember(make: () -> T): T = androidx.compose.runtime.remember(make)
 
@@ -260,27 +280,37 @@ class AccessibilityAuditUiTest {
      * a swipe flings, and one fling went past several screenfuls nobody checked (CodeRabbit review, PR 2).
      */
     private fun scrollDownAScreenful() {
-        val scrollers = compose.onAllNodes(verticalScrollers, useUnmergedTree = true)
-        scrollers.fetchSemanticsNodes(atLeastOneRootRequired = false).forEachIndexed { index, node ->
+        forEachScroller { scroller, node ->
             val by = node.boundsInRoot.height * SCREENFUL
             if (by > 0 && node.config.contains(SemanticsActions.ScrollBy)) {
-                scrollers[index].performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, by) }
+                scroller.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, by) }
             }
         }
-        compose.waitForIdle()
     }
 
     /** Every vertical scroller back to its start, for the next font scale. */
     private fun backToTheTop() {
-        val scrollers = compose.onAllNodes(verticalScrollers, useUnmergedTree = true)
-        scrollers.fetchSemanticsNodes(atLeastOneRootRequired = false).forEachIndexed { index, node ->
+        forEachScroller { scroller, node ->
             when {
-                node.config.contains(SemanticsActions.ScrollToIndex) -> scrollers[index].performSemanticsAction(SemanticsActions.ScrollToIndex) { it(0) }
+                node.config.contains(SemanticsActions.ScrollToIndex) -> scroller.performSemanticsAction(SemanticsActions.ScrollToIndex) { it(0) }
                 node.config.contains(SemanticsActions.ScrollBy) -> {
                     val at = node.config[SemanticsProperties.VerticalScrollAxisRange].value()
-                    if (at > 0) scrollers[index].performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -at) }
+                    if (at > 0) scroller.performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -at) }
                 }
             }
+        }
+    }
+
+    /**
+     * Each vertical scroller found now, looked up again by its semantics id (not its place in the list) right
+     * before it is used: scrolling an outer list can take a scroller inside it away (CodeRabbit CLI review, PR 11).
+     */
+    private fun forEachScroller(action: (androidx.compose.ui.test.SemanticsNodeInteraction, SemanticsNode) -> Unit) {
+        val ids = compose.onAllNodes(verticalScrollers, useUnmergedTree = true).fetchSemanticsNodes(atLeastOneRootRequired = false).map { it.id }
+        for (id in ids) {
+            val matcher = androidx.compose.ui.test.SemanticsMatcher("semantics id $id") { it.id == id } and verticalScrollers
+            val node = compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes(atLeastOneRootRequired = false).singleOrNull() ?: continue
+            action(compose.onNode(matcher, useUnmergedTree = true), node)
         }
         compose.waitForIdle()
     }

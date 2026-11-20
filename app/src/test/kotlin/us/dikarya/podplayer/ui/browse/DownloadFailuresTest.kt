@@ -63,7 +63,8 @@ class DownloadFailuresTest {
         // A later look at the log still holds the first failure: it isn't reported again. Without this second
         // failure the log might be read only once, and a reader that repeats itself would pass (CodeRabbit, PR 2).
         runBlocking { logs.addDownload(one, DownloadEvent.Failed, "a later failure") }
-        eventually { got.any { it.reason == "a later failure" } }
+        // Iterating a synchronized list needs its lock: the collector adds on another thread.
+        eventually { synchronized(got) { got.any { it.reason == "a later failure" } } }
         Thread.sleep(300)
         assertEquals(
             listOf(DownloadFailure("Alpha 2", "192.168.1.1 is on a private network address."), DownloadFailure("Alpha 1", "a later failure")),

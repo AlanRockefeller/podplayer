@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  This Source Code Form is subject to the terms of the Mozilla Public
+  License, v. 2.0. If a copy of the MPL was not distributed with this
+  file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
+  Skip back 60 seconds, for the notification and lock screen (Media3 has numbered icons only for 5, 10, 15
+  and 30). The arrow is Material Symbols "replay" (Apache-2.0, see docs/THIRD_PARTY.md); the digits are drawn here.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+  <path
+      android:fillColor="@android:color/white"
+      android:pathData="M480,880Q405,880 339.5,851.5Q274,823 225.5,774.5Q177,726 148.5,660.5Q120,595 120,520L200,520Q200,637 281.5,718.5Q363,800 480,800Q597,800 678.5,718.5Q760,637 760,520Q760,403 678.5,321.5Q597,240 480,240L474,240L536,302L480,360L320,200L480,40L536,98L474,160L480,160Q555,160 620.5,188.5Q686,217 734.5,265.5Q783,314 811.5,379.5Q840,445 840,520Q840,595 811.5,660.5Q783,726 734.5,774.5Q686,823 620.5,851.5Q555,880 480,880Z"/>
+  <path
+      android:strokeColor="@android:color/white"
+      android:strokeWidth="44"
+      android:strokeLineCap="round"
+      android:strokeLineJoin="round"
+      android:pathData="M448.5,422.2Q425.5,405.0 402.5,405.0Q345.0,405.0 345.0,520.0L345.0,566.0Q345.0,635.0 402.5,635.0Q460.0,635.0 460.0,566.0Q460.0,502.8 402.5,502.8Q345.0,502.8 345.0,560.2M500.0,462.5Q500.0,405.0 557.5,405.0Q615.0,405.0 615.0,462.5L615.0,577.5Q615.0,635.0 557.5,635.0Q500.0,635.0 500.0,577.5Z"/>
+</vector>

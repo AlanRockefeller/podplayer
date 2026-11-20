@@ -343,6 +343,46 @@ class WorkersTest {
     }
 
     @Test
+    fun aDownloadQueuedWhileWifiOnlyIsTurnedOnFollowsTheNewSetting() = TestEnv(File(tmp.root, "env")).use { env ->
+        // The owner taps Download (Wi-Fi only off is read), then turns Wi-Fi only on before the work is queued.
+        // The change's apply must see that download, not run before it exists.
+        val firstRead = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val pauseNextRead = AtomicBoolean(false)
+        val downloads = Downloads(
+            workManager = { workManager },
+            repositories = { env.data.awaitRepositories() },
+            wifiOnly = {
+                val value = env.data.settings.downloadsWifiOnly.first()
+                if (pauseNextRead.getAndSet(false)) {
+                    firstRead.complete(Unit)
+                    release.await()
+                }
+                value
+            },
+            autoWifiOnly = { env.data.settings.autoDownloadWifiOnly.first() },
+            runner = env.runner,
+            paths = env.data.paths,
+            log = env.log,
+        )
+        val (_, episode) = env.oneEpisode()
+        runBlocking {
+            env.data.settings.setDownloadsWifiOnly(false)
+            pauseNextRead.set(true)
+            val tap = launch(Dispatchers.Default) { downloads.enqueue(episode) }
+            firstRead.await()
+            env.data.settings.setDownloadsWifiOnly(true)
+            val change = launch(Dispatchers.Default) { downloads.applyNetworkSetting() }
+            // Without serialising, the change finds nothing waiting and finishes here.
+            withTimeoutOrNull(1_000) { change.join() }
+            release.complete(Unit)
+            tap.join()
+            change.join()
+        }
+        assertEquals(NetworkType.UNMETERED, infos(Downloads.workName(episode)).single().constraints.requiredNetworkType)
+    }
+
+    @Test
     fun applyingTheNetworkSettingLeavesFinishedWorkAlone() = withEnv { env, downloads ->
         val (_, episode) = env.oneEpisode()
         runBlocking {

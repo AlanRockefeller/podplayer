@@ -137,11 +137,17 @@ class PlayerViewModel(private val deps: BrowseDeps) : ViewModel() {
         deps.playback.seekTo(target)
     }
 
-    /** [forShow] false changes the default for every show; true sets this show's own speed. */
-    fun setSpeed(speed: Float, forShow: Boolean) = deps.playback.setSpeed(PlaybackSettings.clampSpeed(speed), forShow)
+    /**
+     * [forShow] false changes the default for every show; true sets this show's own speed. The show is named (the
+     * one on screen), so the speed can't land on the next show if playback moves on before the session runs it.
+     */
+    fun setSpeed(speed: Float, forShow: Boolean) =
+        deps.playback.setSpeed(PlaybackSettings.clampSpeed(speed), forShow, feedId = if (forShow) shownFeedId() else null)
 
     /** The show goes back to the default speed. */
-    fun useDefaultSpeedForShow() = deps.playback.setSpeed(null, forShow = true)
+    fun useDefaultSpeedForShow() = deps.playback.setSpeed(null, forShow = true, feedId = shownFeedId())
+
+    private fun shownFeedId(): Long? = state.value.item?.episode?.feedId
 
     fun sleepAfter(minutes: Int) = deps.playback.sleepAfterMinutes(minutes)
 

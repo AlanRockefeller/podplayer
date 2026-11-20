@@ -49,8 +49,13 @@ class Downloads(
      * follows the auto-download network setting and runs as background work. The owner asking for an episode
      * whose auto-download is still waiting turns it into the owner's download, same work id. Returns false if
      * there is nothing to download.
+     *
+     * Holds the same lock as [applyNetworkSetting]: a network setting changed between reading it here and queuing
+     * the work is then applied to this download too, instead of running before the work exists.
      */
-    suspend fun enqueue(episodeId: Long, auto: Boolean = false): Boolean {
+    suspend fun enqueue(episodeId: Long, auto: Boolean = false): Boolean = applying.withLock { enqueueNow(episodeId, auto) }
+
+    private suspend fun enqueueNow(episodeId: Long, auto: Boolean): Boolean {
         val episode = repositories()?.episodes?.get(episodeId) ?: return false
         if (!runner.queue(episodeId)) return false
         if (!auto) {

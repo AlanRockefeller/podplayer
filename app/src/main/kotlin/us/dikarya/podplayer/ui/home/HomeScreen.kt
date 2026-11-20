@@ -84,7 +84,7 @@ fun HomeScreen(
     PullToRefresh(refreshing, onRefresh = viewModel::refresh, modifier = Modifier.fillMaxSize()) {
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 16.dp)) {
         item { OfflineBanner(state.online) }
-        if (state.noShows) {
+        if (state.empty) {
             item { CenteredMessage(stringResource(R.string.home_empty)) { FindShowsButton(onDiscover) } }
             return@LazyColumn
         }
@@ -94,14 +94,16 @@ fun HomeScreen(
                 ContinueCard(item, onOpen = { onOpenEpisode(item.id) }, onPlay = { viewModel.actions.togglePlay(item) })
             }
         }
-        item(key = "shows") {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                SectionHeading(R.string.home_your_shows, Modifier.weight(1f))
-                IconButton(onClick = viewModel::refresh) {
-                    Icon(painterResource(R.drawable.ic_refresh), contentDescription = stringResource(R.string.action_refresh_all))
+        if (!state.noShows) {
+            item(key = "shows") {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    SectionHeading(R.string.home_your_shows, Modifier.weight(1f))
+                    IconButton(onClick = viewModel::refresh) {
+                        Icon(painterResource(R.drawable.ic_refresh), contentDescription = stringResource(R.string.action_refresh_all))
+                    }
                 }
+                ShowsRow(state.shows, onOpenShow)
             }
-            ShowsRow(state.shows, onOpenShow)
         }
         if (state.starred.isNotEmpty()) {
             item(key = "starred") {
@@ -111,6 +113,11 @@ fun HomeScreen(
                 }
                 StarredRow(state.starred, onOpenEpisode)
             }
+        }
+        // No show subscribed, but a kept-aside episode above (Codex review, PR #1): invite a subscription below it.
+        if (state.noShows) {
+            item(key = "no-shows") { CenteredMessage(stringResource(R.string.home_empty)) { FindShowsButton(onDiscover) } }
+            return@LazyColumn
         }
         item(key = "new-heading") { SectionHeading(R.string.home_new_episodes) }
         if (state.newEpisodes.isEmpty()) {

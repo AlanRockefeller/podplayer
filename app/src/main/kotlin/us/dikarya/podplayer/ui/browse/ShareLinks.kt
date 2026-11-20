@@ -44,5 +44,6 @@ object ShareLinks {
         return url.newBuilder().username("").password("").build().toString()
     }
 
-    private fun sameResource(a: HttpUrl, b: HttpUrl) = a.host == b.host && a.encodedPath == b.encodedPath
+    /** Decoded segments, so a path spelled with percent escapes (`%66eed.xml`) still matches (CodeRabbit, PR #1). */
+    private fun sameResource(a: HttpUrl, b: HttpUrl) = a.host == b.host && a.pathSegments == b.pathSegments
 }

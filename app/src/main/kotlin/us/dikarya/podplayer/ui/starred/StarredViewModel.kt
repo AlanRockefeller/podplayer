@@ -16,7 +16,6 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
-import us.dikarya.podplayer.core.data.repo.PlaybackRepository
 import us.dikarya.podplayer.ui.browse.BrowseDeps
 import us.dikarya.podplayer.ui.browse.EpisodeActions
 import us.dikarya.podplayer.ui.browse.EpisodeItem
@@ -42,7 +41,7 @@ class StarredViewModel(private val deps: BrowseDeps) : ViewModel() {
     val state: StateFlow<StarredUiState> = deps.withRepositories(StarredUiState(loading = false, libraryClosed = true)) { repos ->
         query.flatMapLatest { q ->
             repos.starred.starred(q).flatMapLatest { episodes ->
-                val ids = episodes.map { it.id }.take(PlaybackRepository.MAX_IDS)
+                val ids = episodes.map { it.id }
                 combine(
                     repos.feeds.allFeeds().map { feeds -> feeds.associateBy { it.id } },
                     repos.playback.records(ids),

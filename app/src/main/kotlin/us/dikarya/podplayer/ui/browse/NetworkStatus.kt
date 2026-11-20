@@ -26,12 +26,21 @@ class NetworkStatus(context: Context) {
     init {
         connectivity?.registerDefaultNetworkCallback(
             object : ConnectivityManager.NetworkCallback() {
+                /** The network the last capabilities were for. */
+                private var current: Network? = null
+
                 override fun onCapabilitiesChanged(network: Network, capabilities: NetworkCapabilities) {
-                    mutable.value = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    current = network
+                    mutable.value = reachesInternet(capabilities)
                 }
 
+                // A read here can still return the lost network (Android's NetworkCallback docs); a replacement
+                // network reports itself through onCapabilitiesChanged (CodeRabbit review, PR #1). A late loss of
+                // a network already replaced changes nothing.
                 override fun onLost(network: Network) {
-                    mutable.value = isOnlineNow()
+                    if (current != null && network != current) return
+                    current = null
+                    mutable.value = false
                 }
             },
         )
@@ -40,6 +49,17 @@ class NetworkStatus(context: Context) {
     private fun isOnlineNow(): Boolean {
         val manager = connectivity ?: return true
         val capabilities = manager.getNetworkCapabilities(manager.activeNetwork) ?: return false
-        return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        return reachesInternet(capabilities)
+    }
+
+    internal companion object {
+        /**
+         * Internet, and not held at a captive portal's sign-in page. Not NET_CAPABILITY_VALIDATED: some working
+         * networks never pass Android's check (a blocked check server, a VPN, the moment after connecting), and
+         * "offline" here stops Discover from searching (CodeRabbit review, PR #1).
+         */
+        fun reachesInternet(capabilities: NetworkCapabilities): Boolean =
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+                !capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_CAPTIVE_PORTAL)
     }
 }

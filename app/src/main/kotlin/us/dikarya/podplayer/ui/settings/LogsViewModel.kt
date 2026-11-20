@@ -153,7 +153,7 @@ class LogsViewModel(private val deps: SettingsDeps) : ViewModel() {
     }
 
     /** The app log's lines, oldest first, with their time and tag split out when the line has them. */
-    private suspend fun appEntries(): List<LogEntry> = deps.logs.appLines().map(::parseAppLine)
+    private suspend fun appEntries(): List<LogEntry> = groupAppLines(deps.logs.appLines()).map(::parseAppLine)
 
     /** Starts the export. Only the Export button calls this (SPEC §13: export only when the owner taps Export). */
     fun export() {
@@ -196,6 +196,25 @@ class LogsViewModel(private val deps: SettingsDeps) : ViewModel() {
         const val PLAYBACK_TAG = "Playback"
 
         private val fileStamp: DateTimeFormatter = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss").withZone(ZoneOffset.UTC)
+
+        /** How `AppLog` indents the lines after a record's first (a message's line breaks, a stack trace). */
+        private const val CONTINUATION = "    "
+
+        /**
+         * Joins each record's continuation lines to its first line, so a stack trace stays with its message
+         * (CodeRabbit review, PR #1). A continuation with no record before it (cut off by the line limit) stands alone.
+         */
+        internal fun groupAppLines(lines: List<String>): List<String> {
+            val records = ArrayList<StringBuilder>()
+            for (line in lines) {
+                if (line.startsWith(CONTINUATION) && records.isNotEmpty()) {
+                    records.last().append('\n').append(line, CONTINUATION.length, line.length)
+                } else {
+                    records += StringBuilder(line)
+                }
+            }
+            return records.map { it.toString() }
+        }
 
         /** "2026-11-12T10:15:00.000Z I Playback: text" becomes its time, tag ("Playback") and message. */
         internal fun parseAppLine(line: String): LogEntry {

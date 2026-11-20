@@ -75,6 +75,15 @@ class ShareLinksTest {
         assertEquals("https://show.example.com/", ShareLinks.show(feed("  https://show.example.com/  "))?.url)
     }
 
+    /** CodeRabbit review, PR #1: the same path spelled with percent escapes slipped past the check. */
+    @Test
+    fun theFeedOrAudioSpelledWithPercentEscapesIsStillLeftOut() {
+        assertNull(ShareLinks.show(feed("https://feeds.example.com/%70rivate/rss?token=FEEDSECRET")))
+        assertNull(ShareLinks.show(feed("https://feeds.example.com/private/%72%73%73?token=FEEDSECRET")))
+        assertNull(ShareLinks.episode(ep("https://cdn.example.com/%31.mp3?token=ENCLOSURESECRET"), feed(null)))
+        assertNull(ShareLinks.episode(ep("https://CDN.example.com/1%2emp3?token=ENCLOSURESECRET"), feed(null)))
+    }
+
     @Test
     fun titlesAreCleanedOfControlCharacters() {
         val link = ShareLinks.show(feed("https://show.example.com/"))!!

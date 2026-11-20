@@ -240,8 +240,11 @@ object EpisodeMerge {
 
     private val whitespace = Regex("\\s+")
 
-    /** Case, compatibility forms (full-width letters) and runs of whitespace don't distinguish titles. */
-    internal fun normalizeTitle(title: String?): String? {
+    /**
+     * Case, compatibility forms (full-width letters) and runs of whitespace don't distinguish titles. Public so
+     * finding a merged row uses the same rule (the show preview, `storedIdOf`).
+     */
+    fun normalizeTitle(title: String?): String? {
         if (title.isNullOrBlank()) return null
         return Normalizer.normalize(title, Normalizer.Form.NFKC)
             .lowercase()

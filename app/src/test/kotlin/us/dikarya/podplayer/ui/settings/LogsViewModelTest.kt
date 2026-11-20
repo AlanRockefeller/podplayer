@@ -61,6 +61,25 @@ class LogsViewModelTest {
         assertFalse(state.entries.any { "APPSECRET" in it.text })
     }
 
+    /** CodeRabbit review, PR #1: a stack trace's continuation lines became separate, reversed, untagged entries. */
+    @Test
+    fun aMultilineRecordStaysOneEntryInTheAppAndPlaybackTabs() {
+        seed()
+        env.browse.log.w("Playback", "Stream failed\nsecond line", IllegalStateException("boom"))
+        env.browse.log.i("Refresh", "Later line")
+        val vm = LogsViewModel(env.deps)
+        val app = awaitState(vm.state) { s -> s.tab == LogTab.App && s.entries.any { "Later line" in it.text } }
+        val failed = app.entries.single { "Stream failed" in it.text }
+        assertEquals("Playback", failed.subject)
+        assertTrue(failed.text, "second line" in failed.text && "IllegalStateException: boom" in failed.text)
+        assertFalse("no entry is a bare continuation line", app.entries.any { it.at == null })
+        assertTrue("newest first", app.entries.indexOfFirst { "Later line" in it.text } < app.entries.indexOf(failed))
+
+        vm.select(LogTab.Playback)
+        val playback = awaitState(vm.state) { s -> s.tab == LogTab.Playback && s.entries.any { "Stream failed" in it.text } }
+        assertTrue("IllegalStateException: boom" in playback.entries.single { "Stream failed" in it.text }.text)
+    }
+
     @Test
     fun thePlaybackTabShowsIgnoredPlaysAndFallbacksWithThePositionLog() {
         seed()

@@ -279,6 +279,25 @@ class LibraryRepositoriesTest {
         assertEquals(emptyMap<Long, Any>(), repos.playback.records(emptyList()).first())
     }
 
+    /** Codex and CodeRabbit review, PR #1: Home and Starred passed more than 500 ids and lost the rest. */
+    @Test
+    fun recordsForMoreThanFiveHundredEpisodesCoverEveryOneAndFollowChanges() = runBlocking {
+        repos.feeds.applyRefresh(feedId, parsedFeed((1..(PlaybackRepository.MAX_IDS * 2 + 10)).map { episode(it) }))
+        val all = repos.episodes.forFeed(feedId).first().map { it.id }
+        all.forEach { repos.playback.savePosition(it, 1_000, 60_000) }
+
+        repos.playback.records(all + all.first()).test {
+            val first = awaitItem()
+            assertEquals(all.toSet(), first.keys)
+            repos.playback.setPlayed(all.last(), true)
+            // Each batch re-queries on its own, so a merged map without the change can come first.
+            var latest = awaitItem()
+            while (latest[all.last()]?.played != true) latest = awaitItem()
+            assertEquals(all.toSet(), latest.keys)
+            cancelAndIgnoreRemainingEvents()
+        }
+    }
+
     @Test
     fun eachFeedsNewestEpisodeDateIsKnownForSorting() = runBlocking {
         val newest = repos.episodes.forFeed(feedId).first().maxOf { it.publishedAt }

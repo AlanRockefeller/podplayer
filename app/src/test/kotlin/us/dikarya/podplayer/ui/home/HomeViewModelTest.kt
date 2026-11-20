@@ -81,6 +81,54 @@ class HomeViewModelTest {
         assertFalse("nothing older is left", all.canLoadMore)
     }
 
+    /** CodeRabbit review, PR #1: several rows near the end each asked, and each call added a page. */
+    @Test
+    fun manyAsksForTheNextPageBeforeItArrivesLoadOnlyOnePage() = runBlocking {
+        env.show("Alpha", episodes = 200, publishedBase = 1_790_000_000_000L)
+        val vm = HomeViewModel(env.deps)
+        awaitState(vm.state) { it.newEpisodes.size == HomeViewModel.PAGE }
+        repeat(4) { vm.loadMore() }
+        awaitState(vm.state) { it.newEpisodes.size >= 2 * HomeViewModel.PAGE }
+        vm.loadMore()
+        val next = awaitState(vm.state) { it.newEpisodes.size >= 3 * HomeViewModel.PAGE }
+        assertEquals(3 * HomeViewModel.PAGE, next.newEpisodes.size)
+    }
+
+    /** Codex and CodeRabbit review, PR #1: past 500 listed episodes, older rows lost their played marks. */
+    @Test
+    fun episodesListedPastFiveHundredKeepTheirPlaybackRecords() = runBlocking {
+        val feed = env.show("Alpha", episodes = 530, publishedBase = 1_790_000_000_000L)
+        val oldest = env.episodeIds(feed).last()
+        env.repos.playback.setPlayed(oldest, true)
+        val vm = HomeViewModel(env.deps)
+        var state = awaitState(vm.state) { it.newEpisodes.size == HomeViewModel.PAGE }
+        while (state.canLoadMore) {
+            val before = state.newEpisodes.size
+            vm.loadMore()
+            state = awaitState(vm.state, timeoutMs = 20_000) { it.newEpisodes.size > before }
+        }
+        assertEquals(530, state.newEpisodes.size)
+        val last = awaitState(vm.state) { s -> s.newEpisodes.lastOrNull()?.played == true }
+        assertEquals(oldest, last.newEpisodes.last().id)
+    }
+
+    /** Codex review, PR #1: with no show subscribed, Home hid what the owner was listening to or had starred. */
+    @Test
+    fun withNoShowSubscribedHomeStillHasTheContinueCardAndStarred() = runBlocking {
+        env.answer = { success(rss("Aside", episodes = 2).toByteArray(), "application/rss+xml") }
+        val parsed = env.deps.previewer.preview("https://aside.example.com/feed.xml", ownerTyped = false) as PreviewOutcome.Ready
+        val aside = (env.repos.feeds.keepAside("https://aside.example.com/feed.xml", parsed.preview.feed) as KeepAsideResult.Stored).feedId
+        val (started, starred) = env.episodeIds(aside)
+        env.repos.playback.savePosition(started, 60_000, 1_800_000)
+        env.repos.starred.setStarred(starred, true)
+        val vm = HomeViewModel(env.deps)
+        val state = awaitState(vm.state) { it.continueItem != null && it.starred.isNotEmpty() }
+        assertTrue("no show is subscribed", state.noShows)
+        assertFalse("but Home is not empty", state.empty)
+        assertEquals(started, state.continueItem!!.id)
+        assertEquals(listOf(starred), state.starred.map { it.id })
+    }
+
     @Test
     fun newEpisodesAreNewestFirstAcrossShowsAndPlayedOnesStayInPlace() = runBlocking {
         // Owner, 2026-11-18: "Playing episode shouldn't remove it from feed, but should mark it played, but let it

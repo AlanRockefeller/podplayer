@@ -36,6 +36,13 @@ class LinkIntentTest {
         assertEquals("mailto:host@example.com", intent.dataString)
     }
 
+    /** CodeRabbit review, PR #1: Android matches intent schemes case-sensitively, so `MAILTO:` found no mail app. */
+    @Test
+    fun anUppercaseSchemeIsLowercasedForTheIntent() {
+        assertEquals("mailto:host@example.com", linkIntent("MAILTO:host@example.com")!!.dataString)
+        assertEquals("https://example.com/Page", linkIntent(" HTTPS://example.com/Page ")!!.dataString)
+    }
+
     @Test
     fun everyOtherSchemeIsRefused() {
         for (url in listOf("javascript:alert(1)", "java\tscript:alert(1)", "intent://x#Intent;end", "file:///sdcard/x", "content://x/y", "tel:123", "", "https:")) {

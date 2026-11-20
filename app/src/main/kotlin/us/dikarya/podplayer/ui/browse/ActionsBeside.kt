@@ -82,30 +82,31 @@ private fun BesideOrStacked(
         val mainPlaceables = mainMeasurables.map { it.measure(Constraints(minWidth = mainWidth, maxWidth = mainWidth)) }
         val mainHeight = mainPlaceables.maxOfOrNull { it.height } ?: 0
         val height = if (beside) maxOf(mainHeight, sideHeight) else mainHeight + sideHeight
+        // Relative placement: start and end mirror in right-to-left layouts (CodeRabbit review, PR #1).
         layout(width, height.coerceIn(constraints.minHeight, constraints.maxHeight)) {
             when {
                 beside -> {
                     var x = if (sideFirst) 0 else mainWidth
                     sidePlaceables.forEach {
-                        it.place(x, (height - it.height) / 2)
+                        it.placeRelative(x, (height - it.height) / 2)
                         x += it.width
                     }
                     val mainX = if (sideFirst) sideWidth else 0
-                    mainPlaceables.forEach { it.place(mainX, (height - it.height) / 2) }
+                    mainPlaceables.forEach { it.placeRelative(mainX, (height - it.height) / 2) }
                 }
                 sideFirst -> {
                     var x = 0
                     sidePlaceables.forEach {
-                        it.place(x, 0)
+                        it.placeRelative(x, 0)
                         x += it.width
                     }
-                    mainPlaceables.forEach { it.place(0, sideHeight) }
+                    mainPlaceables.forEach { it.placeRelative(0, sideHeight) }
                 }
                 else -> {
-                    mainPlaceables.forEach { it.place(0, 0) }
+                    mainPlaceables.forEach { it.placeRelative(0, 0) }
                     var x = width - sideWidth
                     sidePlaceables.forEach {
-                        it.place(x, mainHeight)
+                        it.placeRelative(x, mainHeight)
                         x += it.width
                     }
                 }

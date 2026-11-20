@@ -285,8 +285,11 @@ class AppSettings(private val store: DataStore<Preferences>) {
         }
     }
 
-    /** Every setting, for a backup. */
-    suspend fun snapshot(): String = PreferencesSnapshot.encode(data.first())
+    /**
+     * Every setting, for a backup. Reads the store itself, not [data]: a read error must fail the backup, not
+     * write the display fallback (no settings) into it, which a restore would then apply as "clear everything".
+     */
+    suspend fun snapshot(): String = PreferencesSnapshot.encode(store.data.first())
 
     /** Replaces every setting with a backup's. Returns false, changing nothing, if [json] isn't a snapshot. */
     suspend fun restore(json: String): Boolean {

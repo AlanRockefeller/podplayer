@@ -11,10 +11,12 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import java.io.File
 import java.io.IOException
 import java.io.RandomAccessFile
+import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -34,6 +36,7 @@ import us.dikarya.podplayer.core.data.TestClock
 import us.dikarya.podplayer.core.data.TestLayers
 import us.dikarya.podplayer.core.data.appContext
 import us.dikarya.podplayer.core.data.backup.BackupNames
+import us.dikarya.podplayer.core.data.backup.FileBackupFolder
 import us.dikarya.podplayer.core.data.backup.StageResult
 import us.dikarya.podplayer.core.data.episode
 import us.dikarya.podplayer.core.data.parsedFeed
@@ -203,6 +206,37 @@ class DatabaseOpenerTest {
         val candidate = check.backups.candidates().single { it.name == name }
         assertTrue(check.restore(candidate) is StageResult.Staged)
         check.close()
+    }
+
+    @Test
+    fun aBackupStartedWhileAnOlderDatabaseOpensDoesNotDeadlockTheMigration() = runBlocking {
+        // Codex and CodeRabbit review (PR 3): a backup took the backup mutex and then waited for the database,
+        // while opening needed that mutex for its pre-migration backup. Neither could finish.
+        libraryWithABackup()
+        val gate = CountDownLatch(1)
+        val layer = DataLayer(
+            targetVersion = PodDatabase.VERSION + 1,
+            context = appContext(),
+            scope = CoroutineScope(SupervisorJob() + Dispatchers.IO),
+            appVersion = "test",
+            log = layers.log,
+            clock = clock,
+            filesProvider = {
+                gate.await()
+                layers.files
+            },
+            ownerFolder = { FileBackupFolder(File(it)) },
+        )
+        layer.start()
+        val backup = async(Dispatchers.IO) { layer.backups.backupNow() }
+        delay(300) // The backup is now waiting for the database.
+        gate.countDown()
+        withTimeout(10_000) {
+            assertTrue(layer.state.first { it !is DataState.Opening } is DataState.Ready)
+            assertEquals(null, backup.await().problem)
+        }
+        assertTrue(layers.files.localBackupsDir.list()!!.any { it.contains("before-v${PodDatabase.VERSION + 1}") })
+        layer.close()
     }
 
     @Test

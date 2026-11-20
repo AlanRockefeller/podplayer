@@ -140,7 +140,7 @@ class SessionCallbackTest {
         val unknown = listOf(MediaItem.Builder().setMediaId("404").setUri("https://evil.example/x.mp3").build())
         assertTrue(await(callback.onSetMediaItems(session, otherApp, unknown.toMutableList(), 0, 0)).mediaItems.isEmpty())
         assertTrue(await(callback.onAddMediaItems(session, otherApp, unknown.toMutableList())).isEmpty())
-        assertEquals(listOf("2"), await(callback.onAddMediaItems(session, otherApp, mutableListOf(MediaItem.Builder().setMediaId("2").setUri("content://x").build()))).map { it.mediaId })
+        assertEquals("an unknown id adds nothing", listOf(1L, 2L), h.store.queue.value)
     }
 
     @Test

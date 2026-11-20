@@ -23,6 +23,7 @@ import androidx.media3.exoplayer.source.MediaLoadData
 import androidx.media3.session.MediaSession
 import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
@@ -46,6 +47,23 @@ sealed interface SleepTimerState {
     data class Minutes(val remainingMs: Long) : SleepTimerState
 
     data object EndOfEpisode : SleepTimerState
+}
+
+/**
+ * CLAUDE.md: never lose a position. The last position write of a service that ends runs on in the process scope;
+ * a service started right after must read positions after it lands, or it loads the one saved before.
+ */
+class SaveHandoff {
+    @Volatile
+    private var pending: Job? = null
+
+    internal fun pass(write: Job) {
+        pending = write
+    }
+
+    internal suspend fun await() {
+        pending?.join()
+    }
 }
 
 /** LESSONS "Position jumps": a move larger than this, with no event explaining it, is logged. */
@@ -75,6 +93,8 @@ class PlaybackEngine(
      * reads it. Tests whose fake media holds a single sample pass `{ null }`.
      */
     private val renderedAudioBuffers: () -> Int? = { player.audioDecoderCounters?.apply { ensureUpdated() }?.renderedOutputBufferCount },
+    /** Shared by the engines of one process, so a new one reads positions after the last one's final write. */
+    private val handoff: SaveHandoff = SaveHandoff(),
 ) {
     /** The player the session exposes: commands from controllers go through here. */
     val sessionPlayer: PodPlayer = PodPlayer(player, this)
@@ -190,7 +210,7 @@ class PlaybackEngine(
     /** Ends the engine; the position is saved first (CLAUDE.md: on service destroy). */
     fun release() {
         if (released) return
-        persist(persistScope)
+        persist(persistScope)?.let(handoff::pass)
         released = true
         handler.removeCallbacksAndMessages(null)
         player.removeListener(listener)
@@ -284,10 +304,14 @@ class PlaybackEngine(
         player.volume = 1.0f
     }
 
-    /** For playback resumption after the service or process died: the current episode, else the queue head. */
+    /**
+     * For playback resumption after the service or process died: the current episode, else the queue head. A last
+     * position write still landing from the engine before this one is waited for.
+     */
     suspend fun resumptionItems(): MediaSession.MediaItemsWithStartPosition? {
+        handoff.await()
         val queue = store.queue().first()
-        val id = store.currentEpisodeId() ?: queue.firstOrNull() ?: return null
+        val id = startingEpisodeId(queue) ?: return null
         val episode = store.episode(id) ?: return null
         val next = queue.firstOrNull { it != id }?.let { store.episode(it) }
         return MediaSession.MediaItemsWithStartPosition(
@@ -309,11 +333,32 @@ class PlaybackEngine(
         return MediaSession.MediaItemsWithStartPosition(listOfNotNull(itemFor(episode), next?.let(::itemFor)), 0, start)
     }
 
-    /** Items for ids a controller asked for, built from the library. URIs a controller sends are never used. */
-    suspend fun itemsFor(ids: List<String>): List<MediaItem> =
-        ids.mapNotNull { it.toLongOrNull() }.mapNotNull { store.episode(it) }.map(::itemFor)
+    /**
+     * Episodes a controller added to the playlist (ids it asked for; URIs it sends are never used). They go to the
+     * end of the database queue, the source of truth for Up Next (CLAUDE.md), and the player follows it; an episode
+     * already queued stays where it is.
+     */
+    suspend fun addToQueue(ids: List<String>) {
+        val queued = store.queue().first().toSet()
+        for (id in ids.mapNotNull { it.toLongOrNull() }.distinct()) {
+            if (id in queued || store.episode(id) == null) continue
+            store.addToQueue(id)
+        }
+    }
+
+    /** The episode last loaded on this phone if it's still in the library (its show may be gone), else [queue]'s head. */
+    private suspend fun startingEpisodeId(queue: List<Long>): Long? =
+        store.currentEpisodeId()?.takeIf { store.episode(it) != null } ?: queue.firstOrNull()
 
     // --- Called by PodPlayer for controller requests ---
+
+    /** Counts a controller's Pauses, so a Play still loading its episode knows a later Pause overrode it. */
+    private var pauseRequests = 0
+
+    internal fun requestPause() {
+        pauseRequests++
+        player.playWhenReady = false
+    }
 
     internal fun requestPlay() {
         val controller = currentController()
@@ -322,10 +367,11 @@ class PlaybackEngine(
             return
         }
         if (player.mediaItemCount == 0) {
+            val pausesBefore = pauseRequests
             scope.launch {
                 playlist.withLock {
-                    val id = store.currentEpisodeId() ?: store.queue().first().firstOrNull() ?: return@withLock
-                    load(id, play = true)
+                    val id = startingEpisodeId(store.queue().first()) ?: return@withLock
+                    load(id, play = pauseRequests == pausesBefore)
                 }
             }
             return
@@ -345,7 +391,7 @@ class PlaybackEngine(
 
     private suspend fun restore() {
         if (player.mediaItemCount > 0) return
-        val id = store.currentEpisodeId() ?: store.queue().first().firstOrNull() ?: return
+        val id = startingEpisodeId(store.queue().first()) ?: return
         load(id, play = false)
     }
 
@@ -354,6 +400,8 @@ class PlaybackEngine(
      * with [playlist] held.
      */
     private suspend fun load(id: Long, play: Boolean, startAtMs: Long? = null): Boolean {
+        // The engine before this one (a service that just ended) may still be writing its last position.
+        handoff.await()
         val episode = store.episode(id) ?: return false
         val saved = store.startPosition(id)
         val known = episode.durationMs?.takeIf { it > 0 }
@@ -362,8 +410,9 @@ class PlaybackEngine(
         nextSaved = next?.let { it.id to store.startPosition(it.id) }
         if (released) return false
         if (currentId != null && currentId != id) persist()
+        // The new id and the new item together, with no suspension between: a Pause in between would save the old
+        // episode's position under the new id. The durable id follows once the player holds the episode.
         adopt(episode.id, episode.feedId)
-        store.setCurrentEpisodeId(id)
         rebuilding = true
         try {
             player.setMediaItems(listOfNotNull(itemFor(episode), next?.let(::itemFor)), 0, start)
@@ -376,6 +425,7 @@ class PlaybackEngine(
         }
         lastSaveAt = clock.elapsedRealtime()
         resample()
+        store.setCurrentEpisodeId(id)
         if (startAtMs != null) {
             logPosition(id, saved, start, PositionCause.Seek)
             persistScope.launch { store.savePosition(id, start, null) }
@@ -442,9 +492,11 @@ class PlaybackEngine(
                 return
             }
             val wantedId = store.queue().first().firstOrNull { it != current }
-            nextSaved = wantedId?.let { it to store.startPosition(it) }
+            val wantedSaved = wantedId?.let { it to store.startPosition(it) }
             val wanted = wantedId?.let { store.episode(it) }?.let(::itemFor)
-            if (currentId != current || player.mediaItemCount == 0) return
+            // The episode may have ended during the lookups; the saved position changes only with the item it is for.
+            if (released || currentId != current || player.mediaItemCount == 0) return
+            nextSaved = wantedSaved
             val existing = if (player.mediaItemCount > 1) player.getMediaItemAt(1) else null
             if (sameSource(existing, wanted) && player.mediaItemCount <= 2) return
             rebuilding = true
@@ -586,6 +638,8 @@ class PlaybackEngine(
             // An episode a controller chose goes to the top of the queue, like one chosen in the app.
             if (chosenByController) store.putAtQueueHead(newId)
             val episode = store.episode(newId)
+            // Another episode may have loaded meanwhile; its show is its own.
+            if (currentId != newId) return@launch
             currentFeedId = episode?.feedId
             applySpeed()
             // The next item was built with whatever artwork was cached then; fetch it if there was none.
@@ -621,21 +675,23 @@ class PlaybackEngine(
             advancingAfterPause = true
             val nextId = player.getMediaItemAt(1).mediaId.toLongOrNull()
             player.seekTo(1, nextSaved?.takeIf { it.first == nextId }?.second ?: 0)
-        } else {
+        } else if (player.playbackState != Player.STATE_ENDED) {
+            // Nothing follows: STATE_ENDED, reported first, already completed the episode.
             endOfLastEpisode()
         }
     }
 
     // --- Positions ---
 
-    private fun persist(on: CoroutineScope = scope) {
-        val id = currentId ?: return
-        if (player.mediaItemCount == 0) return
+    private fun persist(on: CoroutineScope = scope): Job? {
+        val id = currentId ?: return null
+        if (player.mediaItemCount == 0) return null
         val position = player.currentPosition
         val duration = player.duration.takeIf { it != C.TIME_UNSET && it > 0 }
         lastSaveAt = clock.elapsedRealtime()
-        on.launch { store.savePosition(id, position, duration) }
+        val write = on.launch { store.savePosition(id, position, duration) }
         checkNearlyFinished(id, position, duration)
+        return write
     }
 
     /** SPEC §10: 98% of an episode counts as played, while it stays loaded until it ends or is left. */
@@ -679,8 +735,11 @@ class PlaybackEngine(
     }
 
     private suspend fun applySpeed() {
+        val id = currentId
         val feed = currentFeedId
         val speed = PlaybackSettings.clampSpeed((feed?.let { store.showSpeed(it) }) ?: settings.speed)
+        // Looked up for an episode that has since been replaced: the new one applies its own.
+        if (released || currentId != id || currentFeedId != feed) return
         if (player.playbackParameters.speed != speed) {
             // Pitch stays 1.0 (SPEC §10: pitch preserved).
             player.playbackParameters = PlaybackParameters(speed)
@@ -800,10 +859,23 @@ class PlaybackEngine(
             // A jump moves the position without audio: the silence watch starts again from here.
             silence.reset()
             val id = currentId
+            val left = oldPosition.mediaItem?.mediaId
+            if (!rebuilding && id != null && left == id.toString() && newPosition.mediaItem?.mediaId != left &&
+                (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_REMOVE)
+            ) {
+                // A controller moved to another item or replaced the playlist: the episode it left is saved where it
+                // was, from the event (the player's position already belongs to the new item).
+                val leftAt = oldPosition.positionMs
+                lastSaveAt = clock.elapsedRealtime()
+                scope.launch { store.savePosition(id, leftAt, null) }
+            }
             if (!rebuilding && id != null && oldPosition.mediaItemIndex == newPosition.mediaItemIndex) {
                 when (reason) {
                     Player.DISCONTINUITY_REASON_SEEK -> {
                         logPosition(id, oldPosition.positionMs, newPosition.positionMs, pendingCause ?: PositionCause.Seek)
+                        // A seek (never our own reload, which rebuilds) makes a spot that recovered before worth
+                        // reloading again if the sound drops there.
+                        silentReloadAt = null
                         persist()
                         if (switchToFilePending) scope.launch { switchToFile() }
                     }
@@ -830,6 +902,9 @@ class PlaybackEngine(
                 scope.launch {
                     playlist.withLock {
                         val episode = store.episode(id) ?: return@withLock
+                        // A controller may have chosen another episode meanwhile (its set-items path doesn't wait
+                        // for this lock): then that one plays, and this stream would replace it.
+                        if (released || currentId != id || player.currentMediaItem?.mediaId != id.toString()) return@withLock
                         replaceCurrent(itemFor(episode), PositionCause.FallBackToStream)
                     }
                 }

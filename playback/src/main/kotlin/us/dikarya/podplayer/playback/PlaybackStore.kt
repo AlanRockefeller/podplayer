@@ -58,6 +58,9 @@ interface PlaybackStore {
 
     suspend fun putAtQueueHead(id: Long)
 
+    /** Adds [id] at the end of the queue. */
+    suspend fun addToQueue(id: Long)
+
     suspend fun removeFromQueue(id: Long)
 
     /** The episode loaded in the player on this phone, kept for playback resumption. */

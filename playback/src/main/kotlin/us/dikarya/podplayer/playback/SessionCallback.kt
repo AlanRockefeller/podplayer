@@ -93,7 +93,12 @@ class SessionCallback(
         mediaSession: MediaSession,
         controller: MediaSession.ControllerInfo,
         mediaItems: MutableList<MediaItem>,
-    ): ListenableFuture<MutableList<MediaItem>> = future { engine.itemsFor(mediaItems.map { it.mediaId }).toMutableList() }
+    ): ListenableFuture<MutableList<MediaItem>> = future {
+        // The database queue is the source of truth for Up Next (CLAUDE.md): the episodes go there, and the
+        // player's playlist follows it. Nothing is added to the player directly, so nothing is added twice.
+        engine.addToQueue(mediaItems.map { it.mediaId })
+        mutableListOf()
+    }
 
     override fun onSetMediaItems(
         mediaSession: MediaSession,

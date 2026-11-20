@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Dates gone wrong</title>
+    <item>
+      <title>Garbage date</title>
+      <guid>d1</guid>
+      <pubDate>sometime last week</pubDate>
+      <enclosure url="https://media.example.com/d1.mp3" type="audio/mpeg" length="1"/>
+    </item>
+    <item>
+      <title>Empty date</title>
+      <guid>d2</guid>
+      <pubDate></pubDate>
+      <enclosure url="https://media.example.com/d2.mp3" type="audio/mpeg" length="1"/>
+    </item>
+    <item>
+      <title>Impossible date</title>
+      <guid>d3</guid>
+      <pubDate>Fri, 32 Foo 2020 25:61:61 XYZ</pubDate>
+      <enclosure url="https://media.example.com/d3.mp3" type="audio/mpeg" length="1"/>
+    </item>
+    <item>
+      <title>Far future</title>
+      <guid>d4</guid>
+      <pubDate>Sat, 01 Jan 99999 00:00:00 GMT</pubDate>
+      <enclosure url="https://media.example.com/d4.mp3" type="audio/mpeg" length="1"/>
+    </item>
+    <item>
+      <title>Wrong day name, no seconds, named zone</title>
+      <guid>d5</guid>
+      <pubDate>Mon, 5 Oct 2026 13:00 PDT</pubDate>
+      <enclosure url="https://media.example.com/d5.mp3" type="audio/mpeg" length="1"/>
+    </item>
+    <item>
+      <title>ISO date in pubDate</title>
+      <guid>d6</guid>
+      <pubDate>2026-10-05T20:00:00Z</pubDate>
+      <enclosure url="https://media.example.com/d6.mp3" type="audio/mpeg" length="1"/>
+    </item>
+  </channel>
+</rss>

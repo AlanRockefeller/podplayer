@@ -1,0 +1,11 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Byte Order Mark Show – é</title>
+    <item>
+      <title>Episode with BOM</title>
+      <guid>bom-1</guid>
+      <enclosure url="https://media.example.com/bom1.mp3" type="audio/mpeg" length="1"/>
+    </item>
+  </channel>
+</rss>

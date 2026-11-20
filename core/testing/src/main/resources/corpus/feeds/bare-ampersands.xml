@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>Tom & Jerry's Q&A</title>
+    <link>https://show.example.com/?a=1&b=2</link>
+    <description>News &amp; views &mdash; every week&nbsp;&copy; 2026. Fish &chips; AT&T; R&D &#169; &#x2014; &unknownentity; &</description>
+    <itunes:author>Smith & Wesson Media</itunes:author>
+    <item>
+      <title>Rock & Roll &hellip; part 1</title>
+      <guid>https://show.example.com/?p=1&amp;x=2</guid>
+      <enclosure url="https://media.example.com/ep1.mp3?source=feed&id=42" type="audio/mpeg" length="1000"/>
+      <description><![CDATA[CDATA keeps & and &amp; as written <b>bold</b>]]></description>
+    </item>
+  </channel>
+</rss>

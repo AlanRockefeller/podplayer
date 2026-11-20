@@ -41,6 +41,7 @@ import us.dikarya.podplayer.core.data.backup.StageResult
 import us.dikarya.podplayer.core.data.episode
 import us.dikarya.podplayer.core.data.parsedFeed
 import us.dikarya.podplayer.core.data.repo.SubscribeResult
+import us.dikarya.podplayer.core.data.settings.ThemeMode
 
 /** SPEC §7: integrity check on start with a restore offer; backup before any migration; LESSONS "Storage". */
 @RunWith(AndroidJUnit4::class)
@@ -237,6 +238,92 @@ class DatabaseOpenerTest {
         }
         assertTrue(layers.files.localBackupsDir.list()!!.any { it.contains("before-v${PodDatabase.VERSION + 1}") })
         layer.close()
+    }
+
+    @Test
+    fun aRestoreThatCantBeAppliedStopsTheStartAndIsTriedAgainNextTime() = runBlocking {
+        // CodeRabbit review (PR 3): a failure while applying the restore was logged and the start went on, which
+        // could open an empty library that the still-pending restore would replace at the next start.
+        libraryWithABackup()
+        val layer = layers.open()
+        layer.awaitRepositories()!!.feeds.subscribe("https://second.example.com/feed", false)
+        assertTrue(layer.restore(layer.backups.candidates().first()) is StageResult.Staged)
+        layer.close()
+        val damagedDir = layers.files.damagedDir
+        damagedDir.deleteRecursively()
+        damagedDir.writeText("a file where the folder should be")
+
+        val blocked = layers.open()
+        assertEquals(DataState.Failed(OpenProblem.CouldNotOpen), blocked.state.first { it !is DataState.Opening })
+        assertTrue("the restore is still pending", layers.files.pendingRestoreMarker.exists())
+        blocked.close()
+
+        damagedDir.delete()
+        val next = layers.open()
+        assertEquals("the restore finished", 1, next.awaitRepositories()!!.feeds.feeds().first().size)
+        assertFalse(layers.files.pendingRestoreMarker.exists())
+        next.close()
+    }
+
+    @Test
+    fun anInterruptedMoveAsideIsFinishedWithTheSideFilesKeptTogether() {
+        // CodeRabbit review (PR 3): stopping between the moves could leave a database and its write-ahead log apart.
+        val dir = File(tmp.root, "aside")
+        val db = File(tmp.root, "lib.db").apply { writeText("main") }
+        File(db.path + "-shm").writeText("shm")
+        // An earlier call moved the log and then the process died.
+        dir.mkdirs()
+        File(dir, "replaced-1.db-wal").writeText("wal")
+
+        DatabaseOpener.keepAside(db, dir, "replaced-2.db")
+        assertFalse(db.exists())
+        assertFalse(DatabaseOpener.hasSidecars(db))
+        assertEquals("main", File(dir, "replaced-2.db").readText())
+        assertEquals("wal", File(dir, "replaced-2.db-wal").readText())
+        assertEquals("shm", File(dir, "replaced-2.db-shm").readText())
+        assertFalse(File(dir, "replaced-1.db-wal").exists())
+    }
+
+    @Test
+    fun aRestoredDatabaseIsNeverPutNextToAnotherDatabasesLog() = runBlocking {
+        // CodeRabbit review (PR 3): with the library already moved but its log left behind, the staged database
+        // was installed beside that log, and SQLite would have read it as its own.
+        libraryWithABackup()
+        val layer = layers.open()
+        assertTrue(layer.restore(layer.backups.candidates().first()) is StageResult.Staged)
+        layer.close()
+        // As an older version interrupted between moving the database and its log.
+        File(dbFile.path + "-wal").writeBytes(ByteArray(64) { 7 })
+        assertTrue(dbFile.renameTo(File(tmp.root, "moved-away.db")))
+
+        val next = layers.open()
+        assertEquals(1, next.awaitRepositories()!!.feeds.feeds().first().size)
+        val orphan = layers.files.damagedDir.listFiles()!!.single { it.name.endsWith(".orphan-wal") }
+        assertArrayEquals("the stale log was moved out of the way", ByteArray(64) { 7 }, orphan.readBytes())
+        next.close()
+    }
+
+    @Test
+    fun aFailureAfterTheDatabaseOpenedClosesIt() = runBlocking {
+        // CodeRabbit review (PR 3): when writing the restored settings failed, the open database was never closed.
+        libraryWithABackup()
+        val layer = layers.open()
+        assertTrue(layer.restore(layer.backups.candidates().first()) is StageResult.Staged)
+        // A setting changed since the backup, so applying the backup's settings has to write.
+        layer.settings.setThemeMode(ThemeMode.LIGHT)
+        layer.close()
+        val settingsDir = layers.files.settingsFile.parentFile!!
+        assertTrue(settingsDir.setWritable(false))
+        try {
+            val next = layers.open()
+            assertEquals(DataState.Failed(OpenProblem.CouldNotOpen), next.state.first { it !is DataState.Opening })
+            // SQLite removes the write-ahead log when the last connection closes.
+            assertFalse("the database was closed", File(dbFile.path + "-wal").exists())
+            next.close()
+        } finally {
+            settingsDir.setWritable(true)
+        }
+        assertTrue("the restore is still pending", layers.files.pendingRestoreMarker.exists())
     }
 
     @Test

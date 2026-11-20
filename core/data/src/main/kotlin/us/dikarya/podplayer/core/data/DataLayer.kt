@@ -178,8 +178,12 @@ class DataLayer(
         val applied = try {
             PendingRestore.apply(f, clock())
         } catch (e: Exception) {
-            log.e(TAG, "Applying the staged restore failed", e)
-            null
+            // Stop here: the library may already have been moved aside, and opening now could start an empty one
+            // that the restore, still pending, would replace at the next start (CodeRabbit review, PR 3). The
+            // staged restore is kept, so the next start tries again.
+            log.e(TAG, "Applying the staged restore failed; the library was not opened", e)
+            _state.value = DataState.Failed(OpenProblem.CouldNotOpen)
+            return
         }
         if (applied != null) log.i(TAG, "Applying a restored backup")
         val prepared = DatabaseOpener.prepare(f.databaseFile, targetVersion) { from ->
@@ -215,14 +219,20 @@ class DataLayer(
         }
         val repositories = Repositories(db, clock) { device.deviceId() }
         if (applied != null) {
-            applied.settingsJson?.let { if (!settings.restore(it)) log.w(TAG, "The restored settings couldn't be read") }
-            val reconciled = repositories.media.reconcileWithDisk(paths)
-            PendingRestore.finish(files)
-            log.i(
-                TAG,
-                "Restore finished; ${reconciled.droppedRecords} download records without their files were dropped " +
-                    "and ${reconciled.deletedFiles} media files no record owned were deleted",
-            )
+            // Until Ready is published, nothing else can reach this database to close it.
+            try {
+                applied.settingsJson?.let { if (!settings.restore(it)) log.w(TAG, "The restored settings couldn't be read") }
+                val reconciled = repositories.media.reconcileWithDisk(paths)
+                PendingRestore.finish(files)
+                log.i(
+                    TAG,
+                    "Restore finished; ${reconciled.droppedRecords} download records without their files were dropped " +
+                        "and ${reconciled.deletedFiles} media files no record owned were deleted",
+                )
+            } catch (e: Throwable) {
+                db.close()
+                throw e
+            }
         }
         _state.value = DataState.Ready(repositories, db)
     }

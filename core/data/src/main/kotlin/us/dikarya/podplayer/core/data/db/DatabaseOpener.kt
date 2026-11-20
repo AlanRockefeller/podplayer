@@ -51,18 +51,45 @@ internal object DatabaseOpener {
             }
         }
 
-    /** Moves a database and its side files into [dir] under [name], keeping the newest [keep] such copies. */
+    private val SIDECARS = listOf("-wal", "-shm", "-journal")
+
+    /**
+     * Moves a database and its side files into [dir] under [name], keeping the newest [keep] such copies.
+     *
+     * The side files move first and the database last, so an interruption (process death) always leaves the
+     * database where it was: the next call finishes the move, adopting side files an earlier call already
+     * moved, so they stay with their database. Side files whose database is gone are moved out of the way too
+     * (under a name that is never adopted), so a new database is never put next to another one's write-ahead log.
+     */
     fun keepAside(database: File, dir: File, name: String, keep: Int = 3) {
-        if (!database.exists()) return
+        val strays = SIDECARS.map { File(database.path + it) }.filter { it.exists() }
+        if (!database.exists() && strays.isEmpty()) return
         if (!dir.isDirectory && !dir.mkdirs()) throw IOException("can't create ${dir.name}")
-        for (suffix in listOf("", "-wal", "-shm", "-journal")) {
-            val from = File(database.path + suffix)
-            if (from.exists()) Files.move(from.toPath(), File(dir, name + suffix).toPath(), StandardCopyOption.REPLACE_EXISTING)
+        if (!database.exists()) {
+            for (stray in strays) move(stray, File(dir, "$name.orphan${stray.name.removePrefix(database.name)}"))
+            return
         }
+        // Side files of an interrupted earlier move: their database is still here, at [database].
+        for (suffix in SIDECARS) {
+            dir.listFiles { f -> f.name.endsWith(".db$suffix") && !File(dir, f.name.removeSuffix(suffix)).exists() }
+                ?.forEach { move(it, File(dir, name + suffix)) }
+        }
+        for (suffix in SIDECARS) {
+            val from = File(database.path + suffix)
+            if (from.exists()) move(from, File(dir, name + suffix))
+        }
+        move(database, File(dir, name))
         dir.listFiles { f -> f.name.endsWith(".db") }
             ?.sortedByDescending { it.lastModified() }
             ?.drop(keep)
-            ?.forEach { old -> listOf("", "-wal", "-shm", "-journal").forEach { File(old.path + it).delete() } }
+            ?.forEach { old -> (listOf("") + SIDECARS).forEach { File(old.path + it).delete() } }
+    }
+
+    /** True when a side file (write-ahead log, shared memory, journal) sits next to where [database] would be. */
+    fun hasSidecars(database: File): Boolean = SIDECARS.any { File(database.path + it).exists() }
+
+    private fun move(from: File, to: File) {
+        Files.move(from.toPath(), to.toPath(), StandardCopyOption.REPLACE_EXISTING)
     }
 }
 
@@ -86,6 +113,8 @@ internal object PendingRestore {
             db.parentFile?.mkdirs()
             // The library being replaced is kept (a safety backup was also written when staging).
             DatabaseOpener.keepAside(db, files.damagedDir, "replaced-$now.db")
+            // SQLite would read another database's write-ahead log as this one's.
+            if (db.exists() || DatabaseOpener.hasSidecars(db)) throw IOException("the replaced library wasn't fully moved aside")
             try {
                 Files.move(staged.toPath(), db.toPath(), StandardCopyOption.ATOMIC_MOVE)
             } catch (_: IOException) {

@@ -86,7 +86,10 @@ class OpmlParser(
             if (!root.equals("opml", ignoreCase = true)) {
                 return OpmlParseResult.Failure(ParseProblem.NotAFeed(FeedParser.safeName(root)))
             }
-            Reader(reader).read(prepared.repairs)
+            val result = Reader(reader).read(prepared.repairs)
+            // The reader checks the clock only every so many events; the budget must hold to the end.
+            deadline.check()
+            result
         } catch (e: XmlLimitException) {
             OpmlParseResult.Failure(e.problem)
         } catch (e: XmlPullParserException) {

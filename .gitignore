@@ -1,0 +1,23 @@
+# ~/.gitignore_global excludes CLAUDE.md and .claude/; this project tracks them.
+!.gitignore
+!CLAUDE.md
+!.claude/
+# Personal Claude Code overrides stay local.
+.claude/settings.local.json
+
+# Gradle and Android build output
+build/
+.gradle/
+.kotlin/
+local.properties
+
+# Signing keys never enter the repository (they live in ~/keystores/podplayer/)
+*.jks
+*.keystore
+*.p12
+signing.properties
+*BACKUP*.txt
+
+# IDE
+.idea/
+*.iml

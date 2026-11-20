@@ -1,0 +1,42 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew *)",
+      "Bash(git status *)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git switch *)",
+      "Bash(git checkout -b *)",
+      "Bash(git pull *)",
+      "Bash(git branch --show-current)",
+      "Bash(git push -u origin m*)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr view *)",
+      "Bash(gh pr list *)",
+      "Bash(gh pr checks *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh run list *)",
+      "Bash(gh run view *)",
+      "Bash(adb devices)",
+      "WebFetch(domain:developer.android.com)",
+      "WebFetch(domain:kotlinlang.org)",
+      "WebFetch(domain:docs.gradle.org)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:www.mozilla.org)",
+      "WebFetch(domain:square.github.io)",
+      "WebFetch(domain:coil-kt.github.io)",
+      "WebFetch(domain:jsoup.org)",
+      "WebFetch(domain:maven.google.com)",
+      "WebFetch(domain:central.sonatype.com)"
+    ],
+    "deny": [
+      "Bash(git push * main)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git push * --force)",
+      "Bash(git reset --hard *)"
+    ]
+  }
+}

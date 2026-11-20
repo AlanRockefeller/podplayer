@@ -40,11 +40,12 @@ Only libraries on the SPEC §2 allowlist. Versions are in `gradle/libs.versions.
 | Media3 test utilities (`media3-test-utils`, `media3-test-utils-robolectric`), with Truth, Mockito, ByteBuddy, Objenesis and the Media3 transformer, effect and muxer artifacts as their dependencies | `:playback` tests only: fake media sources, renderers and clock | Apache-2.0 (Mockito, Objenesis: MIT; ByteBuddy: Apache-2.0) |
 | Robolectric native graphics runtime (part of Robolectric's native runtime) | `:core:imagesandbox` tests: real platform image decoding and encoding on the JVM | MIT / Apache-2.0 |
 | JUnit 4 | tests | EPL-1.0 |
+| Jazzer (`jazzer-junit`, with `jazzer` and `jazzer-api`), on JUnit 5 (Jupiter engine and platform launcher) | `:core:feed` fuzz source set only: the fuzz targets, replayed by `check` and fuzzed in CI | Jazzer: Apache-2.0; JUnit 5: EPL-2.0 |
 | Gradle wrapper | build | Apache-2.0 |
 | Android Gradle Plugin, Kotlin Gradle Plugin | build | Apache-2.0 |
 
 Pinned in the catalog for later sessions, not used yet. Confirm each license when it is added:
-AndroidX Startup, Jazzer.
+AndroidX Startup.
 
 Prebuilt native libraries that ship inside AndroidX artifacts (not our own native code):
 `libandroidx.graphics.path.so` (Compose graphics) and `libdatastore_shared_counter.so` (DataStore),

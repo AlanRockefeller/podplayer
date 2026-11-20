@@ -127,6 +127,14 @@ object ForbiddenApis {
             extensions = code,
         ),
         ForbiddenApiRule(
+            id = "media3-ungated-http",
+            reason = "ExoPlayer fetches through OkHttpDataSource on the gated client in $NET. Media3's " +
+                "DefaultHttpDataSource uses HttpURLConnection, and DefaultDataSource and DefaultMediaSourceFactory " +
+                "fall back to it when built without a data source of ours.",
+            pattern = Regex("""\bDefaultHttpDataSource\b|\bDefaultDataSource(Factory)?\b|\bDefaultMediaSourceFactory\b"""),
+            extensions = code,
+        ),
+        ForbiddenApiRule(
             id = "other-network-apis",
             reason = "Only the gated client in $NET talks to the network: no DownloadManager, no platform " +
                 "MediaPlayer (it fetches by itself), and no sockets or java.net.URL connections of our own.",

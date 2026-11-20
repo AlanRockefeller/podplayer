@@ -10,7 +10,7 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
-import java.time.format.DateTimeParseException
+import java.time.DateTimeException
 import kotlinx.serialization.SerializationException
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
@@ -123,7 +123,11 @@ object ImportFile {
             } else {
                 runCatching { Instant.parse(value) }.getOrNull()?.toEpochMilli() ?: OffsetDateTime.parse(value).toInstant().toEpochMilli()
             }
-        } catch (_: DateTimeParseException) {
+        } catch (_: DateTimeException) {
+            // Includes DateTimeParseException.
+            null
+        } catch (_: ArithmeticException) {
+            // A valid date too far from 1970 for epoch milliseconds (+999999999-12-31T23:59:59Z).
             null
         }
     }

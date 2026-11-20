@@ -115,10 +115,12 @@ object ImportLines {
  * Spaces requests at least [intervalMs] apart (Apple's search allows about 20 a minute). [slowDown] doubles the
  * interval after Apple says "too many", up to [MAX_INTERVAL_MS]; [relax] halves it again after a success, never
  * below where it started. Its clock ([now], [waitUntil]) is the importer's only clock, so tests run on fake time.
+ * The clock is monotonic (ms): the wall clock can jump when the phone's time is set, and an hour back would turn
+ * a 3 s wait or a retry deadline into an hour's.
  */
 class Pacer(
     private var intervalMs: Long = DEFAULT_INTERVAL_MS,
-    private val clock: () -> Long = System::currentTimeMillis,
+    private val clock: () -> Long = { System.nanoTime() / 1_000_000 },
     private val sleep: suspend (Long) -> Unit = { delay(it) },
 ) {
     private val startMs = intervalMs

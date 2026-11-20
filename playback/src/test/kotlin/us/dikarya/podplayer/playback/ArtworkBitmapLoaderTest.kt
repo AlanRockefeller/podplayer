@@ -112,4 +112,13 @@ class ArtworkBitmapLoaderTest {
         val future = ArtworkBitmapLoader(gone, scope).loadBitmap(ours)
         assertThrows(ExecutionException::class.java) { future.get(5, TimeUnit.SECONDS) }
     }
+
+    @Test
+    fun aLoadOnAScopeThatEndedCompletesInsteadOfLeavingMedia3Waiting() {
+        val ended = CoroutineScope(SupervisorJob() + Dispatchers.Default).apply { cancel() }
+        val future = ArtworkBitmapLoader(source, ended).loadBitmap(ours)
+        // Never started, so it must end cancelled rather than stay pending forever (a TimeoutException).
+        assertThrows(java.util.concurrent.CancellationException::class.java) { future.get(5, TimeUnit.SECONDS) }
+        assertTrue(loaded.isEmpty())
+    }
 }

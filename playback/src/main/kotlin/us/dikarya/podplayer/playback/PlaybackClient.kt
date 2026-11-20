@@ -19,6 +19,7 @@ import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionCommand
 import androidx.media3.session.SessionToken
+import com.google.common.util.concurrent.ListenableFuture
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -95,9 +96,16 @@ class PlaybackClient(context: Context) : PlaybackControls {
     private val mutable = MutableStateFlow(PlaybackUiState())
     override val state: StateFlow<PlaybackUiState> = mutable.asStateFlow()
 
+    /** The connection being made, so [release] can end it before it completes. */
+    private var connection: ListenableFuture<MediaController>? = null
+
+    /** Counts connection attempts; a completion for an older one (released meanwhile) is dropped. */
+    private var attempt = 0
+
     override fun connect() {
         if (controller != null || connecting) return
         connecting = true
+        val mine = ++attempt
         val token = SessionToken(appContext, ComponentName(appContext, PlaybackService::class.java))
         val future = MediaController.Builder(appContext, token)
             .setConnectionHints(Bundle().apply { putBoolean(HINT_OWN_UI, true) })
@@ -105,14 +113,22 @@ class PlaybackClient(context: Context) : PlaybackControls {
                 override fun onExtrasChanged(controller: MediaController, extras: Bundle) = refresh()
 
                 override fun onDisconnected(controller: MediaController) {
+                    // Only the controller in use: an old one's late notice must not drop a newer connection.
+                    if (this@PlaybackClient.controller !== controller) return
                     this@PlaybackClient.controller = null
+                    // The poll stops here, so a reconnect starts exactly one.
+                    main.removeCallbacks(poll)
                     mutable.value = PlaybackUiState()
                 }
             })
             .buildAsync()
+        connection = future
         future.addListener(
             {
+                // Released (or superseded) meanwhile: release() already let go of this connection.
+                if (mine != attempt) return@addListener
                 connecting = false
+                connection = null
                 val connected = runCatching { future.get() }.getOrNull()
                 val waiting = pending
                 pending = null
@@ -122,6 +138,7 @@ class PlaybackClient(context: Context) : PlaybackControls {
                 })
                 controller = connected
                 refresh()
+                main.removeCallbacks(poll)
                 main.post(poll)
                 waiting?.invoke()
             },
@@ -130,6 +147,10 @@ class PlaybackClient(context: Context) : PlaybackControls {
     }
 
     fun release() {
+        attempt++
+        connecting = false
+        connection?.let(MediaController::releaseFuture)
+        connection = null
         main.removeCallbacks(poll)
         controller?.release()
         controller = null

@@ -71,9 +71,12 @@ class QueueViewModelTest {
         order(vm, listOf(b, a, c, d))
         vm.moveUp(d)
         order(vm, listOf(b, a, d, c))
+        // At either end nothing moves. Writes run in order, so once the next move shows, both have been applied
+        // (CodeRabbit review, PR 2: waiting for an order that was already shown proved nothing).
         vm.moveUp(b)
         vm.moveDown(c)
-        order(vm, listOf(b, a, d, c))
+        vm.moveDown(a)
+        order(vm, listOf(b, d, a, c))
     }
 
     @Test

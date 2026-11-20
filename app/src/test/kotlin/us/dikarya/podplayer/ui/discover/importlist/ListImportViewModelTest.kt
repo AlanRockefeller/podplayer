@@ -151,7 +151,8 @@ class ListImportViewModelTest {
         val times = askedAt("Busy")
         assertEquals("the first try and three retries", 4, times.size)
         val gaps = times.zipWithNext { a, b -> b - a }
-        ListImportViewModel.RETRY_WAITS_MS.zip(gaps).forEach { (wait, gap) -> assertTrue("waited $gap for $wait", gap >= wait) }
+        // The spec's waits, not the code's constant, so shortening the constant fails here (CodeRabbit review, PR 2).
+        listOf(10_000L, 30_000L, 90_000L).zip(gaps).forEach { (wait, gap) -> assertTrue("waited $gap for $wait", gap >= wait) }
         assertNull("it gave up: no retry is pending", rows[1].retryAt)
         assertEquals("a search that wasn't throttled isn't retried", 1, askedAt("Nothing Like It").size)
 

@@ -10,6 +10,9 @@ import android.app.Application
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -22,6 +25,8 @@ import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -60,30 +65,47 @@ class ShowLayoutUiTest {
     @After
     fun tearDown() = env.close()
 
+    // Each case in a window of its own width: Robolectric's default window is 320 dp, which clamped the wider cases.
     @Test
+    @Config(qualifiers = "w320dp-h640dp")
     fun unsubscribeFitsOnOneLineAt320Dp() = check(320)
 
     @Test
+    @Config(qualifiers = "w360dp-h640dp")
     fun unsubscribeFitsOnOneLineAt360DpTheOwnersPhone() = check(360)
 
     @Test
+    @Config(qualifiers = "w412dp-h915dp")
     fun unsubscribeFitsOnOneLineAt412Dp() = check(412)
 
     private fun check(width: Int) {
         val vm = ShowViewModel(env.deps, env.show("Alpha"))
         compose.setContent {
             PodplayerTheme(DarkTokens) {
-                Box(Modifier.width(width.dp)) { ShowScreen(vm, onOpenEpisode = {}, onGone = {}) }
+                Box(Modifier.width(width.dp).testTag(TAG_HOST)) { ShowScreen(vm, onOpenEpisode = {}, onGone = {}) }
             }
         }
         val label = context.getString(R.string.action_unsubscribe)
         compose.waitUntil(TIMEOUT) { compose.onAllNodesWithText(label).fetchSemanticsNodes().isNotEmpty() }
+        // CodeRabbit review (PR 2): a window narrower than [width] lays the screen out at the window's width instead.
+        assertEquals("the screen is laid out $width dp wide", width.dp, compose.onNodeWithTag(TAG_HOST).getBoundsInRoot().let { it.right - it.left })
         // The label itself, not the button around it (a button is at least 48 dp tall for touch).
-        val bounds = compose.onNodeWithText(label, useUnmergedTree = true).getBoundsInRoot()
+        val node = compose.onNodeWithText(label, useUnmergedTree = true)
+        val bounds = node.getBoundsInRoot()
         val height = bounds.bottom - bounds.top
         val textWidth = bounds.right - bounds.left
         // Squeezed, the label was one letter wide (and so many lines tall). "Unsubscribe" needs about 80 dp.
         assertTrue("at $width dp the label is only $textWidth wide and $height tall", textWidth > 70.dp)
+        // Wide enough can still wrap: one line, nothing cut off (CodeRabbit review, PR 2).
+        val layout = mutableListOf<TextLayoutResult>().also { results ->
+            node.fetchSemanticsNode().config[SemanticsActions.GetTextLayoutResult].action!!.invoke(results)
+        }.single()
+        assertEquals("at $width dp the label's lines", 1, layout.lineCount)
+        assertFalse("at $width dp the label is cut short", layout.multiParagraph.didExceedMaxLines || layout.isLineEllipsized(0))
+        // Measured directly, as in AccessibilityAuditUiTest: didOverflowWidth is also true for a short line laid out in
+        // a wider paragraph.
+        val line = layout.getLineRight(0) - layout.getLineLeft(0)
+        assertTrue("at $width dp the label's line is $line px in a ${layout.size.width} px box", line <= layout.size.width + 1)
 
         // M1-S9b: the "Download new episodes" row fits the width, is a full touch target, and its title isn't squeezed.
         val row = compose.onNodeWithTag(TAG_SHOW_AUTO_DOWNLOAD).getBoundsInRoot()
@@ -98,5 +120,6 @@ class ShowLayoutUiTest {
 
     private companion object {
         const val TIMEOUT = 5_000L
+        const val TAG_HOST = "show-layout-host"
     }
 }

@@ -23,6 +23,11 @@ import org.junit.rules.TemporaryFolder
 import org.junit.runner.RunWith
 import org.robolectric.annotation.Config
 import us.dikarya.podplayer.core.data.repo.StarChange
+import us.dikarya.podplayer.core.data.repo.SubscribeResult
+import us.dikarya.podplayer.core.feed.FeedFormat
+import us.dikarya.podplayer.core.feed.ParsedEnclosure
+import us.dikarya.podplayer.core.feed.ParsedEpisode
+import us.dikarya.podplayer.core.feed.ParsedFeed
 import us.dikarya.podplayer.ui.browse.BrowseTestEnv
 import us.dikarya.podplayer.ui.browse.EpisodeItem
 import us.dikarya.podplayer.ui.browse.awaitState
@@ -97,11 +102,31 @@ class StarredViewModelTest {
     fun shareTextListsWhatIsShownWithoutEnclosureUrls() = runBlocking {
         val alpha = env.show("Alpha", episodes = 1)
         env.repos.starred.setStarred(env.episodeIds(alpha).single(), true)
+        // Item links from the feed: one is the enclosure itself (left out), one a page (kept). CodeRabbit review
+        // (PR 2): without links, keeping every link and dropping every link both passed.
+        val linked = (env.repos.feeds.subscribe("https://linked.example.com/feed.xml", ownerTyped = false) as SubscribeResult.Subscribed).feedId
+        val enclosure = "https://cdn.example.com/linked/1.mp3?token=SECRET"
+        env.repos.feeds.applyRefresh(
+            linked,
+            ParsedFeed(
+                FeedFormat.Rss, title = "Linked", author = null, description = null,
+                episodes = listOf(
+                    ParsedEpisode(guid = "l1", title = "Enclosure link", publishedAt = 2L, enclosure = ParsedEnclosure(enclosure, "audio/mpeg", 1), link = enclosure),
+                    ParsedEpisode(
+                        guid = "l2", title = "Page link", publishedAt = 1L,
+                        enclosure = ParsedEnclosure("https://cdn.example.com/linked/2.mp3", "audio/mpeg", 1), link = "https://linked.example.com/episodes/2",
+                    ),
+                ),
+            ),
+        )
+        env.episodeIds(linked).forEach { env.repos.starred.setStarred(it, true) }
         val vm = StarredViewModel(env.deps)
-        awaitState(vm.state) { it.items.size == 1 }
+        awaitState(vm.state) { it.items.size == 3 }
         val text = vm.shareText(heading = "Starred episodes", untitled = "Untitled")
         assertTrue(text, "Alpha 1 — Alpha" in text)
+        assertTrue(text, "Enclosure link — Linked" in text)
         assertFalse(text, "cdn.example.com" in text)
+        assertTrue("a page link is kept: $text", "https://linked.example.com/episodes/2" in text)
     }
 
     @Test

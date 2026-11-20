@@ -199,8 +199,13 @@ class BrowseTestEnv(root: File) {
         val done = CountDownLatch(1)
         thread(name = "close-test-env") {
             try {
-                runBlocking { data.close() }
-                scope.cancel()
+                try {
+                    runBlocking { data.close() }
+                } finally {
+                    scope.cancel()
+                    // Last, once nothing writes to it: data.close() only flushes it, and each open log keeps a thread.
+                    log.close()
+                }
             } finally {
                 done.countDown()
             }

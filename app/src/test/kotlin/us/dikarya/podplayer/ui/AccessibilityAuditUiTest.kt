@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
@@ -33,9 +34,7 @@ import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onRoot
-import androidx.compose.ui.test.performTouchInput
-import androidx.compose.ui.test.swipeDown
-import androidx.compose.ui.test.swipeUp
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Density
@@ -188,6 +187,25 @@ class AccessibilityAuditUiTest {
         }
     }
 
+    /**
+     * CodeRabbit review (PR 2): with fixed controls above a long list of text, a swipe changes no control, and the
+     * audit stopped after the second screenful. It scrolls on until no scroll position moves.
+     */
+    @Test
+    fun theAuditScrollsPastTextBelowFixedControls() {
+        val problems = collect(withLibrary = false) {
+            Column {
+                Button(onClick = {}) { Text("Fixed") }
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.fillMaxWidth()) {
+                    items(DEEP_LINES) { line ->
+                        if (line == DEEP_LINE) Box(Modifier.height(12.dp)) { Text("Deep clipped words") } else Text("Line $line")
+                    }
+                }
+            }
+        }.joinToString("\n")
+        assertTrue("expected the clipped text far down in:\n$problems", "\"Deep clipped words\" is clipped" in problems)
+    }
+
     @Composable
     private fun <T> remember(make: () -> T): T = androidx.compose.runtime.remember(make)
 
@@ -216,21 +234,56 @@ class AccessibilityAuditUiTest {
             var previous: List<String>? = null
             for (step in 0 until MAX_SCROLLS) {
                 problems += check(scale)
-                val seen = compose.onAllNodesClickable().map { it.label() + it.boundsInRoot.top.toInt() }
+                // Done when a scroll moved nothing: no control and no scroll position (fixed controls above a list
+                // of plain text stay put while the text scrolls).
+                val seen = compose.onAllNodesClickable().map { it.label() + it.boundsInRoot.top.toInt() } + scrollPositions()
                 if (seen == previous) break
                 previous = seen
-                compose.onRoot().performTouchInput { swipeUp() }
-                compose.waitForIdle()
+                scrollDownAScreenful()
             }
-            // Back to the top for the next scale.
-            repeat(MAX_SCROLLS) { compose.onRoot().performTouchInput { swipeDown() } }
-            compose.waitForIdle()
+            backToTheTop()
         }
         return problems.toList()
     }
 
     private fun androidx.compose.ui.test.junit4.ComposeContentTestRule.onAllNodesClickable(): List<SemanticsNode> =
         onAllNodes(hasClickAction()).fetchSemanticsNodes(atLeastOneRootRequired = false)
+
+    private val verticalScrollers = androidx.compose.ui.test.SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)
+
+    private fun scrollPositions(): List<String> =
+        compose.onAllNodes(verticalScrollers, useUnmergedTree = true).fetchSemanticsNodes(atLeastOneRootRequired = false)
+            .map { "scroll ${it.id} at ${it.config[SemanticsProperties.VerticalScrollAxisRange].value()}" }
+
+    /**
+     * Each vertical scroller moves down most of its own height, so the next check overlaps this one. Not a swipe:
+     * a swipe flings, and one fling went past several screenfuls nobody checked (CodeRabbit review, PR 2).
+     */
+    private fun scrollDownAScreenful() {
+        val scrollers = compose.onAllNodes(verticalScrollers, useUnmergedTree = true)
+        scrollers.fetchSemanticsNodes(atLeastOneRootRequired = false).forEachIndexed { index, node ->
+            val by = node.boundsInRoot.height * SCREENFUL
+            if (by > 0 && node.config.contains(SemanticsActions.ScrollBy)) {
+                scrollers[index].performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, by) }
+            }
+        }
+        compose.waitForIdle()
+    }
+
+    /** Every vertical scroller back to its start, for the next font scale. */
+    private fun backToTheTop() {
+        val scrollers = compose.onAllNodes(verticalScrollers, useUnmergedTree = true)
+        scrollers.fetchSemanticsNodes(atLeastOneRootRequired = false).forEachIndexed { index, node ->
+            when {
+                node.config.contains(SemanticsActions.ScrollToIndex) -> scrollers[index].performSemanticsAction(SemanticsActions.ScrollToIndex) { it(0) }
+                node.config.contains(SemanticsActions.ScrollBy) -> {
+                    val at = node.config[SemanticsProperties.VerticalScrollAxisRange].value()
+                    if (at > 0) scrollers[index].performSemanticsAction(SemanticsActions.ScrollBy) { it(0f, -at) }
+                }
+            }
+        }
+        compose.waitForIdle()
+    }
 
     private fun SemanticsNode.label(): String {
         val description = config.getOrNull(SemanticsProperties.ContentDescription)?.joinToString(" ")
@@ -325,8 +378,15 @@ class AccessibilityAuditUiTest {
     private fun dp(px: Float, root: SemanticsNode) = (px / root.layoutInfo.density.density).toInt()
 
     private companion object {
-        const val MAX_SCROLLS = 6
+        const val MAX_SCROLLS = 30
         const val SETTLE_MS = 300L
+
+        /** How much of its height a scroller moves between checks: the rest overlaps, so nothing falls between. */
+        const val SCREENFUL = 0.8f
+
+        /** The self-test's long list of text, with clipped text a few screens down. */
+        const val DEEP_LINES = 120
+        const val DEEP_LINE = 70
 
         /** Cut-short text gets at least this many times its font size in width (about six or seven characters). */
         const val MIN_EMS = 4

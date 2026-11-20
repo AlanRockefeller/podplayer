@@ -66,7 +66,8 @@ class DebugSourceSetAbsentTest {
             val type = typeDir.name.substringBefore('-')
             typeDir.listFiles().orEmpty().forEach { file ->
                 if (type == "values") {
-                    VALUE.findAll(file.readText()).forEach { declared += it.groupValues[1].replace("-array", "") to it.groupValues[2] }
+                    // Every kind of array is R.array (CodeRabbit review, PR 2: string-array was looked for in R.string).
+                    VALUE.findAll(file.readText()).forEach { declared += it.groupValues[1].let { t -> if (t.endsWith("array")) "array" else t } to it.groupValues[2] }
                 } else {
                     declared += type to file.name.substringBefore('.')
                 }

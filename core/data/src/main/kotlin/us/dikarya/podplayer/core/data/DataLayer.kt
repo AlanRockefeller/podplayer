@@ -176,6 +176,8 @@ class DataLayer(
     private suspend fun open() {
         val f = files
         val applied = try {
+            // A move aside (Start fresh, a restore) that stopped part-way gets the library's side files back first.
+            DatabaseOpener.undoInterruptedMove(f.databaseFile, f.damagedDir)
             PendingRestore.apply(f, clock())
         } catch (e: Exception) {
             // Stop here: the library may already have been moved aside, and opening now could start an empty one

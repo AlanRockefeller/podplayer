@@ -149,7 +149,7 @@ class BackupManager internal constructor(
      * changes unless the backup is good and a safety backup of the current library was written first.
      */
     private suspend fun stageWith(readInto: (File) -> BackupArchive.ReadResult): StageResult = withContext(io) {
-        val db = database()
+        database() // Waits out Opening here, outside the mutex; looked up again below for the safety backup.
         mutex.withLock {
             val f = files()
             clearStaging(f)
@@ -170,8 +170,11 @@ class BackupManager internal constructor(
                     is BackupArchive.ReadResult.Ok -> read
                 }
                 validate(incoming, ok.manifest, ok.settingsJson)?.let { return@withLock refuse(f, it) }
-                if (db != null) {
-                    val safety = backupLocked(db, "before-restore")
+                // Looked up again: Start fresh may have opened a library while the backup was read. This can't wait
+                // under the mutex: the state already left Opening above and never returns to it.
+                val current = database()
+                if (current != null) {
+                    val safety = backupLocked(current, "before-restore")
                     if (!safety.appStorage) return@withLock refuse(f, RestoreProblem.SafetyBackupFailed)
                 }
                 Files.move(incoming.toPath(), f.stagedDatabase.toPath(), StandardCopyOption.REPLACE_EXISTING)

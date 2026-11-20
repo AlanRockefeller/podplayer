@@ -24,6 +24,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -271,8 +272,9 @@ class DatabaseOpenerTest {
         val dir = File(tmp.root, "aside")
         val db = File(tmp.root, "lib.db").apply { writeText("main") }
         File(db.path + "-shm").writeText("shm")
-        // An earlier call moved the log and then the process died.
+        // An earlier call marked its move, moved the log, and then the process died.
         dir.mkdirs()
+        File(dir, "replaced-1.db.moving").createNewFile()
         File(dir, "replaced-1.db-wal").writeText("wal")
 
         DatabaseOpener.keepAside(db, dir, "replaced-2.db")
@@ -282,6 +284,49 @@ class DatabaseOpenerTest {
         assertEquals("wal", File(dir, "replaced-2.db-wal").readText())
         assertEquals("shm", File(dir, "replaced-2.db-shm").readText())
         assertFalse(File(dir, "replaced-1.db-wal").exists())
+        assertTrue("no marker is left", dir.list()!!.none { it.endsWith(".moving") })
+    }
+
+    @Test
+    fun sideFilesLeftByPruningAreNeverTakenForTheLibrarysOwn() {
+        // CodeRabbit CLI review (PR #12): any "x.db-wal" without its "x.db" was adopted, including an old copy's log
+        // left by an interrupted prune.
+        val dir = File(tmp.root, "aside").apply { mkdirs() }
+        File(dir, "damaged-1.db-wal").writeText("someone else's log")
+        val db = File(tmp.root, "lib.db").apply { writeText("main") }
+        DatabaseOpener.keepAside(db, dir, "damaged-2.db")
+        assertEquals("main", File(dir, "damaged-2.db").readText())
+        assertFalse(File(dir, "damaged-2.db-wal").exists())
+        assertEquals("someone else's log", File(dir, "damaged-1.db-wal").readText())
+    }
+
+    @Test
+    fun aDatabaseThatCantBeMovedKeepsItsSideFiles() {
+        // CodeRabbit CLI review (PR #12): when the database move failed after its log had moved, Start fresh failed
+        // but the next start opened the database without its log.
+        val dir = File(tmp.root, "aside").apply { mkdirs() }
+        File(dir, "damaged-2.db").mkdirs()
+        File(dir, "damaged-2.db/blocker").writeText("a non-empty folder where the copy should go")
+        val db = File(tmp.root, "lib.db").apply { writeText("main") }
+        File(db.path + "-wal").writeText("wal")
+        assertTrue(runCatching { DatabaseOpener.keepAside(db, dir, "damaged-2.db") }.isFailure)
+        assertEquals("main", db.readText())
+        assertEquals("the log was put back", "wal", File(db.path + "-wal").readText())
+        assertTrue(dir.list()!!.none { it.endsWith(".moving") })
+    }
+
+    @Test
+    fun theNextStartPutsBackTheLogOfAMoveThatStoppedPartWay() = runBlocking {
+        libraryWithABackup()
+        val dir = layers.files.damagedDir.apply { mkdirs() }
+        // A Start fresh that died after moving the log (a stand-in log: SQLite ignores one with a bad header).
+        File(dir, "damaged-5.db.moving").createNewFile()
+        File(dir, "damaged-5.db-wal").writeBytes(ByteArray(32) { 3 })
+        val layer = layers.open()
+        assertEquals(1, layer.awaitRepositories()!!.feeds.feeds().first().size)
+        assertFalse(File(dir, "damaged-5.db-wal").exists())
+        assertTrue(dir.list()!!.none { it.endsWith(".moving") })
+        layer.close()
     }
 
     @Test
@@ -315,6 +360,8 @@ class DatabaseOpenerTest {
         val settingsDir = layers.files.settingsFile.parentFile!!
         assertTrue(settingsDir.setWritable(false))
         try {
+            // Root ignores folder permissions; there the write can't be made to fail this way, so skip.
+            assumeFalse("running with root privileges", settingsDir.canWrite())
             val next = layers.open()
             assertEquals(DataState.Failed(OpenProblem.CouldNotOpen), next.state.first { it !is DataState.Opening })
             // SQLite removes the write-ahead log when the last connection closes.
@@ -324,6 +371,27 @@ class DatabaseOpenerTest {
             settingsDir.setWritable(true)
         }
         assertTrue("the restore is still pending", layers.files.pendingRestoreMarker.exists())
+    }
+
+    @Test
+    fun aLibraryStartedFreshWhileARestoreIsReadIsBackedUpBeforeItIsReplaced() = runBlocking {
+        // CodeRabbit CLI review (PR #12): the safety-backup decision used the state from before the (possibly long)
+        // read, so a library opened by Start fresh meanwhile was staged over without a backup.
+        libraryWithABackup()
+        val backup = layers.files.localBackupsDir.listFiles()!!.single().readBytes()
+        damage(dbFile)
+        val layer = layers.open()
+        assertTrue(layer.state.first { it !is DataState.Opening } is DataState.Damaged)
+        val result = layer.restore {
+            runBlocking {
+                assertTrue(layer.startFresh())
+                layer.awaitRepositories()!!.feeds.subscribe("https://added-meanwhile.example.com/feed", false)
+            }
+            backup.inputStream()
+        }
+        assertTrue(result is StageResult.Staged)
+        assertTrue(layers.files.localBackupsDir.list()!!.any { it.contains("before-restore") })
+        layer.close()
     }
 
     @Test

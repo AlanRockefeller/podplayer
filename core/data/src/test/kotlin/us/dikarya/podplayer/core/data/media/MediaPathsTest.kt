@@ -11,6 +11,7 @@ import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeFalse
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -73,6 +74,8 @@ class MediaPathsTest {
         File(locked, "3.mp3").writeText("audio")
         assertTrue(locked.setReadable(false))
         try {
+            // Root ignores folder permissions; there the walk can't be made to fail this way, so skip.
+            assumeFalse("running with root privileges", locked.canRead())
             assertEquals(emptyList<File>(), paths.mediaFiles())
         } finally {
             locked.setReadable(true)

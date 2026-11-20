@@ -143,7 +143,11 @@ class PlaybackEngineTest {
         assertEquals(listOf(3L, 2L), h.itemIds())
         assertTrue("saved at ${h.store.positions[1]}", (h.store.positions[1] ?: 0) >= 5_000)
         assertFalse(1L in h.store.played)
-        // Picking it up again resumes it. Episode 3 was only loaded, never listened to (still at 0), so it stays.
+        // Picking it up again resumes it. Episode 3 is put back at 0, as if only loaded and never listened to, so it
+        // stays. (The test clock advances on its own, so without this 3 could have played a few ms; CI flake.)
+        h.player.pause()
+        h.player.seekTo(0)
+        idle()
         h.engine.playEpisode(1)
         idle()
         assertTrue("at ${h.player.currentPosition}", h.player.currentPosition >= 5_000)
